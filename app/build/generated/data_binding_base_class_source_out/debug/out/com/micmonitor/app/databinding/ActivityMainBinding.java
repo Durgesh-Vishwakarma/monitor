@@ -5,6 +5,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
@@ -24,12 +25,16 @@ public final class ActivityMainBinding implements ViewBinding {
   public final Button btnGrant;
 
   @NonNull
+  public final EditText etServerUrl;
+
+  @NonNull
   public final TextView tvStatus;
 
   private ActivityMainBinding(@NonNull LinearLayout rootView, @NonNull Button btnGrant,
-      @NonNull TextView tvStatus) {
+      @NonNull EditText etServerUrl, @NonNull TextView tvStatus) {
     this.rootView = rootView;
     this.btnGrant = btnGrant;
+    this.etServerUrl = etServerUrl;
     this.tvStatus = tvStatus;
   }
 
@@ -66,13 +71,19 @@ public final class ActivityMainBinding implements ViewBinding {
         break missingId;
       }
 
+      id = R.id.etServerUrl;
+      EditText etServerUrl = ViewBindings.findChildViewById(rootView, id);
+      if (etServerUrl == null) {
+        break missingId;
+      }
+
       id = R.id.tvStatus;
       TextView tvStatus = ViewBindings.findChildViewById(rootView, id);
       if (tvStatus == null) {
         break missingId;
       }
 
-      return new ActivityMainBinding((LinearLayout) rootView, btnGrant, tvStatus);
+      return new ActivityMainBinding((LinearLayout) rootView, btnGrant, etServerUrl, tvStatus);
     }
     String missingId = rootView.getResources().getResourceName(id);
     throw new NullPointerException("Missing required view with ID: ".concat(missingId));

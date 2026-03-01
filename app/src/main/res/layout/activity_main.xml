@@ -50,7 +50,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Server URL (ws:// for LAN, wss:// for Render)"
+        android:text="hello"
         android:textColor="#616161"
         android:textSize="13sp"
         android:layout_marginBottom="6dp" />
@@ -60,7 +60,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="24dp"
-        android:hint="wss://your-app.onrender.com/audio/"
+        android:hint="hello"
         android:inputType="textUri"
         android:textSize="13sp"
         android:padding="12dp"
@@ -72,7 +72,7 @@
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:backgroundTint="#2196F3"
-        android:text="Grant Permission &amp; Start"
+        android:text="&amp;"
         android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:textStyle="bold" />

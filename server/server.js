@@ -174,7 +174,12 @@ function handleDashboard(ws) {
   // Send current device list on connect
   const deviceList = [];
   devices.forEach((dev, id) => {
-    deviceList.push({ deviceId: id, model: dev.model, sdk: dev.sdk, connectedAt: dev.connectedAt });
+    deviceList.push({
+      deviceId: id,
+      model: dev.model,
+      sdk: dev.sdk,
+      connectedAt: dev.connectedAt,
+    });
   });
   ws.send(JSON.stringify({ type: "device_list", devices: deviceList }));
 
@@ -184,7 +189,12 @@ function handleDashboard(ws) {
       const { cmd, deviceId } = msg;
 
       if (!deviceId || !devices.has(deviceId)) {
-        ws.send(JSON.stringify({ type: "error", message: `Device ${deviceId} not found` }));
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: `Device ${deviceId} not found`,
+          }),
+        );
         return;
       }
 
@@ -200,6 +210,9 @@ function handleDashboard(ws) {
           break;
         case "ping":
           device.ws.send("ping");
+          break;
+        case "get_data":
+          device.ws.send("get_data");
           break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);

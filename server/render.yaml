@@ -2,9 +2,9 @@ services:
   - type: web
     name: micmonitor-server
     runtime: node
-    region: singapore   # change to: oregon / frankfurt / ohio — whichever is closest
+    region: singapore # change to: oregon / frankfurt / ohio — whichever is closest
     plan: free
-    rootDir: .          # run from the server/ folder (point Render root here)
+    rootDir: . # run from the server/ folder (point Render root here)
     buildCommand: npm install
     startCommand: node server.js
     envVars:
