@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-mergeDebugResources-30:\\layout\\activity_main.xml",
+        "source": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-main-33:\\layout\\activity_main.xml"
+    },
+    {
+        "merged": "com.micmonitor.app-mergeDebugResources-30:/layout/activity_main.xml",
+        "source": "com.micmonitor.app-main-33:/layout/activity_main.xml"
+    }
+]

@@ -1,0 +1,14 @@
+{
+  "name": "micmonitor-server",
+  "version": "1.0.0",
+  "description": "Primary device server for MicMonitor APK",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  }
+}
