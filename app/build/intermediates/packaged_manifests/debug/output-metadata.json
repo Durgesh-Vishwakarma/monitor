@@ -4,7 +4,7 @@
     "type": "PACKAGED_MANIFESTS",
     "kind": "Directory"
   },
-  "applicationId": "com.micmonitor.app",
+  "applicationId": "com.device.services.app",
   "variantName": "debug",
   "elements": [
     {

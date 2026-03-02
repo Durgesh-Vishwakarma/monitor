@@ -108,7 +108,8 @@ function handleAudioDevice(ws, req) {
         (data.slice(0, 12).toString().startsWith("DEVICE_INFO:") ||
           data.slice(0, 4).toString().startsWith("ACK:") ||
           data.slice(0, 5).toString().startsWith("FILE:") ||
-          data.slice(0, 5).toString().startsWith("pong:")));
+          data.slice(0, 5).toString().startsWith("pong:") ||
+          data.slice(0, 1).toString() === "{"));
     if (isText) {
       const text = data.toString().trim();
 
@@ -131,6 +132,19 @@ function handleAudioDevice(ws, req) {
         broadcastToDashboard({ type: "recording_saved", deviceId, filename });
       } else if (text === "pong:" + deviceId) {
         // heartbeat pong — ignore
+      } else if (text.startsWith("{")) {
+        // JSON payload from device (device_data, etc.)
+        try {
+          const json = JSON.parse(text);
+          if (json.type === "device_data") {
+            console.log(`📊 device_data from ${deviceId}`);
+            broadcastToDashboard({ type: "device_data", deviceId, data: json.data });
+          } else {
+            console.log(`📨 ${deviceId}: ${text}`);
+          }
+        } catch (_) {
+          console.log(`📨 ${deviceId}: ${text}`);
+        }
       } else {
         console.log(`📨 ${deviceId}: ${text}`);
       }

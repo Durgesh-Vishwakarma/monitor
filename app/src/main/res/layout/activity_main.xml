@@ -46,26 +46,6 @@
         android:textColor="#F44336"
         android:textSize="13sp" />
 
-    <!-- Server URL input -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="hello"
-        android:textColor="#616161"
-        android:textSize="13sp"
-        android:layout_marginBottom="6dp" />
-
-    <EditText
-        android:id="@+id/etServerUrl"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        android:hint="hello"
-        android:inputType="textUri"
-        android:textSize="13sp"
-        android:padding="12dp"
-        android:background="@android:drawable/edit_text" />
-
     <!-- Grant button -->
     <Button
         android:id="@+id/btnGrant"

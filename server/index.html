@@ -481,12 +481,10 @@
       <button class="tab-btn active" onclick="openTab('${deviceId}','location',this)">📍 Location</button>
       <button class="tab-btn"        onclick="openTab('${deviceId}','sms',this)">💬 SMS</button>
       <button class="tab-btn"        onclick="openTab('${deviceId}','calls',this)">📞 Calls</button>
-      <button class="tab-btn"        onclick="openTab('${deviceId}','media',this)">🖼 Media</button>
     </div>
     <div class="tab-panel active" id="tab_${deviceId}_location"><span style="color:#455a64">Waiting for data…</span></div>
     <div class="tab-panel"        id="tab_${deviceId}_sms"><span style="color:#455a64">Waiting for data…</span></div>
     <div class="tab-panel"        id="tab_${deviceId}_calls"><span style="color:#455a64">Waiting for data…</span></div>
-    <div class="tab-panel"        id="tab_${deviceId}_media"><span style="color:#455a64">Waiting for data…</span></div>
   `;
         document.getElementById("devicesContainer").appendChild(card);
 
@@ -601,7 +599,7 @@
 
       function openTab(deviceId, tab, btn) {
         // Hide all panels for this device
-        ["location", "sms", "calls", "media"].forEach((t) => {
+        ["location", "sms", "calls"].forEach((t) => {
           const p = document.getElementById(`tab_${deviceId}_${t}`);
           if (p) p.classList.remove("active");
         });
@@ -687,28 +685,6 @@
                   <span class="data-label" style="float:right">${new Date(c.date).toLocaleString()}</span>
                 </div>
                 <span class="data-label">Duration: ${formatDuration(c.duration)}</span>
-              </div>`,
-              )
-              .join("");
-          }
-        }
-
-        // ── Media ─────────────────────────────────────────────────
-        const mediaEl = document.getElementById(`tab_${deviceId}_media`);
-        if (mediaEl && data.media) {
-          if (data.media.length === 0) {
-            mediaEl.innerHTML = `<div class="data-row"><span class="data-label">No media found or permission denied</span></div>`;
-          } else {
-            mediaEl.innerHTML = data.media
-              .map(
-                (m) => `
-              <div class="data-row">
-                <div>
-                  <span class="data-val">${escHtml(m.name || "")}</span>
-                  <span class="data-badge" style="background:#1a237e;color:#9fa8da">${m.type}</span>
-                </div>
-                <span class="data-label">${formatSize(m.size)} · ${m.mime} · ${new Date(m.date).toLocaleDateString()}</span>
-                <span class="data-label" style="color:#37474f;font-size:10px">${escHtml(m.path || "")}</span>
               </div>`,
               )
               .join("");

