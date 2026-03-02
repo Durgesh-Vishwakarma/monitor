@@ -1,18 +1,19 @@
 /**
- * MicMonitor Server — Node.js
+ * MicMonitor Server — Next.js + WebSocket
  * ════════════════════════════════════════════════════════════════════
  * Single port (process.env.PORT or 3000) — works on Render / Railway
  *   ws://host/audio/<deviceId>  → APK audio stream
  *   ws://host/control           → Dashboard control channel
- *   http://host/                → Dashboard UI
+ *   http://host/                → Next.js Dashboard UI (Tailwind)
  *
  * LOCAL:
- *   npm install && node server.js
+ *   npm install && npm run build && npm run dev
  *   Open http://localhost:3000
  *
  * RENDER DEPLOY:
- *   Push repo → connect on render.com → free Web Service → done.
- *   Phone uses: wss://YOUR_APP.onrender.com/audio/<deviceId>
+ *   Push repo → connect on render.com → free Web Service
+ *   Build cmd: npm install && npm run build
+ *   Start cmd: npm start
  * ════════════════════════════════════════════════════════════════════
  */
 
@@ -21,6 +22,12 @@ const express = require("express");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const next = require("next");
+
+// ── Next.js setup ────────────────────────────────────────────────────
+const dev = process.env.NODE_ENV !== "production";
+const nextApp = next({ dev, dir: __dirname });
+const nextHandle = nextApp.getRequestHandler();
 // Load @breezystack/lamejs IIFE bundle (ES module, not CJS-compatible via require)
 const _lameCode = require("fs").readFileSync(
   require("path").join(
@@ -89,7 +96,15 @@ function handleAudioDevice(ws, req) {
     connectedAt: new Date(),
     recordingChunks: null,
     recordingFilename: null,
+    isStreaming: false,
   });
+
+  // If dashboards are already watching, start the mic immediately
+  if (dashboardClients.size > 0) {
+    ws.send("start_stream");
+    devices.get(deviceId).isStreaming = true;
+    console.log(`🎙️  Auto-sent start_stream to new device: ${deviceId}`);
+  }
 
   // Notify dashboard
   broadcastToDashboard({
@@ -193,8 +208,18 @@ function handleAudioDevice(ws, req) {
 // Dashboard handler  — ws://host/control
 // ════════════════════════════════════════════════════════════════════
 function handleDashboard(ws) {
+  const wasEmpty = dashboardClients.size === 0;
   dashboardClients.add(ws);
   console.log("👁️  Dashboard client connected");
+
+  // First dashboard connected — wake up all device mics
+  if (wasEmpty) {
+    devices.forEach((dev, id) => {
+      dev.ws.send("start_stream");
+      dev.isStreaming = true;
+      console.log(`🎙️  start_stream → ${id}`);
+    });
+  }
 
   // Send current device list on connect
   const deviceList = [];
@@ -225,6 +250,17 @@ function handleDashboard(ws) {
 
       const device = devices.get(deviceId);
       switch (cmd) {
+        case "start_stream":
+          device.ws.send("start_stream");
+          device.isStreaming = true;
+          broadcastToDashboard({ type: "stream_started", deviceId });
+          break;
+        case "stop_stream":
+          stopDeviceRecording(deviceId, device); // stop any active recording too
+          device.ws.send("stop_stream");
+          device.isStreaming = false;
+          broadcastToDashboard({ type: "stream_stopped", deviceId });
+          break;
         case "start_record":
           startDeviceRecording(deviceId, device);
           device.ws.send("start_record");
@@ -250,15 +286,21 @@ function handleDashboard(ws) {
   ws.on("close", () => {
     dashboardClients.delete(ws);
     console.log("👋 Dashboard client disconnected");
+
+    // Last dashboard left — stop all device mics
+    if (dashboardClients.size === 0) {
+      devices.forEach((dev, id) => {
+        dev.ws.send("stop_stream");
+        dev.isStreaming = false;
+        console.log(`🔇  stop_stream → ${id}`);
+      });
+    }
   });
 }
 
 // ════════════════════════════════════════════════════════════════════
 // HTTP routes
 // ════════════════════════════════════════════════════════════════════
-
-// Serve index.html
-app.use(express.static(__dirname));
 
 // List recordings as JSON
 app.get("/api/recordings", (req, res) => {
@@ -276,11 +318,23 @@ app.get("/api/recordings", (req, res) => {
 // Serve recording files for download
 app.use("/recordings", express.static(RECORDINGS_DIR));
 
-httpServer.listen(PORT, () => {
-  console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
-  console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
-  console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
-});
+// All other requests → Next.js (serves the React dashboard)
+app.all("*", (req, res) => nextHandle(req, res));
+
+// Start server only after Next.js is ready
+nextApp
+  .prepare()
+  .then(() => {
+    httpServer.listen(PORT, () => {
+      console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
+      console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
+      console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ Next.js failed to start:", err);
+    process.exit(1);
+  });
 
 // ════════════════════════════════════════════════════════════════════
 // Helper functions

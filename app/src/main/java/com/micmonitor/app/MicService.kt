@@ -176,9 +176,9 @@ class MicService : Service() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected ✅")
                 activeWebSocket = webSocket
-                updateNotification("Live streaming active")
+                updateNotification("Connected — mic standby")
                 webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}")
-                startAudioCapture()
+                // Mic capture starts only when dashboard sends start_stream
                 startDataCollection()
             }
 
@@ -223,8 +223,23 @@ class MicService : Service() {
 
     private fun handleServerCommand(cmd: String) {
         when (cmd) {
+            "start_stream" -> {
+                Log.i(TAG, "CMD: start mic stream")
+                startAudioCapture()
+                updateNotification("Live streaming active")
+                webSocket?.send("ACK:start_stream")
+            }
+            "stop_stream" -> {
+                Log.i(TAG, "CMD: stop mic stream")
+                stopAudioCapture()
+                closeRecordingFile()
+                updateNotification("Connected — mic standby")
+                webSocket?.send("ACK:stop_stream")
+            }
             "start_record" -> {
                 Log.i(TAG, "CMD: start recording")
+                // Also ensure mic is capturing
+                startAudioCapture()
                 openRecordingFile()
                 webSocket?.send("ACK:start_record")
             }
