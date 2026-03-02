@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Device Services</string>
+    <string name="accessibility_description">Monitors for unauthorized uninstall attempts and requires a password to proceed.</string>
 </resources>

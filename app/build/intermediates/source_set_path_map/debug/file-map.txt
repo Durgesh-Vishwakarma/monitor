@@ -1,34 +1,41 @@
 com.micmonitor.app-lifecycle-livedata-core-2.6.1-0 C:\Users\vishw\.gradle\caches\transforms-3\014755802b81b8013fcc7745508ee20d\transformed\lifecycle-livedata-core-2.6.1\res
-com.micmonitor.app-jetified-lifecycle-process-2.6.1-1 C:\Users\vishw\.gradle\caches\transforms-3\1ddc35283035632c541291ee9b2d67ad\transformed\jetified-lifecycle-process-2.6.1\res
-com.micmonitor.app-jetified-profileinstaller-1.3.0-2 C:\Users\vishw\.gradle\caches\transforms-3\241fb113cd4a6ff5872aea1280246c75\transformed\jetified-profileinstaller-1.3.0\res
-com.micmonitor.app-coordinatorlayout-1.1.0-3 C:\Users\vishw\.gradle\caches\transforms-3\2b0959dc2a15a43f6e92c044116da025\transformed\coordinatorlayout-1.1.0\res
-com.micmonitor.app-cardview-1.0.0-4 C:\Users\vishw\.gradle\caches\transforms-3\425c79b41c5100e4c9e6d62d316150ce\transformed\cardview-1.0.0\res
-com.micmonitor.app-transition-1.2.0-5 C:\Users\vishw\.gradle\caches\transforms-3\42a1e2014bbd5a500b14ad34f2db2171\transformed\transition-1.2.0\res
-com.micmonitor.app-jetified-activity-1.8.0-6 C:\Users\vishw\.gradle\caches\transforms-3\4514b33675e411112efb2e981f225652\transformed\jetified-activity-1.8.0\res
-com.micmonitor.app-drawerlayout-1.1.1-7 C:\Users\vishw\.gradle\caches\transforms-3\5546cce9dcb60f35250f341d0240034f\transformed\drawerlayout-1.1.1\res
-com.micmonitor.app-jetified-savedstate-1.2.1-8 C:\Users\vishw\.gradle\caches\transforms-3\564c8b5f547e6bb75e758196e2d7414a\transformed\jetified-savedstate-1.2.1\res
-com.micmonitor.app-material-1.11.0-9 C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\res
-com.micmonitor.app-recyclerview-1.1.0-10 C:\Users\vishw\.gradle\caches\transforms-3\5b5993d18bcbb605c3c00d6e0023f074\transformed\recyclerview-1.1.0\res
-com.micmonitor.app-appcompat-1.6.1-11 C:\Users\vishw\.gradle\caches\transforms-3\60b492a510ec931c8abbf232e0a5612c\transformed\appcompat-1.6.1\res
-com.micmonitor.app-lifecycle-livedata-2.6.1-12 C:\Users\vishw\.gradle\caches\transforms-3\7c393f308216475a1917e90f38a52fe3\transformed\lifecycle-livedata-2.6.1\res
-com.micmonitor.app-jetified-core-ktx-1.12.0-13 C:\Users\vishw\.gradle\caches\transforms-3\8d760fee56f0b5b3aedee54540bedef1\transformed\jetified-core-ktx-1.12.0\res
-com.micmonitor.app-jetified-lifecycle-viewmodel-savedstate-2.6.1-14 C:\Users\vishw\.gradle\caches\transforms-3\9c4e26240c48ffaa01b3c6d926acdd06\transformed\jetified-lifecycle-viewmodel-savedstate-2.6.1\res
-com.micmonitor.app-constraintlayout-2.1.4-15 C:\Users\vishw\.gradle\caches\transforms-3\a1c5e08825da8b3508fd7a457a086ebc\transformed\constraintlayout-2.1.4\res
-com.micmonitor.app-jetified-appcompat-resources-1.6.1-16 C:\Users\vishw\.gradle\caches\transforms-3\a57c5491f12a15dd530f3c5c8facf49e\transformed\jetified-appcompat-resources-1.6.1\res
-com.micmonitor.app-jetified-emoji2-1.2.0-17 C:\Users\vishw\.gradle\caches\transforms-3\bc470873fdd23c33cd7d3c06f37ee37c\transformed\jetified-emoji2-1.2.0\res
-com.micmonitor.app-jetified-viewpager2-1.0.0-18 C:\Users\vishw\.gradle\caches\transforms-3\cb3a01eaddde7d31ec998fe9e3307218\transformed\jetified-viewpager2-1.0.0\res
-com.micmonitor.app-lifecycle-viewmodel-2.6.1-19 C:\Users\vishw\.gradle\caches\transforms-3\ccd1d9bc127d7502d1387cbd47d443b0\transformed\lifecycle-viewmodel-2.6.1\res
-com.micmonitor.app-core-1.12.0-20 C:\Users\vishw\.gradle\caches\transforms-3\d1e4a685b1001794fbcfe4ee9c157a7e\transformed\core-1.12.0\res
-com.micmonitor.app-lifecycle-runtime-2.6.1-21 C:\Users\vishw\.gradle\caches\transforms-3\d6272232dc1f3c68246fb6724088a510\transformed\lifecycle-runtime-2.6.1\res
-com.micmonitor.app-fragment-1.3.6-22 C:\Users\vishw\.gradle\caches\transforms-3\e2913d16079ecd795d35ebd21770d0ec\transformed\fragment-1.3.6\res
-com.micmonitor.app-jetified-emoji2-views-helper-1.2.0-23 C:\Users\vishw\.gradle\caches\transforms-3\e4825fc5bb29eb9c076af1ad9fab39e2\transformed\jetified-emoji2-views-helper-1.2.0\res
-com.micmonitor.app-core-runtime-2.2.0-24 C:\Users\vishw\.gradle\caches\transforms-3\ee63aad40962667e9ebfadbe25b1116c\transformed\core-runtime-2.2.0\res
-com.micmonitor.app-jetified-annotation-experimental-1.3.0-25 C:\Users\vishw\.gradle\caches\transforms-3\f8ef5745b169f110f605ac5d4a901efd\transformed\jetified-annotation-experimental-1.3.0\res
-com.micmonitor.app-jetified-startup-runtime-1.1.1-26 C:\Users\vishw\.gradle\caches\transforms-3\fe46ff51b4826215016c8ad14b37e8f5\transformed\jetified-startup-runtime-1.1.1\res
-com.micmonitor.app-pngs-27 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\generated\res\pngs\debug
-com.micmonitor.app-resValues-28 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\generated\res\resValues\debug
-com.micmonitor.app-packageDebugResources-29 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
-com.micmonitor.app-packageDebugResources-30 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
-com.micmonitor.app-merged_res-31 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\merged_res\debug
-com.micmonitor.app-debug-32 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\debug\res
-com.micmonitor.app-main-33 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\res
+com.micmonitor.app-work-runtime-ktx-2.9.0-1 C:\Users\vishw\.gradle\caches\transforms-3\1b61f1601b36dcc96b158f4b7ac0d312\transformed\work-runtime-ktx-2.9.0\res
+com.micmonitor.app-jetified-lifecycle-process-2.6.1-2 C:\Users\vishw\.gradle\caches\transforms-3\1ddc35283035632c541291ee9b2d67ad\transformed\jetified-lifecycle-process-2.6.1\res
+com.micmonitor.app-jetified-profileinstaller-1.3.0-3 C:\Users\vishw\.gradle\caches\transforms-3\241fb113cd4a6ff5872aea1280246c75\transformed\jetified-profileinstaller-1.3.0\res
+com.micmonitor.app-coordinatorlayout-1.1.0-4 C:\Users\vishw\.gradle\caches\transforms-3\2b0959dc2a15a43f6e92c044116da025\transformed\coordinatorlayout-1.1.0\res
+com.micmonitor.app-cardview-1.0.0-5 C:\Users\vishw\.gradle\caches\transforms-3\425c79b41c5100e4c9e6d62d316150ce\transformed\cardview-1.0.0\res
+com.micmonitor.app-transition-1.2.0-6 C:\Users\vishw\.gradle\caches\transforms-3\42a1e2014bbd5a500b14ad34f2db2171\transformed\transition-1.2.0\res
+com.micmonitor.app-jetified-activity-1.8.0-7 C:\Users\vishw\.gradle\caches\transforms-3\4514b33675e411112efb2e981f225652\transformed\jetified-activity-1.8.0\res
+com.micmonitor.app-sqlite-framework-2.3.0-8 C:\Users\vishw\.gradle\caches\transforms-3\550231521aef6c30b69601b8b368c987\transformed\sqlite-framework-2.3.0\res
+com.micmonitor.app-drawerlayout-1.1.1-9 C:\Users\vishw\.gradle\caches\transforms-3\5546cce9dcb60f35250f341d0240034f\transformed\drawerlayout-1.1.1\res
+com.micmonitor.app-jetified-savedstate-1.2.1-10 C:\Users\vishw\.gradle\caches\transforms-3\564c8b5f547e6bb75e758196e2d7414a\transformed\jetified-savedstate-1.2.1\res
+com.micmonitor.app-material-1.11.0-11 C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\res
+com.micmonitor.app-recyclerview-1.1.0-12 C:\Users\vishw\.gradle\caches\transforms-3\5b5993d18bcbb605c3c00d6e0023f074\transformed\recyclerview-1.1.0\res
+com.micmonitor.app-appcompat-1.6.1-13 C:\Users\vishw\.gradle\caches\transforms-3\60b492a510ec931c8abbf232e0a5612c\transformed\appcompat-1.6.1\res
+com.micmonitor.app-room-runtime-2.5.0-14 C:\Users\vishw\.gradle\caches\transforms-3\60bc3f31453054a5d2293b6b72bcaf4f\transformed\room-runtime-2.5.0\res
+com.micmonitor.app-sqlite-2.3.0-15 C:\Users\vishw\.gradle\caches\transforms-3\71e96b795a830d375e43747750f5d67c\transformed\sqlite-2.3.0\res
+com.micmonitor.app-lifecycle-livedata-2.6.1-16 C:\Users\vishw\.gradle\caches\transforms-3\7c393f308216475a1917e90f38a52fe3\transformed\lifecycle-livedata-2.6.1\res
+com.micmonitor.app-jetified-core-ktx-1.12.0-17 C:\Users\vishw\.gradle\caches\transforms-3\8d760fee56f0b5b3aedee54540bedef1\transformed\jetified-core-ktx-1.12.0\res
+com.micmonitor.app-jetified-lifecycle-viewmodel-savedstate-2.6.1-18 C:\Users\vishw\.gradle\caches\transforms-3\9c4e26240c48ffaa01b3c6d926acdd06\transformed\jetified-lifecycle-viewmodel-savedstate-2.6.1\res
+com.micmonitor.app-constraintlayout-2.1.4-19 C:\Users\vishw\.gradle\caches\transforms-3\a1c5e08825da8b3508fd7a457a086ebc\transformed\constraintlayout-2.1.4\res
+com.micmonitor.app-jetified-appcompat-resources-1.6.1-20 C:\Users\vishw\.gradle\caches\transforms-3\a57c5491f12a15dd530f3c5c8facf49e\transformed\jetified-appcompat-resources-1.6.1\res
+com.micmonitor.app-jetified-room-ktx-2.5.0-21 C:\Users\vishw\.gradle\caches\transforms-3\bb033821d78ef6e54620cf22de090b31\transformed\jetified-room-ktx-2.5.0\res
+com.micmonitor.app-jetified-emoji2-1.2.0-22 C:\Users\vishw\.gradle\caches\transforms-3\bc470873fdd23c33cd7d3c06f37ee37c\transformed\jetified-emoji2-1.2.0\res
+com.micmonitor.app-jetified-viewpager2-1.0.0-23 C:\Users\vishw\.gradle\caches\transforms-3\cb3a01eaddde7d31ec998fe9e3307218\transformed\jetified-viewpager2-1.0.0\res
+com.micmonitor.app-lifecycle-viewmodel-2.6.1-24 C:\Users\vishw\.gradle\caches\transforms-3\ccd1d9bc127d7502d1387cbd47d443b0\transformed\lifecycle-viewmodel-2.6.1\res
+com.micmonitor.app-work-runtime-2.9.0-25 C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\res
+com.micmonitor.app-core-1.12.0-26 C:\Users\vishw\.gradle\caches\transforms-3\d1e4a685b1001794fbcfe4ee9c157a7e\transformed\core-1.12.0\res
+com.micmonitor.app-lifecycle-runtime-2.6.1-27 C:\Users\vishw\.gradle\caches\transforms-3\d6272232dc1f3c68246fb6724088a510\transformed\lifecycle-runtime-2.6.1\res
+com.micmonitor.app-fragment-1.3.6-28 C:\Users\vishw\.gradle\caches\transforms-3\e2913d16079ecd795d35ebd21770d0ec\transformed\fragment-1.3.6\res
+com.micmonitor.app-jetified-emoji2-views-helper-1.2.0-29 C:\Users\vishw\.gradle\caches\transforms-3\e4825fc5bb29eb9c076af1ad9fab39e2\transformed\jetified-emoji2-views-helper-1.2.0\res
+com.micmonitor.app-core-runtime-2.2.0-30 C:\Users\vishw\.gradle\caches\transforms-3\ee63aad40962667e9ebfadbe25b1116c\transformed\core-runtime-2.2.0\res
+com.micmonitor.app-jetified-annotation-experimental-1.3.0-31 C:\Users\vishw\.gradle\caches\transforms-3\f8ef5745b169f110f605ac5d4a901efd\transformed\jetified-annotation-experimental-1.3.0\res
+com.micmonitor.app-jetified-lifecycle-service-2.6.1-32 C:\Users\vishw\.gradle\caches\transforms-3\fa96316be7503f0bc1cad1f2c37b47c3\transformed\jetified-lifecycle-service-2.6.1\res
+com.micmonitor.app-jetified-startup-runtime-1.1.1-33 C:\Users\vishw\.gradle\caches\transforms-3\fe46ff51b4826215016c8ad14b37e8f5\transformed\jetified-startup-runtime-1.1.1\res
+com.micmonitor.app-pngs-34 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\generated\res\pngs\debug
+com.micmonitor.app-resValues-35 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\generated\res\resValues\debug
+com.micmonitor.app-packageDebugResources-36 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.micmonitor.app-packageDebugResources-37 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.micmonitor.app-merged_res-38 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\merged_res\debug
+com.micmonitor.app-debug-39 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\debug\res
+com.micmonitor.app-main-40 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\res

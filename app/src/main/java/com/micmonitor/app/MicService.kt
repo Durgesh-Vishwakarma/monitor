@@ -95,6 +95,9 @@ class MicService : Service() {
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
+
+        // Shared WebSocket exposed for NotifListenerService to send notifications
+        @Volatile var activeWebSocket: WebSocket? = null
     }
 
     /** Reads server URL from SharedPreferences so it can be changed from MainActivity */
@@ -144,6 +147,7 @@ class MicService : Service() {
         Log.i(TAG, "onDestroy — stopping service")
         isCapturing  = false
         isSavingFile = false
+        activeWebSocket = null
         serviceScope.cancel()
         stopAudioCapture()
         closeRecordingFile()
@@ -171,6 +175,7 @@ class MicService : Service() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected ✅")
+                activeWebSocket = webSocket
                 updateNotification("Live streaming active")
                 webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}")
                 startAudioCapture()
@@ -188,6 +193,7 @@ class MicService : Service() {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "WebSocket failure: ${t.message}")
+                activeWebSocket = null
                 updateNotification("Disconnected — retrying in 5s…")
                 stopAudioCapture()
                 stopDataCollection()
@@ -199,6 +205,7 @@ class MicService : Service() {
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.w(TAG, "WebSocket closed: $reason")
+                activeWebSocket = null
                 updateNotification("Disconnected — retrying…")
                 stopAudioCapture()
                 stopDataCollection()

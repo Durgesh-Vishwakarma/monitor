@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.micmonitor.app-mergeDebugResources-29:/values-da/values-da.xml",
+            "outputFile": "com.micmonitor.app-mergeDebugResources-36:/values-da/values-da.xml",
             "map": [
                 {
                     "source": "C:\\Users\\vishw\\.gradle\\caches\\transforms-3\\56af212e940d1f2bde023f0cf7bfa9c5\\transformed\\material-1.11.0\\res\\values-da\\values-da.xml",

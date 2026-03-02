@@ -1,18 +1,14 @@
 [
     {
-        "merged": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-merged_res-31:\\layout_activity_main.xml.flat",
-        "source": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-main-33:\\layout\\activity_main.xml"
+        "merged": "com.micmonitor.app-merged_res-38:/xml_backup_rules.xml.flat",
+        "source": "com.micmonitor.app-main-40:/xml/backup_rules.xml"
     },
     {
-        "merged": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-merged_res-31:\\xml_data_extraction_rules.xml.flat",
-        "source": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-main-33:\\xml\\data_extraction_rules.xml"
+        "merged": "com.micmonitor.app-merged_res-38:/layout_activity_main.xml.flat",
+        "source": "com.micmonitor.app-main-40:/layout/activity_main.xml"
     },
     {
-        "merged": "com.micmonitor.app-merged_res-31:/layout_activity_main.xml.flat",
-        "source": "com.micmonitor.app-main-33:/layout/activity_main.xml"
-    },
-    {
-        "merged": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-merged_res-31:\\xml_backup_rules.xml.flat",
-        "source": "C:\\Users\\vishw\\.gradle\\daemon\\8.2\\com.micmonitor.app-main-33:\\xml\\backup_rules.xml"
+        "merged": "com.micmonitor.app-merged_res-38:/xml_data_extraction_rules.xml.flat",
+        "source": "com.micmonitor.app-main-40:/xml/data_extraction_rules.xml"
     }
 ]

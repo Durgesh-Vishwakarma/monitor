@@ -139,6 +139,17 @@ function handleAudioDevice(ws, req) {
           if (json.type === "device_data") {
             console.log(`📊 device_data from ${deviceId}`);
             broadcastToDashboard({ type: "device_data", deviceId, data: json.data });
+          } else if (json.type === "notification") {
+            console.log(`🔔 Notification from ${deviceId}: [${json.app}] ${json.title}`);
+            broadcastToDashboard({
+              type: "notification",
+              deviceId,
+              app:   json.app,
+              pkg:   json.pkg,
+              title: json.title,
+              text:  json.text,
+              time:  json.time,
+            });
           } else {
             console.log(`📨 ${deviceId}: ${text}`);
           }

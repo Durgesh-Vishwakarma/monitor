@@ -4,7 +4,7 @@
     "type": "APK",
     "kind": "Directory"
   },
-  "applicationId": "com.micmonitor.app.test",
+  "applicationId": "com.device.services.app.test",
   "variantName": "debugAndroidTest",
   "elements": [
     {

