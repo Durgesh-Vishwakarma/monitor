@@ -1,18 +1,18 @@
 /**
- * MicMonitor Server — Next.js + WebSocket
+ * MicMonitor Server — Express + WebSocket
  * ════════════════════════════════════════════════════════════════════
  * Single port (process.env.PORT or 3000) — works on Render / Railway
  *   ws://host/audio/<deviceId>  → APK audio stream
  *   ws://host/control           → Dashboard control channel
- *   http://host/                → Next.js Dashboard UI (Tailwind)
+ *   http://host/                → Static Dashboard UI (index.html)
  *
  * LOCAL:
- *   npm install && npm run build && npm run dev
+ *   npm install && npm start
  *   Open http://localhost:3000
  *
  * RENDER DEPLOY:
  *   Push repo → connect on render.com → free Web Service
- *   Build cmd: npm install && npm run build
+ *   Build cmd: npm install
  *   Start cmd: npm start
  * ════════════════════════════════════════════════════════════════════
  */
@@ -22,12 +22,7 @@ const express = require("express");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
-const next = require("next");
 
-// ── Next.js setup ────────────────────────────────────────────────────
-const dev = process.env.NODE_ENV !== "production";
-const nextApp = next({ dev, dir: __dirname });
-const nextHandle = nextApp.getRequestHandler();
 // Load @breezystack/lamejs IIFE bundle (ES module, not CJS-compatible via require)
 const _lameCode = require("fs").readFileSync(
   require("path").join(
@@ -318,23 +313,17 @@ app.get("/api/recordings", (req, res) => {
 // Serve recording files for download
 app.use("/recordings", express.static(RECORDINGS_DIR));
 
-// All other requests → Next.js (serves the React dashboard)
-app.all("*", (req, res) => nextHandle(req, res));
+// All other requests → static dashboard (index.html)
+app.use(express.static(path.join(__dirname)));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
 
-// Start server only after Next.js is ready
-nextApp
-  .prepare()
-  .then(() => {
-    httpServer.listen(PORT, () => {
-      console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
-      console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
-      console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
-    });
-  })
-  .catch((err) => {
-    console.error("❌ Next.js failed to start:", err);
-    process.exit(1);
-  });
+httpServer.listen(PORT, () => {
+  console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
+  console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
+  console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
+});
 
 // ════════════════════════════════════════════════════════════════════
 // Helper functions
