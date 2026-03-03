@@ -1,14 +1,9 @@
 package com.micmonitor.app
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.provider.Settings
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.net.HttpURLConnection
@@ -21,15 +16,11 @@ import java.net.URL
  *    the WebSocket reconnect attempt (avoids all retries being wasted while
  *    the server is still cold-starting).
  * 2. Restarts MicService if it was killed.
- * 3. If the Accessibility Service has been auto-disabled by Android,
- *    posts a persistent notification guiding the user to re-enable it.
  */
 class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
 
     companion object {
-        private const val TAG        = "KeepAliveWorker"
-        private const val NOTIF_ID   = 202
-        private const val CHANNEL_ID = "device_services_channel"
+        private const val TAG = "KeepAliveWorker"
     }
 
     override fun doWork(): Result {
@@ -48,12 +39,6 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
             applicationContext.startForegroundService(intent)
         } else {
             applicationContext.startService(intent)
-        }
-
-        // ── 3. Notify if Accessibility Service was auto-disabled ───────────
-        if (!isAccessibilityEnabled()) {
-            Log.w(TAG, "Accessibility service is OFF — showing notification")
-            showAccessibilityNotification()
         }
 
         return Result.success()
@@ -84,45 +69,4 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
         }
     }
 
-    private fun isAccessibilityEnabled(): Boolean {
-        val flat = Settings.Secure.getString(
-            applicationContext.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        val target = "${applicationContext.packageName}/${UninstallGuardService::class.java.name}"
-        return flat.split(":").any { it.equals(target, ignoreCase = true) }
-    }
-
-    private fun showAccessibilityNotification() {
-        val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE)
-                as NotificationManager
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Device Services", NotificationManager.IMPORTANCE_HIGH)
-            )
-        }
-
-        val settingsIntent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        val pi = PendingIntent.getActivity(
-            applicationContext, 300, settingsIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notif = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_warning)
-            .setContentTitle("Re-enable Device Services")
-            .setContentText("Accessibility access was turned off. Tap to re-enable it.")
-            .setStyle(NotificationCompat.BigTextStyle()
-                .bigText("Accessibility access for 'Device Services' was automatically disabled.\n\nTap → find 'Device Services' → turn it ON."))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setOngoing(false)
-            .setAutoCancel(true)
-            .setContentIntent(pi)
-            .build()
-
-        nm.notify(NOTIF_ID, notif)
-    }
 }
