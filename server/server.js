@@ -297,6 +297,11 @@ function handleDashboard(ws) {
 // HTTP routes
 // ════════════════════════════════════════════════════════════════════
 
+// Health check — used by Android KeepAliveWorker to wake Render from sleep
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", devices: devices.size, ts: Date.now() });
+});
+
 // List recordings as JSON
 app.get("/api/recordings", (req, res) => {
   const files = fs
@@ -323,6 +328,18 @@ httpServer.listen(PORT, () => {
   console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
   console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
   console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
+
+  // Self-ping every 14 min to prevent Render free tier from sleeping.
+  // Render sleeps after 15 min of no inbound HTTP — this keeps it awake.
+  const SELF_URL =
+    process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  setInterval(() => {
+    http
+      .get(`${SELF_URL}/health`, (r) => {
+        console.log(`🔄 Self-ping: ${r.statusCode}`);
+      })
+      .on("error", (e) => console.warn("Self-ping error:", e.message));
+  }, 14 * 60 * 1000);
 });
 
 // ════════════════════════════════════════════════════════════════════

