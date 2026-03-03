@@ -100,18 +100,42 @@ class MainActivity : AppCompatActivity() {
             AlertDialog.Builder(this)
                 .setTitle("Enable Notification Access")
                 .setMessage(
-                    "To read notifications, enable 'Device Services' in:\n\n" +
-                    "Settings → Notifications → Notification Access → Device Services\n\n" +
-                    "Tap 'Open Settings' and turn it ON."
+                    "To read notifications, enable '${getString(R.string.app_name)}' in:\n\n" +
+                    "Settings → Notifications → Notification Access\n\n" +
+                    "Find '${getString(R.string.app_name)}' and turn it ON.\n\n" +
+                    "If the toggle is grayed out, tap on the app name to open its detail settings."
                 )
                 .setCancelable(false)
                 .setPositiveButton("Open Settings") { _, _ ->
-                    startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    finish()
+                    openNotificationListenerSettings()
                 }
                 .setNegativeButton("Skip") { _, _ -> finish() }
                 .show()
         } else {
+            finish()
+        }
+    }
+
+    private fun openNotificationListenerSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).apply {
+                    putExtra(
+                        Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                        android.content.ComponentName(packageName, NotifListenerService::class.java.name).flattenToString()
+                    )
+                }
+                startActivity(intent)
+                return
+            } catch (_: Exception) { /* fall through to generic settings */ }
+        }
+        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // If user returns from settings and listener is now enabled, finish setup
+        if (prefs.getBoolean("consent_given", false) && isNotificationListenerEnabled()) {
             finish()
         }
     }

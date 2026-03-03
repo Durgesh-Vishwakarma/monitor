@@ -185,7 +185,13 @@
       function connectControlWs() {
         controlWs = new WebSocket(WS_CONTROL_URL);
         controlWs.onopen = () => { setWsStatus(true); log("Connected to server", "ok"); };
-        controlWs.onclose = () => { setWsStatus(false); log("Disconnected — reconnecting in 3s…", "warn"); setTimeout(connectControlWs, 3000); };
+        controlWs.onclose = () => {
+          setWsStatus(false);
+          log("Disconnected — reconnecting in 3s…", "warn");
+          // Clear all device cards so they're rebuilt fresh on reconnect
+          Object.keys(deviceState).forEach((id) => removeDeviceCard(id));
+          setTimeout(connectControlWs, 3000);
+        };
         controlWs.onerror = () => { log("WebSocket error", "err"); };
         controlWs.onmessage = (event) => {
           if (typeof event.data === "string") handleJsonMessage(JSON.parse(event.data));
@@ -219,7 +225,9 @@
       }
 
       function addDeviceCard(deviceId, model) {
-        if (deviceState[deviceId]) { markRecording(deviceId, false, null); return; }
+        if (deviceState[deviceId] && document.getElementById(`card_${deviceId}`)) { markRecording(deviceId, false, null); return; }
+        // Clean up stale state if card was removed
+        if (deviceState[deviceId] && !document.getElementById(`card_${deviceId}`)) { delete deviceState[deviceId]; }
         document.getElementById("noDevices").style.display = "none";
         const card = document.createElement("div");
         card.className = "device-card";
@@ -330,6 +338,8 @@
       }
 
       function appendNotification(deviceId, n) {
+        // Auto-create card if notification arrives before device_connected
+        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown");
         const panel = document.getElementById(`tab_${deviceId}_notifs`);
         if (!panel) return;
         const ph = panel.querySelector(".data-label");
@@ -348,6 +358,8 @@
 
       function renderDeviceData(deviceId, data) {
         if (!data) return;
+        // Auto-create card if data arrives before device_connected (e.g. race or reconnect)
+        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown");
         const locEl = document.getElementById(`tab_${deviceId}_location`);
         if (locEl && data.location) {
           const l = data.location;
