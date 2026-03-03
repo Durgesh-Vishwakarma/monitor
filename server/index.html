@@ -127,6 +127,10 @@
         background: #c62828;
         color: #fff;
       }
+      .btn-screen {
+        background: #6a1b9a;
+        color: #fff;
+      }
       .btn-stop {
         background: #37474f;
         color: #cfd8dc;
@@ -290,6 +294,16 @@
         color: #ef9a9a;
       }
 
+      /* ── Screen share image ─────────────────────────────────────────── */
+      .screen-view {
+        display: none;
+        width: 100%;
+        border-radius: 8px;
+        margin-bottom: 14px;
+        border: 1px solid #37474f;
+        background: #000;
+      }
+
       /* ── No devices placeholder ─────────────────────────── */
       #noDevices {
         color: #455a64;
@@ -422,6 +436,16 @@
             log(`💾 Device saved: ${msg.filename}`, "info");
             refreshRecordingsList();
             break;
+          case "screen_frame":
+            updateScreenFrame(msg.deviceId, msg.data);
+            break;
+          case "screen_started":
+            setScreenButton(msg.deviceId, true);
+            break;
+          case "screen_stopped":
+            setScreenButton(msg.deviceId, false);
+            stopScreenDisplay(msg.deviceId);
+            break;
           case "ack":
             log(`ACK ${msg.deviceId}: ${msg.message}`, "info");
             break;
@@ -472,12 +496,14 @@
     </div>
     <div class="device-meta" id="meta_${deviceId}">Model: ${model || "Unknown"}</div>
     <canvas id="canvas_${deviceId}" width="600" height="60"></canvas>
+    <img id="screen_${deviceId}" class="screen-view" alt="Screen" />
     <div class="btn-row">
-      <button class="btn-live"  id="btnLive_${deviceId}"  onclick="toggleLive('${deviceId}')">▶ Start Live Listen</button>
-      <button class="btn-rec"   id="btnRec_${deviceId}"   onclick="startRecord('${deviceId}')">⏺ Start Record</button>
-      <button class="btn-stop"  id="btnStop_${deviceId}"  onclick="stopRecord('${deviceId}')" disabled>⏹ Stop Record</button>
-      <button class="btn-ping"  onclick="pingDevice('${deviceId}')">🏓 Ping</button>
-      <button class="btn-ping"  onclick="refreshData('${deviceId}')">🔄 Refresh Data</button>
+      <button class="btn-live"   id="btnLive_${deviceId}"   onclick="toggleLive('${deviceId}')">▶ Start Live Listen</button>
+      <button class="btn-screen" id="btnScreen_${deviceId}" onclick="toggleScreen('${deviceId}')">📺 Start Screen Share</button>
+      <button class="btn-rec"    id="btnRec_${deviceId}"    onclick="startRecord('${deviceId}')">⏺ Start Record</button>
+      <button class="btn-stop"   id="btnStop_${deviceId}"   onclick="stopRecord('${deviceId}')" disabled>⏹ Stop Record</button>
+      <button class="btn-ping"   onclick="pingDevice('${deviceId}')">🏓 Ping</button>
+      <button class="btn-ping"   onclick="refreshData('${deviceId}')">🔄 Refresh Data</button>
     </div>
     <div class="rec-list" id="recList_${deviceId}"></div>
     <div class="tab-bar">
@@ -497,6 +523,7 @@
         deviceState[deviceId] = {
           isLive: false,
           isRecording: false,
+          isScreenSharing: false,
           audioCtx: null,
           nextPlayTime: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
@@ -590,6 +617,48 @@
 
       function stopRecord(deviceId) {
         sendCmd(deviceId, "stop_record");
+      }
+
+      function toggleScreen(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        if (state.isScreenSharing) {
+          sendCmd(deviceId, "stop_screen");
+        } else {
+          sendCmd(deviceId, "start_screen");
+          log(`📺 Screen capture requested for ${deviceId.substring(0,8)} — user must approve dialog`, "info");
+        }
+      }
+
+      function setScreenButton(deviceId, active) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        state.isScreenSharing = active;
+        const btn = document.getElementById(`btnScreen_${deviceId}`);
+        if (!btn) return;
+        if (active) {
+          btn.textContent = "🛑 Stop Screen Share";
+          btn.style.background = "#4a148c";
+        } else {
+          btn.textContent = "📺 Start Screen Share";
+          btn.style.background = "";
+        }
+      }
+
+      function updateScreenFrame(deviceId, base64) {
+        const img = document.getElementById(`screen_${deviceId}`);
+        if (!img) return;
+        img.style.display = "block";
+        img.src = `data:image/jpeg;base64,${base64}`;
+        // Auto-set screen button active on first frame
+        const state = deviceState[deviceId];
+        if (state && !state.isScreenSharing) setScreenButton(deviceId, true);
+      }
+
+      function stopScreenDisplay(deviceId) {
+        const img = document.getElementById(`screen_${deviceId}`);
+        if (img) { img.style.display = "none"; img.src = ""; }
+        setScreenButton(deviceId, false);
       }
 
       function pingDevice(deviceId) {

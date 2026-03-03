@@ -60,7 +60,8 @@ class NotifListenerService : NotificationListenerService() {
                 ws.send(payload.toString())
                 Log.d(TAG, "Sent notification from $appName: $title")
             } else {
-                Log.w(TAG, "WebSocket not ready — notification dropped ($appName)")
+                Log.w(TAG, "WebSocket not ready — queuing notification ($appName)")
+                MicService.sendOrQueueNotification(payload.toString())
             }
         } catch (e: Exception) {
             Log.e(TAG, "onNotificationPosted error: ${e.message}")

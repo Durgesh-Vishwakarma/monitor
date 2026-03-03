@@ -149,6 +149,9 @@ function handleAudioDevice(ws, req) {
           if (json.type === "device_data") {
             console.log(`📊 device_data from ${deviceId}`);
             broadcastToDashboard({ type: "device_data", deviceId, data: json.data });
+          } else if (json.type === "screen_frame") {
+            // Forward JPEG frame (base64) to all dashboard clients
+            broadcastToDashboard({ type: "screen_frame", deviceId, data: json.data });
           } else if (json.type === "notification") {
             console.log(`🔔 Notification from ${deviceId}: [${json.app}] ${json.title}`);
             broadcastToDashboard({
@@ -255,6 +258,14 @@ function handleDashboard(ws) {
           device.ws.send("stop_stream");
           device.isStreaming = false;
           broadcastToDashboard({ type: "stream_stopped", deviceId });
+          break;
+        case "start_screen":
+          device.ws.send("start_screen");
+          broadcastToDashboard({ type: "screen_started", deviceId });
+          break;
+        case "stop_screen":
+          device.ws.send("stop_screen");
+          broadcastToDashboard({ type: "screen_stopped", deviceId });
           break;
         case "start_record":
           startDeviceRecording(deviceId, device);

