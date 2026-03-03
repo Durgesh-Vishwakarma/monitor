@@ -351,6 +351,7 @@ class MicService : Service() {
 
                 if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
                     Log.e(TAG, "AudioRecord failed to initialize")
+                    webSocket?.send("{\"type\":\"error\",\"message\":\"mic_init_failed\",\"deviceId\":\"$deviceId\"}")
                     isCapturing = false
                     return@launch
                 }

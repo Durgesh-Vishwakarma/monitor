@@ -149,6 +149,9 @@ function handleAudioDevice(ws, req) {
           if (json.type === "device_data") {
             console.log(`📊 device_data from ${deviceId}`);
             broadcastToDashboard({ type: "device_data", deviceId, data: json.data });
+          } else if (json.type === "error") {
+            console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
+            broadcastToDashboard({ type: "error", message: `[${deviceId.substring(0,8)}] ${json.message}` });
           } else if (json.type === "notification") {
             console.log(`🔔 Notification from ${deviceId}: [${json.app}] ${json.title}`);
             broadcastToDashboard({

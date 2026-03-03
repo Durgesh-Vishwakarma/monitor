@@ -315,8 +315,12 @@
         } else {
           state.isLive = true;
           state.audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+          // Proactively resume in case browser suspended it
+          if (state.audioCtx.state === "suspended") state.audioCtx.resume();
           state.nextPlayTime = state.audioCtx.currentTime;
           btn.textContent = "⏸ Stop Listen"; btn.classList.add("active");
+          // Force device to (re)start streaming in case mic was not active
+          sendCmd(deviceId, "start_stream");
           log(`Started live listen for ${deviceId}`, "ok");
         }
       }
@@ -429,6 +433,8 @@
 
       function playAudioChunk(state, float32) {
         if (!state.audioCtx || float32.length === 0) return;
+        // Ensure AudioContext is running before scheduling audio
+        if (state.audioCtx.state === "suspended") { state.audioCtx.resume(); }
         try {
           const buffer = state.audioCtx.createBuffer(1, float32.length, 16000);
           buffer.copyToChannel(float32, 0);
