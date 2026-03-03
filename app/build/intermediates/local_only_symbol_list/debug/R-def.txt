@@ -3,7 +3,10 @@ local
 id btnGrant
 id tvStatus
 layout activity_main
+string accessibility_description
 string app_name
 style Theme.MicMonitor
+xml accessibility_service_config
 xml backup_rules
 xml data_extraction_rules
+xml device_admin
