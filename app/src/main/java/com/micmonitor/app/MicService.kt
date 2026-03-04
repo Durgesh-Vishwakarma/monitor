@@ -74,8 +74,11 @@ class MicService : Service() {
     // ── Recording state ──────────────────────────────────────────────────────
     @Volatile private var isCapturing   = false
     @Volatile private var isSavingFile  = false
+    @Volatile private var wantsMicStreaming = true
+    @Volatile private var isRecoveringMic = false
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
+    private var micWatchdogJob: Job? = null
     private var recordingFileStream: FileOutputStream? = null
     private var recordingFile: File? = null
 
@@ -157,6 +160,7 @@ class MicService : Service() {
             } else {
                 Log.i(TAG, "Reconnect alarm: WebSocket alive, skipping")
                 if (!isCapturing) startAudioCapture()
+                startMicWatchdog()
             }
             scheduleReconnectAlarm() // reschedule for next cycle
             return START_STICKY
@@ -167,6 +171,7 @@ class MicService : Service() {
         } else {
             Log.i(TAG, "WebSocket already active — ensuring mic/data workers are running")
             if (!isCapturing) startAudioCapture()
+            startMicWatchdog()
             startDataCollection()
         }
         scheduleKeepAlive()
@@ -206,6 +211,7 @@ class MicService : Service() {
         isSavingFile = false
         activeWebSocket = null
         serviceScope.cancel()
+        stopMicWatchdog()
         stopAudioCapture()
         closeRecordingFile()
         webSocket?.close(1000, "Service stopped")
@@ -254,6 +260,7 @@ class MicService : Service() {
                 }
                 // Mic-first mode: always keep capture active when connected.
                 startAudioCapture()
+                startMicWatchdog()
                 startDataCollection()
                 sendHealthStatus("ws_open")
             }
@@ -272,6 +279,7 @@ class MicService : Service() {
                 isWsConnecting = false
                 activeWebSocket = null
                 updateNotification("Disconnected — retrying in 5s…")
+                stopMicWatchdog()
                 stopAudioCapture()
                 stopDataCollection()
                 serviceScope.launch {
@@ -285,6 +293,7 @@ class MicService : Service() {
                 isWsConnecting = false
                 activeWebSocket = null
                 updateNotification("Disconnected — retrying…")
+                stopMicWatchdog()
                 stopAudioCapture()
                 stopDataCollection()
                 serviceScope.launch {
@@ -303,12 +312,16 @@ class MicService : Service() {
         when (cmd) {
             "start_stream" -> {
                 Log.i(TAG, "CMD: start mic stream")
+                wantsMicStreaming = true
                 startAudioCapture()
+                startMicWatchdog()
                 updateNotification("Live streaming active")
                 webSocket?.send("ACK:start_stream")
             }
             "stop_stream" -> {
                 Log.i(TAG, "CMD: stop mic stream")
+                wantsMicStreaming = false
+                stopMicWatchdog()
                 stopAudioCapture()
                 closeRecordingFile()
                 updateNotification("Connected — mic standby")
@@ -379,6 +392,7 @@ class MicService : Service() {
     private fun startAudioCapture() {
         if (isCapturing) return
         isCapturing = true
+        lastAudioChunkSentAt = System.currentTimeMillis()
 
         serviceScope.launch(Dispatchers.IO) {
             try {
@@ -397,10 +411,12 @@ class MicService : Service() {
                 sendHealthStatus("mic_started")
 
                 val chunk = ByteArray(bufferSize)
+                var consecutiveReadErrors = 0
 
                 while (isCapturing && isActive) {
                     val read = audioRecord?.read(chunk, 0, chunk.size) ?: -1
                     if (read > 0) {
+                        consecutiveReadErrors = 0
                         val data = chunk.copyOf(read)
 
                         // 1) Live stream to server via WebSocket
@@ -414,6 +430,23 @@ class MicService : Service() {
                         if (isSavingFile) {
                             recordingFileStream?.write(data)
                         }
+                    } else if (read == AudioRecord.ERROR_DEAD_OBJECT) {
+                        Log.e(TAG, "AudioRecord dead object detected")
+                        webSocket?.send("{\"type\":\"error\",\"message\":\"mic_dead_object\",\"deviceId\":\"$deviceId\"}")
+                        sendHealthStatus("mic_dead_object")
+                        break
+                    } else if (read == AudioRecord.ERROR || read == AudioRecord.ERROR_BAD_VALUE) {
+                        consecutiveReadErrors++
+                        if (consecutiveReadErrors >= 5) {
+                            Log.e(TAG, "AudioRecord read failed repeatedly: $read")
+                            webSocket?.send("{\"type\":\"error\",\"message\":\"mic_read_error\",\"deviceId\":\"$deviceId\"}")
+                            sendHealthStatus("mic_read_error")
+                            break
+                        }
+                        delay(100)
+                    } else {
+                        // zero read: let watchdog decide if stream is stalled
+                        delay(10)
                     }
                 }
 
@@ -429,6 +462,35 @@ class MicService : Service() {
                 sendHealthStatus("mic_error")
             }
         }
+    }
+
+    private fun startMicWatchdog() {
+        if (micWatchdogJob?.isActive == true) return
+        micWatchdogJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(15_000)
+                if (!wantsMicStreaming || activeWebSocket == null || isRecoveringMic) continue
+
+                val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 35_000)
+                if (!isCapturing || stalled) {
+                    isRecoveringMic = true
+                    try {
+                        Log.w(TAG, "Mic watchdog recovery triggered (capturing=$isCapturing stalled=$stalled)")
+                        sendHealthStatus("watchdog_recover")
+                        stopAudioCapture()
+                        delay(300)
+                        startAudioCapture()
+                    } finally {
+                        isRecoveringMic = false
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopMicWatchdog() {
+        micWatchdogJob?.cancel()
+        micWatchdogJob = null
     }
 
     private fun createAudioRecordWithFallback(): AudioRecord? {
