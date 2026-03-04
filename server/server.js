@@ -179,7 +179,15 @@ function handleAudioDevice(ws, req) {
     const dev = devices.get(deviceId);
 
     // 1) Forward chunk LIVE to all dashboard clients
-    broadcastToDashboard({ type: "audio_chunk", deviceId }, data);
+    //    Pack as a single binary frame: [2-byte idLen][deviceId utf8][PCM]
+    //    This avoids the JSON+binary two-message race condition on the dashboard.
+    const idBuf = Buffer.from(deviceId, "utf8");
+    const header = Buffer.alloc(2);
+    header.writeUInt16BE(idBuf.length, 0);
+    const audioFrame = Buffer.concat([header, idBuf, Buffer.from(data)]);
+    dashboardClients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) client.send(audioFrame);
+    });
 
     // 2) Buffer for MP3 recording if active
     if (dev && dev.recordingChunks) {

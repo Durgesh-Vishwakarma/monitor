@@ -180,10 +180,10 @@
 
       let controlWs = null;
       const deviceState = {};
-      let pendingBinaryDeviceId = null;
 
       function connectControlWs() {
         controlWs = new WebSocket(WS_CONTROL_URL);
+        controlWs.binaryType = "arraybuffer";
         controlWs.onopen = () => { setWsStatus(true); log("Connected to server", "ok"); };
         controlWs.onclose = () => {
           setWsStatus(false);
@@ -205,7 +205,7 @@
           case "device_connected":   addDeviceCard(msg.deviceId, msg.model || "…"); log(`Device connected: ${msg.deviceId}`, "ok"); break;
           case "device_disconnected": removeDeviceCard(msg.deviceId); log(`Device disconnected: ${msg.deviceId}`, "warn"); break;
           case "device_info":        updateDeviceMeta(msg.deviceId, msg.model, msg.sdk); log(`${msg.deviceId} → ${msg.model} (SDK ${msg.sdk})`, "info"); break;
-          case "audio_chunk":        pendingBinaryDeviceId = msg.deviceId; break;
+
           case "recording_started":  markRecording(msg.deviceId, true, msg.filename); log(`⏺ Recording started: ${msg.filename}`, "ok"); break;
           case "recording_stopped":  markRecording(msg.deviceId, false, msg.filename); log(`⏹ Recording saved: ${msg.filename}`, "ok"); refreshRecordingsList(); break;
           case "recording_saved":    log(`💾 Device saved: ${msg.filename}`, "info"); refreshRecordingsList(); break;
@@ -217,11 +217,18 @@
       }
 
       function handleAudioBinary(data) {
-        const deviceId = pendingBinaryDeviceId;
-        if (!deviceId) return;
+        // Binary frame format: [2-byte idLen][deviceId utf8][PCM int16 LE]
+        const view = new DataView(data);
+        const idLen = view.getUint16(0);
+        const deviceId = new TextDecoder().decode(new Uint8Array(data, 2, idLen));
         const state = deviceState[deviceId];
         if (!state || !state.isLive) return;
-        arrayBufferToFloat32(data, (float32) => { playAudioChunk(state, float32); drawWaveform(state.canvas, float32); });
+        const pcmBytes = new Uint8Array(data, 2 + idLen);
+        const int16 = new Int16Array(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength >> 1);
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+        playAudioChunk(state, float32);
+        drawWaveform(state.canvas, float32);
       }
 
       function addDeviceCard(deviceId, model) {
