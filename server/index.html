@@ -271,6 +271,7 @@
             <button class="btn-live"  id="btnLive_${deviceId}" onclick="toggleLive('${deviceId}')">▶ Live Listen</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
+            <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="pingDevice('${deviceId}')">🏓 Ping</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
           </div>
@@ -291,6 +292,7 @@
           isRecording: false,
           audioCtx: null,
           nextPlayTime: 0,
+          lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
           health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init" },
         };
@@ -322,6 +324,16 @@
         if (mic) mic.innerHTML = h.micCapturing ? `<span class="ok-text">running</span>` : `<span class="bad-text">stopped</span>`;
         if (aud) aud.textContent = h.lastAudioChunkAt ? formatAgo(h.lastAudioChunkAt) : "never";
         if (hb) hb.textContent = h.lastHealthAt ? `${formatAgo(h.lastHealthAt)} (${h.reason || "-"})` : "never";
+
+        // Auto-recover if user is in live mode but device mic stopped.
+        if (state.isLive && h.wsConnected && !h.micCapturing) {
+          const now = Date.now();
+          if (!state.lastRecoverTryAt || (now - state.lastRecoverTryAt) > 12000) {
+            state.lastRecoverTryAt = now;
+            sendCmd(deviceId, "start_stream");
+            log(`Mic recovery command sent to ${deviceId}`, "warn");
+          }
+        }
       }
 
       function formatAgo(ts) {
@@ -385,6 +397,7 @@
 
       function startRecord(deviceId)  { sendCmd(deviceId, "start_record"); }
       function stopRecord(deviceId)   { sendCmd(deviceId, "stop_record"); }
+      function recoverMic(deviceId)   { sendCmd(deviceId, "start_stream"); log(`Manual mic recovery sent to ${deviceId}`, "warn"); }
       function pingDevice(deviceId)   { sendCmd(deviceId, "ping"); log(`Pinged ${deviceId}`, "info"); }
       function refreshData(deviceId)  { sendCmd(deviceId, "get_data"); log(`Data refresh requested for ${deviceId}`, "info"); }
 
