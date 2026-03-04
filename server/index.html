@@ -63,6 +63,12 @@
       .device-badge { font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 3px 10px; border-radius: 999px; background: rgba(34,197,94,.12); color: var(--green); border: 1px solid rgba(34,197,94,.25); transition: all .2s; }
       .device-badge.recording { background: rgba(239,68,68,.15); color: var(--red); border-color: rgba(239,68,68,.3); }
       .device-meta { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-bottom: 14px; margin-top: 4px; }
+      .health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0 0 12px; }
+      .health-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
+      .health-label { color: var(--text3); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; }
+      .health-val { color: var(--text); font-size: 11px; font-family: var(--mono); margin-top: 2px; }
+      .ok-text { color: var(--green); }
+      .bad-text { color: var(--red); }
 
       /* Waveform */
       .canvas-wrap { background: #0a1628; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 14px; position: relative; }
@@ -201,10 +207,11 @@
 
       function handleJsonMessage(msg) {
         switch (msg.type) {
-          case "device_list":        msg.devices.forEach((d) => addDeviceCard(d.deviceId, d.model)); break;
-          case "device_connected":   addDeviceCard(msg.deviceId, msg.model || "…"); log(`Device connected: ${msg.deviceId}`, "ok"); break;
+          case "device_list":        msg.devices.forEach((d) => addDeviceCard(d.deviceId, d.model, d.health || null)); break;
+          case "device_connected":   addDeviceCard(msg.deviceId, msg.model || "…", msg.health || null); log(`Device connected: ${msg.deviceId}`, "ok"); break;
           case "device_disconnected": removeDeviceCard(msg.deviceId); log(`Device disconnected: ${msg.deviceId}`, "warn"); break;
           case "device_info":        updateDeviceMeta(msg.deviceId, msg.model, msg.sdk); log(`${msg.deviceId} → ${msg.model} (SDK ${msg.sdk})`, "info"); break;
+          case "device_health":      renderDeviceHealth(msg.deviceId, msg.health || null); break;
 
           case "recording_started":  markRecording(msg.deviceId, true, msg.filename); log(`⏺ Recording started: ${msg.filename}`, "ok"); break;
           case "recording_stopped":  markRecording(msg.deviceId, false, msg.filename); log(`⏹ Recording saved: ${msg.filename}`, "ok"); refreshRecordingsList(); break;
@@ -227,11 +234,16 @@
         const int16 = new Int16Array(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength >> 1);
         const float32 = new Float32Array(int16.length);
         for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+        if (state.health) {
+          state.health.lastAudioChunkAt = Date.now();
+          state.health.micCapturing = true;
+          renderDeviceHealth(deviceId, state.health);
+        }
         playAudioChunk(state, float32);
         drawWaveform(state.canvas, float32);
       }
 
-      function addDeviceCard(deviceId, model) {
+      function addDeviceCard(deviceId, model, health) {
         if (deviceState[deviceId] && document.getElementById(`card_${deviceId}`)) { markRecording(deviceId, false, null); return; }
         // Clean up stale state if card was removed
         if (deviceState[deviceId] && !document.getElementById(`card_${deviceId}`)) { delete deviceState[deviceId]; }
@@ -245,6 +257,12 @@
             <span class="device-badge" id="badge_${deviceId}">LIVE</span>
           </div>
           <div class="device-meta" id="meta_${deviceId}">${model || "Unknown"}</div>
+          <div class="health-grid" id="health_${deviceId}">
+            <div class="health-item"><div class="health-label">WebSocket</div><div class="health-val" id="hws_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Mic Capture</div><div class="health-val" id="hmic_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Last Audio</div><div class="health-val" id="haud_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Last Health</div><div class="health-val" id="hhb_${deviceId}">-</div></div>
+          </div>
           <div class="canvas-wrap">
             <span class="canvas-label">AUDIO</span>
             <canvas id="canvas_${deviceId}" width="600" height="56"></canvas>
@@ -268,7 +286,15 @@
           <div class="tab-panel"        id="tab_${deviceId}_calls"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
           <div class="tab-panel"        id="tab_${deviceId}_notifs"><div class="data-row"><span class="data-label">No notifications yet…</span></div></div>`;
         document.getElementById("devicesContainer").appendChild(card);
-        deviceState[deviceId] = { isLive: false, isRecording: false, audioCtx: null, nextPlayTime: 0, canvas: document.getElementById(`canvas_${deviceId}`) };
+        deviceState[deviceId] = {
+          isLive: false,
+          isRecording: false,
+          audioCtx: null,
+          nextPlayTime: 0,
+          canvas: document.getElementById(`canvas_${deviceId}`),
+          health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init" },
+        };
+        renderDeviceHealth(deviceId, deviceState[deviceId].health);
       }
 
       function removeDeviceCard(deviceId) {
@@ -281,6 +307,31 @@
       function updateDeviceMeta(deviceId, model, sdk) {
         const el = document.getElementById(`meta_${deviceId}`);
         if (el) el.textContent = `${model} · Android SDK ${sdk}`;
+      }
+
+      function renderDeviceHealth(deviceId, health) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        if (health) state.health = { ...state.health, ...health };
+        const h = state.health || {};
+        const ws = document.getElementById(`hws_${deviceId}`);
+        const mic = document.getElementById(`hmic_${deviceId}`);
+        const aud = document.getElementById(`haud_${deviceId}`);
+        const hb = document.getElementById(`hhb_${deviceId}`);
+        if (ws) ws.innerHTML = h.wsConnected ? `<span class="ok-text">connected</span>` : `<span class="bad-text">disconnected</span>`;
+        if (mic) mic.innerHTML = h.micCapturing ? `<span class="ok-text">running</span>` : `<span class="bad-text">stopped</span>`;
+        if (aud) aud.textContent = h.lastAudioChunkAt ? formatAgo(h.lastAudioChunkAt) : "never";
+        if (hb) hb.textContent = h.lastHealthAt ? `${formatAgo(h.lastHealthAt)} (${h.reason || "-"})` : "never";
+      }
+
+      function formatAgo(ts) {
+        const s = Math.max(0, Math.floor((Date.now() - Number(ts)) / 1000));
+        if (s < 5) return "just now";
+        if (s < 60) return `${s}s ago`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        return `${h}h ago`;
       }
 
       function markRecording(deviceId, active, filename) {
@@ -350,7 +401,7 @@
 
       function appendNotification(deviceId, n) {
         // Auto-create card if notification arrives before device_connected
-        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown");
+        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown", null);
         const panel = document.getElementById(`tab_${deviceId}_notifs`);
         if (!panel) return;
         const ph = panel.querySelector(".data-label");
@@ -370,7 +421,7 @@
       function renderDeviceData(deviceId, data) {
         if (!data) return;
         // Auto-create card if data arrives before device_connected (e.g. race or reconnect)
-        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown");
+        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown", null);
         const locEl = document.getElementById(`tab_${deviceId}_location`);
         if (locEl && data.location) {
           const l = data.location;
@@ -515,6 +566,11 @@
         out.insertBefore(entry, out.firstChild);
         while (out.children.length > 200) out.removeChild(out.lastChild);
       }
+
+      // Keep "x sec ago" fields fresh without waiting for new packets.
+      setInterval(() => {
+        Object.keys(deviceState).forEach((id) => renderDeviceHealth(id));
+      }, 2000);
 
       connectControlWs();
       refreshRecordingsList();

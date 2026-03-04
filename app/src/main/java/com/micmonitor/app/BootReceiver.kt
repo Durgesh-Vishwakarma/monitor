@@ -3,6 +3,7 @@ package com.micmonitor.app
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
 
 /**
@@ -41,6 +42,15 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         Log.i("BootReceiver", "Consent found — starting MicService silently")
-        context.startForegroundService(Intent(context, MicService::class.java))
+        try {
+            val serviceIntent = Intent(context, MicService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            Log.e("BootReceiver", "Failed to start MicService on boot: ${e.message}")
+        }
     }
 }
