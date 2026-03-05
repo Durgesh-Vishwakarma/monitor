@@ -32,10 +32,13 @@ import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
+import kotlin.math.min
 import org.json.JSONObject
+import org.json.JSONArray
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.IceCandidate
@@ -104,6 +107,11 @@ class MicService : Service() {
     private var webRtcAudioSender: RtpSender? = null
     private var currentWebRtcBitrateKbps = 24
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var webRtcRecoveryJob: Job? = null
+    private var lastDashboardQuality: JSONObject? = null
+    private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
+    )
 
     // ── WakeLock ─────────────────────────────────────────────────────────────
     private var wakeLock: PowerManager.WakeLock? = null
@@ -135,23 +143,7 @@ class MicService : Service() {
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
 
-        // ── Notification queue (buffers when WebSocket is temporarily offline) ─
-        private val notifQueue = ArrayDeque<String>()
-        private val notifLock  = Any()
-
-        fun sendOrQueueNotification(payload: String) {
-            val ws = activeWebSocket
-            if (ws != null) {
-                ws.send(payload)
-            } else {
-                synchronized(notifLock) {
-                    notifQueue.addLast(payload)
-                    if (notifQueue.size > 100) notifQueue.removeFirst()
-                }
-            }
-        }
-
-        // Shared WebSocket exposed for NotifListenerService to send notifications
+        // Shared websocket for service health checks and optional future hooks.
         @Volatile var activeWebSocket: WebSocket? = null
     }
 
@@ -161,6 +153,19 @@ class MicService : Service() {
         // Ensure it ends with / then append deviceId
         return base.trimEnd('/') + "/$deviceId"
     }
+
+    private val wsAuthToken: String
+        get() = (prefs.getString("server_token", "") ?: "").trim()
+
+    private val serverHttpBaseUrl: String
+        get() {
+            val base = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+            return base
+                .replace(Regex("^wss://"), "https://")
+                .replace(Regex("^ws://"), "http://")
+                .substringBefore("/audio")
+                .trimEnd('/')
+        }
 
     // ────────────────────────────────────────────────────────────────────────
     // Service lifecycle
@@ -269,10 +274,13 @@ class MicService : Service() {
             webSocket?.close(1000, "Reconnecting")
         } catch (_: Exception) {}
 
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(serverUrl)
             .addHeader("X-Device-Id", deviceId)
-            .build()
+        if (wsAuthToken.isNotBlank()) {
+            requestBuilder.addHeader("X-Auth-Token", wsAuthToken)
+        }
+        val request = requestBuilder.build()
 
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
 
@@ -282,12 +290,6 @@ class MicService : Service() {
                 activeWebSocket = webSocket
                 updateNotification("Live streaming active")
                 webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}")
-                // Flush notifications that arrived while WebSocket was offline
-                synchronized(notifLock) {
-                    while (notifQueue.isNotEmpty()) {
-                        webSocket.send(notifQueue.removeFirst())
-                    }
-                }
                 // Mic-first mode: always keep capture active when connected.
                 startAudioCapture()
                 startMicWatchdog()
@@ -419,6 +421,10 @@ class MicService : Service() {
                         peerConnection?.addIceCandidate(candidate)
                     }
                 }
+                "webrtc_quality" -> {
+                    lastDashboardQuality = obj.optJSONObject("quality")
+                    applyAdaptiveBitrate()
+                }
                 else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
             }
         } catch (e: Exception) {
@@ -454,8 +460,10 @@ class MicService : Service() {
         localAudioSource = factory.createAudioSource(constraints)
         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
 
+        cachedIceServers = fetchIceServersFromServer()
+
         val rtcConfig = PeerConnection.RTCConfiguration(
-            listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+            cachedIceServers
         ).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
@@ -477,6 +485,15 @@ class MicService : Service() {
 
             override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
                 sendWebRtcState("ice_${newState.name.lowercase()}")
+                if (newState == PeerConnection.IceConnectionState.CONNECTED ||
+                    newState == PeerConnection.IceConnectionState.COMPLETED) {
+                    webRtcRecoveryJob?.cancel()
+                    webRtcRecoveryJob = null
+                }
+                if (newState == PeerConnection.IceConnectionState.DISCONNECTED ||
+                    newState == PeerConnection.IceConnectionState.FAILED) {
+                    scheduleWebRtcRecovery(newState.name.lowercase())
+                }
             }
 
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
@@ -512,6 +529,8 @@ class MicService : Service() {
     }
 
     private fun stopWebRtcSession(notifyState: Boolean) {
+        webRtcRecoveryJob?.cancel()
+        webRtcRecoveryJob = null
         unregisterNetworkCallbackForBitrate()
         try {
             peerConnection?.close()
@@ -616,24 +635,92 @@ class MicService : Service() {
             put("bitrateKbps", currentWebRtcBitrateKbps)
             put("deviceId", deviceId)
             put("ts", System.currentTimeMillis())
+            if (lastDashboardQuality != null) put("quality", lastDashboardQuality)
         }
         webSocket?.send(msg.toString())
+    }
+
+    private fun scheduleWebRtcRecovery(reason: String) {
+        if (webRtcRecoveryJob?.isActive == true) return
+        webRtcRecoveryJob = serviceScope.launch(Dispatchers.IO) {
+            repeat(3) { idx ->
+                delay(700L + idx * 900L)
+                if (!isWebRtcStreaming || peerConnection == null) return@launch
+                try {
+                    peerConnection?.restartIce()
+                } catch (_: Exception) {}
+                sendWebRtcState("need_reoffer_${reason}_${idx + 1}")
+            }
+        }
+    }
+
+    private fun fetchIceServersFromServer(): List<PeerConnection.IceServer> {
+        val fallback = listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+        val url = "$serverHttpBaseUrl/api/webrtc-config"
+        return try {
+            val reqBuilder = Request.Builder().url(url)
+            if (wsAuthToken.isNotBlank()) reqBuilder.addHeader("X-Auth-Token", wsAuthToken)
+            val response = okHttpClient.newCall(reqBuilder.build()).execute()
+            if (!response.isSuccessful) return fallback
+            val body = response.body?.string().orEmpty()
+            if (body.isBlank()) return fallback
+            val json = JSONObject(body)
+            val arr = json.optJSONArray("iceServers") ?: JSONArray()
+            val parsed = mutableListOf<PeerConnection.IceServer>()
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val urls = mutableListOf<String>()
+                when (val u = item.opt("urls")) {
+                    is String -> if (u.isNotBlank()) urls.add(u)
+                    is JSONArray -> {
+                        for (j in 0 until u.length()) {
+                            val s = u.optString(j, "")
+                            if (s.isNotBlank()) urls.add(s)
+                        }
+                    }
+                }
+                if (urls.isEmpty()) continue
+                val builder = PeerConnection.IceServer.builder(urls)
+                val user = item.optString("username", "")
+                val cred = item.optString("credential", "")
+                if (user.isNotBlank()) builder.setUsername(user)
+                if (cred.isNotBlank()) builder.setPassword(cred)
+                parsed.add(builder.createIceServer())
+            }
+            if (parsed.isEmpty()) fallback else parsed
+        } catch (e: IOException) {
+            Log.w(TAG, "ICE config fetch failed: ${e.message}")
+            fallback
+        } catch (e: Exception) {
+            Log.w(TAG, "ICE config parse failed: ${e.message}")
+            fallback
+        }
     }
 
     private fun chooseTargetBitrateKbps(): Int {
         val cm = connectivityManager ?: return 24
         val network = cm.activeNetwork ?: return 24
         val caps = cm.getNetworkCapabilities(network) ?: return 24
-        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return 12
+        var target = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) 12 else 24
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             val downKbps = caps.linkDownstreamBandwidthKbps
-            return when {
+            target = when {
                 downKbps in 1..1200 -> 12
                 downKbps in 1201..5000 -> 24
                 else -> 32
             }
         }
-        return 24
+        val q = lastDashboardQuality
+        val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
+        val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
+        val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
+        if (!loss.isNaN() && loss >= 10.0) return 12
+        if (!rtt.isNaN() && rtt >= 450.0) return 12
+        if (!jitter.isNaN() && jitter >= 120.0) return 12
+        if ((!loss.isNaN() && loss >= 4.0) || (!rtt.isNaN() && rtt >= 250.0) || (!jitter.isNaN() && jitter >= 60.0)) {
+            return min(target, 24)
+        }
+        return target
     }
 
     private fun applyAdaptiveBitrate() {

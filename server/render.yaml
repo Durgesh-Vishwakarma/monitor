@@ -10,3 +10,13 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: STUN_URL
+        value: stun:stun.l.google.com:19302
+      - key: TURN_URL
+        value: ""
+      - key: TURN_USERNAME
+        value: ""
+      - key: TURN_PASSWORD
+        value: ""
+      - key: WS_AUTH_TOKEN
+        generateValue: true

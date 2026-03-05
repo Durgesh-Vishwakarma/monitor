@@ -36,6 +36,12 @@ const { Mp3Encoder } = new Function(_lameCode + "; return lamejs;")();
 // ── Config ──────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT) || 3000;
 const DASHBOARD_MAX_BUFFERED_BYTES = 256 * 1024;
+const WS_AUTH_TOKEN = process.env.WS_AUTH_TOKEN || "";
+const DEFAULT_STUN_URL = process.env.STUN_URL || "stun:stun.l.google.com:19302";
+const TURN_URL = process.env.TURN_URL || "";
+const TURN_USERNAME = process.env.TURN_USERNAME || "";
+const TURN_PASSWORD = process.env.TURN_PASSWORD || "";
+const ICE_SERVERS = buildIceServers();
 
 // ── Folders ─────────────────────────────────────────────────────────
 const RECORDINGS_DIR = path.join(__dirname, "recordings");
@@ -59,6 +65,18 @@ const httpServer = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true, perMessageDeflate: false });
 
 httpServer.on("upgrade", (req, socket, head) => {
+  const url = req.url || "";
+  const isKnownWsPath = url.startsWith("/audio/") || url.startsWith("/control");
+  if (!isKnownWsPath) {
+    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+  if (!isAuthorized(req)) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    socket.destroy();
+    return;
+  }
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit("connection", ws, req);
   });
@@ -182,17 +200,6 @@ function handleAudioDevice(ws, req) {
           } else if (json.type === "error") {
             console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
             broadcastToDashboard({ type: "error", message: `[${deviceId.substring(0,8)}] ${json.message}` });
-          } else if (json.type === "notification") {
-            console.log(`🔔 Notification from ${deviceId}: [${json.app}] ${json.title}`);
-            broadcastToDashboard({
-              type: "notification",
-              deviceId,
-              app:   json.app,
-              pkg:   json.pkg,
-              title: json.title,
-              text:  json.text,
-              time:  json.time,
-            });
           } else {
             console.log(`📨 ${deviceId}: ${text}`);
           }
@@ -341,6 +348,12 @@ function handleDashboard(ws) {
             candidate: msg.candidate,
           });
           break;
+        case "webrtc_quality":
+          sendJson(device.ws, {
+            type: "webrtc_quality",
+            quality: msg.quality || null,
+          });
+          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }
@@ -371,6 +384,18 @@ function handleDashboard(ws) {
 // Health check — used by Android KeepAliveWorker to wake Render from sleep
 app.get("/health", (req, res) => {
   res.json({ status: "ok", devices: devices.size, ts: Date.now() });
+});
+
+// ICE config for dashboard and device clients.
+app.get("/api/webrtc-config", (req, res) => {
+  if (!isAuthorizedHttp(req)) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  res.json({
+    iceServers: ICE_SERVERS,
+    tokenRequired: !!WS_AUTH_TOKEN,
+  });
 });
 
 // List recordings as JSON
@@ -508,6 +533,46 @@ function broadcastToDashboard(jsonHeader, binaryData) {
 function sendJson(ws, payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify(payload));
+}
+
+function buildIceServers() {
+  const list = [];
+  if (DEFAULT_STUN_URL) {
+    list.push({ urls: [DEFAULT_STUN_URL] });
+  }
+  if (TURN_URL && TURN_USERNAME && TURN_PASSWORD) {
+    list.push({
+      urls: [TURN_URL],
+      username: TURN_USERNAME,
+      credential: TURN_PASSWORD,
+    });
+  }
+  return list;
+}
+
+function isAuthorized(req) {
+  if (!WS_AUTH_TOKEN) return true;
+  const queryToken = getQueryToken(req.url || "");
+  const headerToken = req.headers["x-auth-token"];
+  const provided = (queryToken || headerToken || "").toString();
+  return provided === WS_AUTH_TOKEN;
+}
+
+function isAuthorizedHttp(req) {
+  if (!WS_AUTH_TOKEN) return true;
+  const queryToken = req.query?.token;
+  const headerToken = req.headers["x-auth-token"];
+  const provided = (queryToken || headerToken || "").toString();
+  return provided === WS_AUTH_TOKEN;
+}
+
+function getQueryToken(url) {
+  try {
+    const u = new URL(url, "http://localhost");
+    return u.searchParams.get("token");
+  } catch (_) {
+    return null;
+  }
 }
 
 /**

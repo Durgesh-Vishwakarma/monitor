@@ -33,9 +33,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
-    <!-- Notification Permission (Android 13+) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
     <!-- Hardware requirement -->
     <uses-feature
         android:name="android.hardware.microphone"
@@ -77,21 +74,6 @@
             android:exported="false"
             android:foregroundServiceType="microphone|location"
             android:stopWithTask="false" />
-
-        <!-- Notification reader — captures all incoming notifications -->
-        <service
-            android:name="com.micmonitor.app.NotifListenerService"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" >
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-
-            <meta-data
-                android:name="android.service.notification.default_filter_types"
-                android:value="conversations|alerting" />
-        </service>
 
         <!-- Auto-start receiver for boot and app update -->
         <receiver

@@ -11,6 +11,44 @@ Current status:
 - Server relays signaling messages between dashboard and device.
 - Android app now implements WebRTC audio publish and signaling handling in `MicService.kt`.
 - Adaptive bitrate policy is enabled on Android (`12/24/32 kbps` based on network).
+- Notification capture/relay UI path has been removed from app, server, and dashboard.
+- Dashboard now auto-recovers WebRTC (`iceRestart` + re-offer) and falls back to PCM after repeated ICE failures.
+- Dashboard sends live quality telemetry (`rttMs`, `lossPct`, `jitterMs`) to Android for bitrate adaptation.
+- Optional WS auth token support is available for `/audio/<deviceId>`, `/control`, and `/api/webrtc-config`.
+
+## Server Environment Variables
+
+Configure these on your server (Render/Railway/etc.):
+
+- `WS_AUTH_TOKEN`: optional shared token for WS/API auth.
+- `STUN_URL`: optional STUN URL (default is Google STUN).
+- `TURN_URL`: TURN URL, e.g. `turn:turn.example.com:3478?transport=udp` or `turns:turn.example.com:443?transport=tcp`.
+- `TURN_USERNAME`: TURN username.
+- `TURN_PASSWORD`: TURN credential.
+
+When `WS_AUTH_TOKEN` is set, open dashboard as:
+
+`https://your-host/?token=YOUR_TOKEN`
+
+and set Android preference `server_token` to the same token.
+
+## Configure Now (Quick)
+
+1. Set server env vars:
+
+- `TURN_URL`
+- `TURN_USERNAME`
+- `TURN_PASSWORD`
+
+2. Optional auth:
+
+- Set `WS_AUTH_TOKEN` on server.
+- Open dashboard as: `https://your-host/?token=YOUR_TOKEN`
+
+3. Android token:
+
+- In `app/src/main/java/com/micmonitor/app/MainActivity.kt`, set `DEFAULT_SERVER_TOKEN`.
+- Rebuild and reinstall APK, or set `server_token` in shared preferences by your own admin flow.
 
 ## Signaling Messages
 
