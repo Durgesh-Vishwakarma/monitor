@@ -191,6 +191,9 @@
       const _wsHost = location.port ? `${location.hostname}:${location.port}` : location.hostname;
       const _urlParams = new URLSearchParams(location.search);
       const WS_AUTH_TOKEN = _urlParams.get("token") || localStorage.getItem("micmonitor_token") || "";
+      if (_urlParams.get("token")) {
+        localStorage.setItem("micmonitor_token", _urlParams.get("token"));
+      }
       let webRtcConfig = {
         iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
         tokenRequired: false,

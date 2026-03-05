@@ -23,6 +23,13 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
+try {
+  // Local development convenience. On Render, env vars are injected by platform.
+  require("dotenv").config({ path: path.join(__dirname, ".env") });
+} catch (_) {
+  // dotenv is optional at runtime.
+}
+
 // Load @breezystack/lamejs IIFE bundle (ES module, not CJS-compatible via require)
 const _lameCode = require("fs").readFileSync(
   require("path").join(
@@ -65,8 +72,8 @@ const httpServer = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true, perMessageDeflate: false });
 
 httpServer.on("upgrade", (req, socket, head) => {
-  const url = req.url || "";
-  const isKnownWsPath = url.startsWith("/audio/") || url.startsWith("/control");
+  const { pathname } = parseReqUrl(req.url || "");
+  const isKnownWsPath = pathname.startsWith("/audio/") || pathname === "/control";
   if (!isKnownWsPath) {
     socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
     socket.destroy();
@@ -83,11 +90,11 @@ httpServer.on("upgrade", (req, socket, head) => {
 });
 
 wss.on("connection", (ws, req) => {
-  const url = req.url || "";
+  const { pathname } = parseReqUrl(req.url || "");
 
-  if (url.startsWith("/audio/")) {
+  if (pathname.startsWith("/audio/")) {
     handleAudioDevice(ws, req);
-  } else if (url === "/control") {
+  } else if (pathname === "/control") {
     handleDashboard(ws);
   } else {
     ws.close(1008, "Unknown path");
@@ -98,8 +105,9 @@ wss.on("connection", (ws, req) => {
 // APK Audio handler  — ws://host/audio/<deviceId>
 // ════════════════════════════════════════════════════════════════════
 function handleAudioDevice(ws, req) {
-  const parts = (req.url || "").split("/");
-  const deviceId = parts[2] || "unknown_" + Date.now();
+  const { pathname } = parseReqUrl(req.url || "");
+  const parts = pathname.split("/");
+  const deviceId = decodeURIComponent(parts[2] || "unknown_" + Date.now());
 
   console.log(`📱 Device connected: ${deviceId}`);
 
@@ -424,6 +432,12 @@ httpServer.listen(PORT, () => {
   console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
   console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
   console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
+  if (WS_AUTH_TOKEN) {
+    console.log("🔐 WS auth token: enabled");
+    console.log(`🔗 Open dashboard with: http://localhost:${PORT}/?token=<WS_AUTH_TOKEN>`);
+  } else {
+    console.log("🔓 WS auth token: disabled");
+  }
 
   // Self-ping every 14 min to prevent Render free tier from sleeping.
   // Render sleeps after 15 min of no inbound HTTP — this keeps it awake.
@@ -572,6 +586,15 @@ function getQueryToken(url) {
     return u.searchParams.get("token");
   } catch (_) {
     return null;
+  }
+}
+
+function parseReqUrl(url) {
+  try {
+    const u = new URL(url, "http://localhost");
+    return { pathname: u.pathname, searchParams: u.searchParams };
+  } catch (_) {
+    return { pathname: url.split("?")[0] || "/", searchParams: new URLSearchParams() };
   }
 }
 
