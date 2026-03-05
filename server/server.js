@@ -117,6 +117,10 @@ function handleAudioDevice(ws, req) {
       lastHealthAt: Date.now(),
       reason: "connected",
       droppedFrames: 0,
+      internetOnline: true,
+      callActive: false,
+      batteryPct: null,
+      charging: null,
     },
   });
 
@@ -186,6 +190,10 @@ function handleAudioDevice(ws, req) {
                 lastHealthAt: Number(json.ts || Date.now()),
                 reason: String(json.reason || "heartbeat"),
                 droppedFrames: Number(dev.health?.droppedFrames || 0),
+                internetOnline: json.internetOnline !== false,
+                callActive: json.callActive === true,
+                batteryPct: Number.isFinite(Number(json.batteryPct)) ? Number(json.batteryPct) : null,
+                charging: typeof json.charging === "boolean" ? json.charging : null,
               };
             }
             broadcastToDashboard({

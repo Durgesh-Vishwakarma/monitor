@@ -7,6 +7,8 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -17,6 +19,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import android.os.BatteryManager
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
@@ -246,7 +249,7 @@ class MicService : Service() {
         activeWebSocket = null
         serviceScope.cancel()
         stopMicWatchdog()
-        stopAudioCapture()
+        stopAudioCapture("stop_capture_for_webrtc")
         stopWebRtcSession(notifyState = false)
         closeRecordingFile()
         webSocket?.close(1000, "Service stopped")
@@ -535,6 +538,7 @@ class MicService : Service() {
         applyAdaptiveBitrate()
         registerNetworkCallbackForBitrate()
         updateNotification("WebRTC mic active")
+        sendHealthStatus("webrtc_started")
         sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
     }
 
@@ -556,6 +560,7 @@ class MicService : Service() {
         val wasStreaming = isWebRtcStreaming
         isWebRtcStreaming = false
 
+        if (notifyState && wasStreaming) sendHealthStatus("webrtc_stopped")
         if (notifyState && wasStreaming) sendWebRtcState("stopped")
 
         // Resume legacy PCM stream only when dashboard still wants it.
@@ -823,6 +828,11 @@ class MicService : Service() {
     @SuppressLint("MissingPermission")  // Permission already checked in MainActivity before service starts
     private fun startAudioCapture() {
         if (isCapturing) return
+        if (isDeviceInCall()) {
+            Log.w(TAG, "Mic start blocked: device is currently in call")
+            sendHealthStatus("blocked_on_call")
+            return
+        }
         isCapturing = true
         lastAudioChunkSentAt = System.currentTimeMillis()
 
@@ -905,6 +915,11 @@ class MicService : Service() {
                 delay(15_000)
                 if (!wantsMicStreaming || activeWebSocket == null || isRecoveringMic) continue
 
+                if (isDeviceInCall()) {
+                    sendHealthStatus("blocked_on_call")
+                    continue
+                }
+
                 val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 35_000)
                 if (!isCapturing || stalled) {
                     isRecoveringMic = true
@@ -955,29 +970,75 @@ class MicService : Service() {
         return null
     }
 
-    private fun stopAudioCapture() {
+    private fun stopAudioCapture(reason: String = "stop_capture_cmd") {
         isCapturing = false
         try {
             audioRecord?.stop()
             audioRecord?.release()
         } catch (_: Exception) {}
         audioRecord = null
-        sendHealthStatus("stop_capture_cmd")
+        sendHealthStatus(reason)
     }
 
     private fun sendHealthStatus(reason: String) {
         val ws = webSocket ?: return
         lastHealthSentAt = System.currentTimeMillis()
+        val battery = getBatterySnapshot()
+        val internetOnline = isInternetOnline()
+        val callActive = isDeviceInCall()
         val msg = JSONObject().apply {
             put("type", "health_status")
             put("deviceId", deviceId)
             put("wsConnected", activeWebSocket != null)
-            put("micCapturing", isCapturing)
+            // In WebRTC mode microphone is captured by WebRTC audio source, not AudioRecord.
+            put("micCapturing", isCapturing || isWebRtcStreaming)
             put("lastAudioChunkSentAt", lastAudioChunkSentAt)
             put("reason", reason)
             put("ts", lastHealthSentAt)
+            put("internetOnline", internetOnline)
+            put("callActive", callActive)
+            if (battery != null) {
+                put("batteryPct", battery.first)
+                put("charging", battery.second)
+            }
         }
         ws.send(msg.toString())
+    }
+
+    private fun isInternetOnline(): Boolean {
+        val cm = connectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        val hasTransport = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        val validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        return hasTransport && validated
+    }
+
+    private fun isDeviceInCall(): Boolean {
+        return try {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+            val mode = audioManager.mode
+            mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun getBatterySnapshot(): Pair<Int, Boolean>? {
+        return try {
+            val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+            val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            val pct = if (level >= 0 && scale > 0) ((level * 100f) / scale).toInt().coerceIn(0, 100) else -1
+            val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL
+            Pair(pct, charging)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────

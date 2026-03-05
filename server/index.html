@@ -303,8 +303,13 @@
             <div class="health-item"><div class="health-label">Last Audio</div><div class="health-val" id="haud_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Last Health</div><div class="health-val" id="hhb_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">WebRTC</div><div class="health-val" id="hrtc_${deviceId}">idle</div></div>
+            <div class="health-item"><div class="health-label">RTC In Level</div><div class="health-val" id="hrms_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">RTP Rx/s</div><div class="health-val" id="hrx_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Bitrate</div><div class="health-val" id="hbr_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Quality</div><div class="health-val" id="hq_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Call Status</div><div class="health-val" id="hcall_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Internet</div><div class="health-val" id="hnet_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Battery</div><div class="health-val" id="hbat_${deviceId}">-</div></div>
           </div>
           <div class="canvas-wrap">
             <span class="canvas-label">AUDIO</span>
@@ -344,12 +349,19 @@
           remoteAudioEl: null,
           webRtcAudioCtx: null,
           webRtcSourceNode: null,
+          webRtcAnalyserNode: null,
+          webRtcMeterData: null,
+          webRtcMeterTimer: null,
+          webRtcInboundRms: 0,
+          rtcRxPacketsPerSec: 0,
+          rtcLastPacketsReceived: null,
+          rtcLastPacketsTs: null,
           webRtcGainNode: null,
           webRtcCompressorNode: null,
           webRtcAudioGraphConnected: false,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
-          health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null },
+          health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null, internetOnline: true, callActive: false, batteryPct: null, charging: null },
         };
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
       }
@@ -377,19 +389,39 @@
         const aud = document.getElementById(`haud_${deviceId}`);
         const hb = document.getElementById(`hhb_${deviceId}`);
         const rtc = document.getElementById(`hrtc_${deviceId}`);
+        const rms = document.getElementById(`hrms_${deviceId}`);
+        const rx = document.getElementById(`hrx_${deviceId}`);
         const br = document.getElementById(`hbr_${deviceId}`);
         const q = document.getElementById(`hq_${deviceId}`);
+        const call = document.getElementById(`hcall_${deviceId}`);
+        const net = document.getElementById(`hnet_${deviceId}`);
+        const bat = document.getElementById(`hbat_${deviceId}`);
+        const rtcState = String(h.webRtcState || "idle");
+        const webrtcMicActive = /started|answer_sent|ice_connected|ice_completed|pc_connected|bitrate_/i.test(rtcState);
         if (ws) ws.innerHTML = h.wsConnected ? `<span class="ok-text">connected</span>` : `<span class="bad-text">disconnected</span>`;
-        if (mic) mic.innerHTML = h.micCapturing ? `<span class="ok-text">running</span>` : `<span class="bad-text">stopped</span>`;
+        if (mic) mic.innerHTML = (h.micCapturing || webrtcMicActive) ? `<span class="ok-text">running</span>` : `<span class="bad-text">stopped</span>`;
         if (aud) aud.textContent = h.lastAudioChunkAt ? formatAgo(h.lastAudioChunkAt) : "never";
         if (hb) hb.textContent = h.lastHealthAt ? `${formatAgo(h.lastHealthAt)} (${h.reason || "-"})` : "never";
         if (rtc) {
-          const st = String(h.webRtcState || "idle");
+          const st = rtcState;
           const isGood = /connected|started|answer_sent|bitrate/.test(st);
           rtc.innerHTML = isGood ? `<span class="ok-text">${st}</span>` : st;
         }
+        if (rms) {
+          const pct = Math.max(0, Math.min(100, Math.round(Number(state.webRtcInboundRms || 0) * 100)));
+          const cls = pct >= 8 ? "ok-text" : (pct > 0 ? "" : "bad-text");
+          rms.innerHTML = `<span class="${cls}">${pct}%</span>`;
+        }
+        if (rx) {
+          const v = Number(state.rtcRxPacketsPerSec || 0);
+          const cls = v >= 8 ? "ok-text" : (v > 0 ? "" : "bad-text");
+          rx.innerHTML = `<span class="${cls}">${v.toFixed(1)}</span>`;
+        }
         if (br) br.innerHTML = renderBitrateBadge(h.bitrateKbps);
         if (q) q.textContent = renderQualitySummary(h.quality);
+        if (call) call.innerHTML = h.callActive ? `<span class="bad-text">on call</span>` : `<span class="ok-text">idle</span>`;
+        if (net) net.innerHTML = h.internetOnline === false ? `<span class="bad-text">offline</span>` : `<span class="ok-text">online</span>`;
+        if (bat) bat.innerHTML = renderBatterySummary(h.batteryPct, h.charging);
 
         // Auto-recover if user is in live mode but device mic stopped.
         if (state.isLive && h.wsConnected && !h.micCapturing) {
@@ -500,6 +532,14 @@
         return `rtt ${rtt} | loss ${loss} | jit ${jitter}`;
       }
 
+      function renderBatterySummary(batteryPct, charging) {
+        const p = Number(batteryPct);
+        const pctText = Number.isFinite(p) && p >= 0 ? `${Math.round(p)}%` : "-";
+        if (charging === true) return `<span class="ok-text">${pctText} (charging)</span>`;
+        if (charging === false) return `${pctText} (discharging)`;
+        return pctText;
+      }
+
       async function toggleWebRtc(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
@@ -532,7 +572,7 @@
         }
 
         pc.ontrack = (evt) => {
-          setupWebRtcPlaybackBoost(state, evt.streams[0]);
+          setupWebRtcPlaybackBoost(deviceId, state, evt.streams[0]);
           state.rtcConnected = true;
           state.rtcRetryCount = 0;
           if (state.rtcRestartTimer) {
@@ -611,14 +651,17 @@
         if (notifyServer) sendCmd(deviceId, "webrtc_stop");
       }
 
-      function setupWebRtcPlaybackBoost(state, stream) {
+      function setupWebRtcPlaybackBoost(deviceId, state, stream) {
         if (!state || !stream) return;
         if (state.remoteAudioEl) {
           state.remoteAudioEl.srcObject = stream;
-          state.remoteAudioEl.muted = true;
+          state.remoteAudioEl.muted = false;
+          state.remoteAudioEl.volume = 1.0;
+          state.remoteAudioEl.play?.().catch(() => {});
         }
         const Ctx = window.AudioContext || window.webkitAudioContext;
         if (!Ctx) return;
+        let graphActive = false;
         try {
           if (!state.webRtcAudioCtx) state.webRtcAudioCtx = new Ctx({ latencyHint: "interactive" });
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
@@ -644,20 +687,29 @@
             state.webRtcAudioGraphConnected = true;
           }
           state.webRtcSourceNode.connect(state.webRtcGainNode);
+          startWebRtcInputMeter(deviceId, state);
+          graphActive = true;
         } catch (e) {
           log(`WebRTC audio boost disabled: ${e.message}`, "warn");
-          if (state.remoteAudioEl) {
-            state.remoteAudioEl.muted = false;
-            state.remoteAudioEl.srcObject = stream;
-            state.remoteAudioEl.play?.().catch(() => {});
-          }
+        }
+        // Keep direct element playback as fail-safe if graph is not active.
+        if (state.remoteAudioEl) {
+          state.remoteAudioEl.muted = graphActive;
+          state.remoteAudioEl.play?.().catch(() => {});
         }
       }
 
       function teardownWebRtcPlaybackBoost(state) {
         if (!state) return;
+        if (state.webRtcMeterTimer) {
+          clearInterval(state.webRtcMeterTimer);
+          state.webRtcMeterTimer = null;
+        }
         if (state.webRtcSourceNode) {
           try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+        }
+        if (state.webRtcAnalyserNode) {
+          try { state.webRtcAnalyserNode.disconnect(); } catch (_) {}
         }
         if (state.webRtcGainNode) {
           try { state.webRtcGainNode.disconnect(); } catch (_) {}
@@ -669,10 +721,48 @@
           try { state.webRtcAudioCtx.close(); } catch (_) {}
         }
         state.webRtcSourceNode = null;
+        state.webRtcAnalyserNode = null;
+        state.webRtcMeterData = null;
+        state.webRtcInboundRms = 0;
+        state.rtcRxPacketsPerSec = 0;
+        state.rtcLastPacketsReceived = null;
+        state.rtcLastPacketsTs = null;
         state.webRtcGainNode = null;
         state.webRtcCompressorNode = null;
         state.webRtcAudioCtx = null;
         state.webRtcAudioGraphConnected = false;
+      }
+
+      function startWebRtcInputMeter(deviceId, state) {
+        if (!state?.webRtcAudioCtx || !state?.webRtcSourceNode) return;
+        if (!state.webRtcAnalyserNode) {
+          state.webRtcAnalyserNode = state.webRtcAudioCtx.createAnalyser();
+          state.webRtcAnalyserNode.fftSize = 1024;
+          state.webRtcAnalyserNode.smoothingTimeConstant = 0.6;
+        }
+        try { state.webRtcSourceNode.connect(state.webRtcAnalyserNode); } catch (_) {}
+        if (!state.webRtcMeterData || state.webRtcMeterData.length !== state.webRtcAnalyserNode.fftSize) {
+          state.webRtcMeterData = new Float32Array(state.webRtcAnalyserNode.fftSize);
+        }
+        if (state.webRtcMeterTimer) clearInterval(state.webRtcMeterTimer);
+        state.webRtcMeterTimer = setInterval(() => {
+          if (!state.useWebRtc || !state.webRtcAnalyserNode || !state.webRtcMeterData) return;
+          try {
+            state.webRtcAnalyserNode.getFloatTimeDomainData(state.webRtcMeterData);
+            let sum = 0;
+            for (let i = 0; i < state.webRtcMeterData.length; i++) {
+              const v = state.webRtcMeterData[i];
+              sum += v * v;
+            }
+            state.webRtcInboundRms = Math.sqrt(sum / state.webRtcMeterData.length);
+            const rmsEl = document.getElementById(`hrms_${deviceId}`);
+            if (rmsEl) {
+              const pct = Math.max(0, Math.min(100, Math.round(state.webRtcInboundRms * 100)));
+              const cls = pct >= 8 ? "ok-text" : (pct > 0 ? "" : "bad-text");
+              rmsEl.innerHTML = `<span class="${cls}">${pct}%</span>`;
+            }
+          } catch (_) {}
+        }, 250);
       }
 
       async function onWebRtcAnswer(deviceId, sdp) {
@@ -724,11 +814,30 @@
       function startStatsLoop(deviceId, state) {
         if (!state || !state.rtcPeer) return;
         if (state.rtcStatsTimer) clearInterval(state.rtcStatsTimer);
+        state.rtcLastPacketsReceived = null;
+        state.rtcLastPacketsTs = null;
+        state.rtcRxPacketsPerSec = 0;
         state.rtcStatsTimer = setInterval(async () => {
           if (!state.rtcPeer || !state.useWebRtc) return;
           try {
             const stats = await state.rtcPeer.getStats();
             const quality = extractQualityFromStats(stats);
+            const nowMs = Date.now();
+            let packetsReceivedNow = null;
+            stats.forEach((s) => {
+              if (s.type === "inbound-rtp" && s.kind === "audio" && Number.isFinite(Number(s.packetsReceived))) {
+                packetsReceivedNow = Number(s.packetsReceived);
+              }
+            });
+            if (packetsReceivedNow != null) {
+              if (state.rtcLastPacketsReceived != null && state.rtcLastPacketsTs != null) {
+                const dtSec = Math.max(0.001, (nowMs - state.rtcLastPacketsTs) / 1000);
+                const dp = Math.max(0, packetsReceivedNow - state.rtcLastPacketsReceived);
+                state.rtcRxPacketsPerSec = dp / dtSec;
+              }
+              state.rtcLastPacketsReceived = packetsReceivedNow;
+              state.rtcLastPacketsTs = nowMs;
+            }
             state.health = state.health || {};
             state.health.quality = quality;
             renderDeviceHealth(deviceId, state.health);
