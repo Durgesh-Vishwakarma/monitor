@@ -43,10 +43,6 @@ class MainActivity : AppCompatActivity() {
         if (existingUrl.isBlank()) {
             prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
         }
-        val existingToken = prefs.getString("server_token", null).orEmpty().trim()
-        if (existingToken.isBlank() && DEFAULT_SERVER_TOKEN.isNotBlank()) {
-            prefs.edit().putString("server_token", DEFAULT_SERVER_TOKEN).apply()
-        }
 
         // Already set up — restart service silently
         if (prefs.getBoolean("consent_given", false) && hasAllPermissions()) {
@@ -145,9 +141,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_CODE = 1001
-
-        // Optional: set this before building APK when WS_AUTH_TOKEN is enabled on server.
-        private const val DEFAULT_SERVER_TOKEN = "micstream_secure_token_123"
     }
 }
 

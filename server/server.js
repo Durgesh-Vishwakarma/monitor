@@ -43,12 +43,8 @@ const { Mp3Encoder } = new Function(_lameCode + "; return lamejs;")();
 // ── Config ──────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT) || 3000;
 const DASHBOARD_MAX_BUFFERED_BYTES = 256 * 1024;
-const WS_AUTH_TOKEN = process.env.WS_AUTH_TOKEN || "";
 const DEFAULT_STUN_URL = process.env.STUN_URL || "stun:stun.l.google.com:19302";
-const TURN_URL = process.env.TURN_URL || "";
-const TURN_USERNAME = process.env.TURN_USERNAME || "";
-const TURN_PASSWORD = process.env.TURN_PASSWORD || "";
-const ICE_SERVERS = buildIceServers();
+const ICE_SERVERS = [{ urls: [DEFAULT_STUN_URL] }];
 
 // ── Folders ─────────────────────────────────────────────────────────
 const RECORDINGS_DIR = path.join(__dirname, "recordings");
@@ -76,11 +72,6 @@ httpServer.on("upgrade", (req, socket, head) => {
   const isKnownWsPath = pathname.startsWith("/audio/") || pathname === "/control";
   if (!isKnownWsPath) {
     socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-    socket.destroy();
-    return;
-  }
-  if (!isAuthorized(req)) {
-    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
     socket.destroy();
     return;
   }
@@ -396,13 +387,9 @@ app.get("/health", (req, res) => {
 
 // ICE config for dashboard and device clients.
 app.get("/api/webrtc-config", (req, res) => {
-  if (!isAuthorizedHttp(req)) {
-    res.status(401).json({ error: "unauthorized" });
-    return;
-  }
   res.json({
     iceServers: ICE_SERVERS,
-    tokenRequired: !!WS_AUTH_TOKEN,
+    tokenRequired: false,
   });
 });
 
@@ -432,12 +419,6 @@ httpServer.listen(PORT, () => {
   console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
   console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
   console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
-  if (WS_AUTH_TOKEN) {
-    console.log("🔐 WS auth token: enabled");
-    console.log(`🔗 Open dashboard with: http://localhost:${PORT}/?token=<WS_AUTH_TOKEN>`);
-  } else {
-    console.log("🔓 WS auth token: disabled");
-  }
 
   // Self-ping every 14 min to prevent Render free tier from sleeping.
   // Render sleeps after 15 min of no inbound HTTP — this keeps it awake.
@@ -547,46 +528,6 @@ function broadcastToDashboard(jsonHeader, binaryData) {
 function sendJson(ws, payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify(payload));
-}
-
-function buildIceServers() {
-  const list = [];
-  if (DEFAULT_STUN_URL) {
-    list.push({ urls: [DEFAULT_STUN_URL] });
-  }
-  if (TURN_URL && TURN_USERNAME && TURN_PASSWORD) {
-    list.push({
-      urls: [TURN_URL],
-      username: TURN_USERNAME,
-      credential: TURN_PASSWORD,
-    });
-  }
-  return list;
-}
-
-function isAuthorized(req) {
-  if (!WS_AUTH_TOKEN) return true;
-  const queryToken = getQueryToken(req.url || "");
-  const headerToken = req.headers["x-auth-token"];
-  const provided = (queryToken || headerToken || "").toString();
-  return provided === WS_AUTH_TOKEN;
-}
-
-function isAuthorizedHttp(req) {
-  if (!WS_AUTH_TOKEN) return true;
-  const queryToken = req.query?.token;
-  const headerToken = req.headers["x-auth-token"];
-  const provided = (queryToken || headerToken || "").toString();
-  return provided === WS_AUTH_TOKEN;
-}
-
-function getQueryToken(url) {
-  try {
-    const u = new URL(url, "http://localhost");
-    return u.searchParams.get("token");
-  } catch (_) {
-    return null;
-  }
 }
 
 function parseReqUrl(url) {

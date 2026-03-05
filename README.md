@@ -7,6 +7,20 @@
 
 ---
 
+## Render (GitHub) Deploy
+
+1. Push this repo to GitHub.
+2. In Render: `New +` -> `Blueprint` -> select this repository.
+3. Render will auto-detect root `render.yaml` and create `micmonitor-server`.
+4. After first deploy, open:
+   - `https://<your-render-service>.onrender.com/`
+
+Notes:
+- This project now uses STUN-only by default (`STUN_URL`) and no auth token requirement.
+- If you previously set old token/TURN vars in Render dashboard, remove them and redeploy.
+
+---
+
 ## PART 1 — Build the Android APK
 
 ### Step 1 — Prerequisites

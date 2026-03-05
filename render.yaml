@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: micmonitor-server
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STUN_URL
+        value: stun:stun.l.google.com:19302
