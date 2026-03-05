@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-97:12
-INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-97:12
-INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-97:12
-INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-97:12
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-98:12
+INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-98:12
+INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-98:12
+INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:2:1-98:12
 MERGED from [androidx.databinding:viewbinding:8.2.2] C:\Users\vishw\.gradle\caches\transforms-3\4acd40b72164f02e845c37ffd2270ef8\transformed\jetified-viewbinding-8.2.2\AndroidManifest.xml:2:1-7:12
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\vishw\.gradle\caches\transforms-3\a1c5e08825da8b3508fd7a457a086ebc\transformed\constraintlayout-2.1.4\AndroidManifest.xml:2:1-11:12
@@ -53,6 +53,7 @@ MERGED from [androidx.documentfile:documentfile:1.0.0] C:\Users\vishw\.gradle\ca
 MERGED from [androidx.localbroadcastmanager:localbroadcastmanager:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\7b115708b95e2006844688cb5d0e7417\transformed\localbroadcastmanager-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.print:print:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\3d2071ecff002f078b1511d7965c37b5\transformed\print-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.sqlite:sqlite:2.3.0] C:\Users\vishw\.gradle\caches\transforms-3\71e96b795a830d375e43747750f5d67c\transformed\sqlite-2.3.0\AndroidManifest.xml:17:1-22:12
+MERGED from [io.github.webrtc-sdk:android:125.6422.07] C:\Users\vishw\.gradle\caches\transforms-3\04125401d2f80508b663ef6b750170fd\transformed\jetified-android-125.6422.07\AndroidManifest.xml:11:1-14:12
 	package
 		INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml
 	android:versionName
@@ -71,65 +72,71 @@ uses-permission#android.permission.INTERNET
 ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:7:5-67
 	android:name
 		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:7:22-64
+uses-permission#android.permission.ACCESS_NETWORK_STATE
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:8:5-79
+MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:24:5-79
+MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:24:5-79
+	android:name
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:8:22-76
 uses-permission#android.permission.WAKE_LOCK
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:8:5-68
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:9:5-68
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:23:5-68
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:23:5-68
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:8:22-65
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:9:22-65
 uses-permission#android.permission.RECEIVE_BOOT_COMPLETED
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:9:5-81
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:10:5-81
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:25:5-81
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:25:5-81
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:9:22-78
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:10:22-78
 uses-permission#android.permission.ACCESS_FINE_LOCATION
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:12:5-79
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:13:5-79
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:12:22-76
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:13:22-76
 uses-permission#android.permission.ACCESS_COARSE_LOCATION
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:13:5-81
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:14:5-81
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:13:22-78
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:14:22-78
 uses-permission#android.permission.READ_SMS
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:16:5-67
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:17:5-67
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:16:22-64
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:17:22-64
 uses-permission#android.permission.READ_CALL_LOG
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:17:5-72
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:18:5-72
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:17:22-69
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:18:22-69
 uses-permission#android.permission.FOREGROUND_SERVICE
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:20:5-77
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:21:5-77
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:26:5-77
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:26:5-77
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:20:22-74
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:21:22-74
 uses-permission#android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:23:5-95
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:24:5-95
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:23:22-92
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:24:22-92
 uses-permission#android.permission.FOREGROUND_SERVICE_MICROPHONE
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:26:5-88
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:27:5-88
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:26:22-85
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:27:22-85
 uses-permission#android.permission.FOREGROUND_SERVICE_LOCATION
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:27:5-86
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:28:5-86
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:27:22-83
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:28:22-83
 uses-permission#android.permission.POST_NOTIFICATIONS
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:30:5-77
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:31:5-77
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:30:22-74
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:31:22-74
 uses-feature#android.hardware.microphone
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:33:5-35:35
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:34:5-36:35
 	android:required
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:35:9-32
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:36:9-32
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:34:9-51
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:35:9-51
 application
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:37:5-95:19
-INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:37:5-95:19
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:38:5-96:19
+INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:38:5-96:19
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\vishw\.gradle\caches\transforms-3\a1c5e08825da8b3508fd7a457a086ebc\transformed\constraintlayout-2.1.4\AndroidManifest.xml:9:5-20
@@ -155,107 +162,107 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\vishw\.gradle\cach
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.12.0] C:\Users\vishw\.gradle\caches\transforms-3\d1e4a685b1001794fbcfe4ee9c157a7e\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:43:9-35
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:44:9-35
 	android:label
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:42:9-41
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:43:9-41
 	android:fullBackupContent
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:41:9-54
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:42:9-54
 	tools:targetApi
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:46:9-29
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:47:9-29
 	android:allowBackup
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:39:9-36
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:40:9-36
 	android:theme
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:45:9-48
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:46:9-48
 	android:dataExtractionRules
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:40:9-65
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:41:9-65
 	android:usesCleartextTraffic
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:44:9-44
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:45:9-44
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:38:9-31
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:39:9-31
 activity#com.micmonitor.app.MainActivity
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:49:9-57:20
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:50:9-58:20
 	android:exported
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:51:13-36
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:52:13-36
 	android:theme
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:52:13-52
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:53:13-52
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:50:13-41
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:51:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:53:13-56:29
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:54:13-57:29
 action#android.intent.action.MAIN
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:54:17-69
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:55:17-69
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:54:25-66
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:55:25-66
 category#android.intent.category.LAUNCHER
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:55:17-77
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:56:17-77
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:55:27-74
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:56:27-74
 service#com.micmonitor.app.MicService
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:60:9-64:44
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:61:9-65:44
 	android:exported
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:63:13-37
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:64:13-37
 	android:stopWithTask
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:64:13-41
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:65:13-41
 	android:foregroundServiceType
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:62:13-64
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:63:13-64
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:61:13-39
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:62:13-39
 service#com.micmonitor.app.NotifListenerService
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:67:9-78:19
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:68:9-79:19
 	android:label
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:70:13-45
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:71:13-45
 	android:exported
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:69:13-36
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:70:13-36
 	android:permission
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:71:13-87
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:72:13-87
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:68:13-49
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:69:13-49
 intent-filter#action:name:android.service.notification.NotificationListenerService
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:72:13-74:29
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:73:13-75:29
 action#android.service.notification.NotificationListenerService
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:73:17-99
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:74:17-99
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:73:25-96
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:74:25-96
 meta-data#android.service.notification.default_filter_types
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:75:13-77:58
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:76:13-78:58
 	android:value
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:77:17-55
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:78:17-55
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:76:17-81
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:77:17-81
 receiver#com.micmonitor.app.BootReceiver
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:81:9-93:20
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:82:9-94:20
 	android:enabled
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:83:13-35
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:84:13-35
 	android:exported
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:84:13-36
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:85:13-36
 	android:directBootAware
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:85:13-43
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:86:13-43
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:82:13-41
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:83:13-41
 intent-filter#action:name:android.intent.action.BOOT_COMPLETED+action:name:android.intent.action.LOCKED_BOOT_COMPLETED+action:name:android.intent.action.MY_PACKAGE_REPLACED+action:name:android.intent.action.QUICKBOOT_POWERON+action:name:com.htc.intent.action.QUICKBOOT_POWERON
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:86:13-92:29
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:87:13-93:29
 	android:priority
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:86:28-51
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:87:28-51
 action#android.intent.action.BOOT_COMPLETED
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:87:17-79
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:88:17-79
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:87:25-76
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:88:25-76
 action#android.intent.action.LOCKED_BOOT_COMPLETED
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:88:17-86
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:89:17-86
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:88:25-83
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:89:25-83
 action#android.intent.action.QUICKBOOT_POWERON
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:89:17-82
-	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:89:25-79
-action#com.htc.intent.action.QUICKBOOT_POWERON
 ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:90:17-82
 	android:name
 		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:90:25-79
-action#android.intent.action.MY_PACKAGE_REPLACED
-ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:91:17-84
+action#com.htc.intent.action.QUICKBOOT_POWERON
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:91:17-82
 	android:name
-		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:91:25-81
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:91:25-79
+action#android.intent.action.MY_PACKAGE_REPLACED
+ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:92:17-84
+	android:name
+		ADDED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:92:25-81
 uses-sdk
 INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml
@@ -358,6 +365,8 @@ MERGED from [androidx.print:print:1.0.0] C:\Users\vishw\.gradle\caches\transform
 MERGED from [androidx.print:print:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\3d2071ecff002f078b1511d7965c37b5\transformed\print-1.0.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.sqlite:sqlite:2.3.0] C:\Users\vishw\.gradle\caches\transforms-3\71e96b795a830d375e43747750f5d67c\transformed\sqlite-2.3.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.sqlite:sqlite:2.3.0] C:\Users\vishw\.gradle\caches\transforms-3\71e96b795a830d375e43747750f5d67c\transformed\sqlite-2.3.0\AndroidManifest.xml:20:5-44
+MERGED from [io.github.webrtc-sdk:android:125.6422.07] C:\Users\vishw\.gradle\caches\transforms-3\04125401d2f80508b663ef6b750170fd\transformed\jetified-android-125.6422.07\AndroidManifest.xml:13:3-72
+MERGED from [io.github.webrtc-sdk:android:125.6422.07] C:\Users\vishw\.gradle\caches\transforms-3\04125401d2f80508b663ef6b750170fd\transformed\jetified-android-125.6422.07\AndroidManifest.xml:13:3-72
 	android:targetSdkVersion
 		INJECTED from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml
 	android:minSdkVersion
@@ -386,10 +395,6 @@ ADDED from [androidx.emoji2:emoji2:1.2.0] C:\Users\vishw\.gradle\caches\transfor
 		ADDED from [androidx.emoji2:emoji2:1.2.0] C:\Users\vishw\.gradle\caches\transforms-3\bc470873fdd23c33cd7d3c06f37ee37c\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:31:17-49
 	android:name
 		ADDED from [androidx.emoji2:emoji2:1.2.0] C:\Users\vishw\.gradle\caches\transforms-3\bc470873fdd23c33cd7d3c06f37ee37c\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:30:17-75
-uses-permission#android.permission.ACCESS_NETWORK_STATE
-ADDED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:24:5-79
-	android:name
-		ADDED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:24:22-76
 meta-data#androidx.work.WorkManagerInitializer
 ADDED from [androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:34:13-36:52
 	android:value

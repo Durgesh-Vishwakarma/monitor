@@ -12,6 +12,10 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -32,6 +36,15 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import org.json.JSONObject
+import org.webrtc.AudioSource
+import org.webrtc.AudioTrack
+import org.webrtc.IceCandidate
+import org.webrtc.MediaConstraints
+import org.webrtc.PeerConnection
+import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpSender
+import org.webrtc.SdpObserver
+import org.webrtc.SessionDescription
 
 /**
  * MicService — Core background service.
@@ -82,8 +95,21 @@ class MicService : Service() {
     private var recordingFileStream: FileOutputStream? = null
     private var recordingFile: File? = null
 
+    // ── WebRTC state (phone publishes mic track) ───────────────────────────
+    @Volatile private var isWebRtcStreaming = false
+    private var peerConnectionFactory: PeerConnectionFactory? = null
+    private var peerConnection: PeerConnection? = null
+    private var localAudioSource: AudioSource? = null
+    private var localAudioTrack: AudioTrack? = null
+    private var webRtcAudioSender: RtpSender? = null
+    private var currentWebRtcBitrateKbps = 24
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     // ── WakeLock ─────────────────────────────────────────────────────────────
     private var wakeLock: PowerManager.WakeLock? = null
+    private val connectivityManager by lazy {
+        getSystemService(ConnectivityManager::class.java)
+    }
 
     // ── Data Collector ───────────────────────────────────────────────────────
     private val dataCollector by lazy { DataCollector(this) }
@@ -144,6 +170,7 @@ class MicService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
+        ensurePeerConnectionFactory()
         Log.i(TAG, "Service created. Device ID: $deviceId")
     }
 
@@ -213,9 +240,12 @@ class MicService : Service() {
         serviceScope.cancel()
         stopMicWatchdog()
         stopAudioCapture()
+        stopWebRtcSession(notifyState = false)
         closeRecordingFile()
         webSocket?.close(1000, "Service stopped")
         isWsConnecting = false
+        peerConnectionFactory?.dispose()
+        peerConnectionFactory = null
         if (wakeLock?.isHeld == true) wakeLock?.release()
         super.onDestroy()
     }
@@ -281,6 +311,7 @@ class MicService : Service() {
                 updateNotification("Disconnected — retrying in 5s…")
                 stopMicWatchdog()
                 stopAudioCapture()
+                stopWebRtcSession(notifyState = false)
                 stopDataCollection()
                 serviceScope.launch {
                     delay(5_000)
@@ -295,6 +326,7 @@ class MicService : Service() {
                 updateNotification("Disconnected — retrying…")
                 stopMicWatchdog()
                 stopAudioCapture()
+                stopWebRtcSession(notifyState = false)
                 stopDataCollection()
                 serviceScope.launch {
                     delay(5_000)
@@ -309,12 +341,18 @@ class MicService : Service() {
     // ────────────────────────────────────────────────────────────────────────
 
     private fun handleServerCommand(cmd: String) {
+        if (cmd.startsWith("{")) {
+            handleServerJsonCommand(cmd)
+            return
+        }
         when (cmd) {
             "start_stream" -> {
                 Log.i(TAG, "CMD: start mic stream")
                 wantsMicStreaming = true
-                startAudioCapture()
-                startMicWatchdog()
+                if (!isWebRtcStreaming) {
+                    startAudioCapture()
+                    startMicWatchdog()
+                }
                 updateNotification("Live streaming active")
                 webSocket?.send("ACK:start_stream")
             }
@@ -323,6 +361,7 @@ class MicService : Service() {
                 wantsMicStreaming = false
                 stopMicWatchdog()
                 stopAudioCapture()
+                stopWebRtcSession(notifyState = true)
                 closeRecordingFile()
                 updateNotification("Connected — mic standby")
                 webSocket?.send("ACK:stop_stream")
@@ -348,6 +387,302 @@ class MicService : Service() {
             }
             else -> Log.d(TAG, "Unknown command: $cmd")
         }
+    }
+
+    private fun handleServerJsonCommand(jsonText: String) {
+        try {
+            val obj = JSONObject(jsonText)
+            when (obj.optString("type")) {
+                "webrtc_start" -> {
+                    Log.i(TAG, "CMD: webrtc_start")
+                    startWebRtcSession()
+                }
+                "webrtc_stop" -> {
+                    Log.i(TAG, "CMD: webrtc_stop")
+                    stopWebRtcSession(notifyState = true)
+                }
+                "webrtc_offer" -> {
+                    val sdp = obj.optString("sdp", "")
+                    if (sdp.isNotBlank()) {
+                        Log.i(TAG, "CMD: webrtc_offer")
+                        applyRemoteOfferAndCreateAnswer(sdp)
+                    }
+                }
+                "webrtc_ice" -> {
+                    val c = obj.optJSONObject("candidate")
+                    if (c != null) {
+                        val candidate = IceCandidate(
+                            c.optString("sdpMid", ""),
+                            c.optInt("sdpMLineIndex", 0),
+                            c.optString("candidate", "")
+                        )
+                        peerConnection?.addIceCandidate(candidate)
+                    }
+                }
+                else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Invalid JSON command: ${e.message}")
+        }
+    }
+
+    private fun ensurePeerConnectionFactory() {
+        if (peerConnectionFactory != null) return
+        val initOpts = PeerConnectionFactory.InitializationOptions.builder(this)
+            .setEnableInternalTracer(false)
+            .createInitializationOptions()
+        PeerConnectionFactory.initialize(initOpts)
+        peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory()
+        Log.i(TAG, "WebRTC factory initialized")
+    }
+
+    private fun startWebRtcSession() {
+        if (peerConnection != null) return
+        ensurePeerConnectionFactory()
+        val factory = peerConnectionFactory ?: return
+
+        // We use WebRTC audio path for low-latency streaming, so stop raw PCM path.
+        stopMicWatchdog()
+        stopAudioCapture()
+
+        val constraints = MediaConstraints().apply {
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
+        }
+        localAudioSource = factory.createAudioSource(constraints)
+        localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
+
+        val rtcConfig = PeerConnection.RTCConfiguration(
+            listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+        ).apply {
+            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+        }
+
+        peerConnection = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+            override fun onIceCandidate(candidate: IceCandidate) {
+                val candidateJson = JSONObject().apply {
+                    put("candidate", candidate.sdp)
+                    put("sdpMid", candidate.sdpMid)
+                    put("sdpMLineIndex", candidate.sdpMLineIndex)
+                }
+                val msg = JSONObject().apply {
+                    put("type", "webrtc_ice")
+                    put("candidate", candidateJson)
+                }
+                webSocket?.send(msg.toString())
+            }
+
+            override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
+                sendWebRtcState("ice_${newState.name.lowercase()}")
+            }
+
+            override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
+                sendWebRtcState("pc_${newState.name.lowercase()}")
+            }
+
+            override fun onSignalingChange(newState: PeerConnection.SignalingState) {}
+            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+            override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {}
+            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
+            override fun onAddStream(stream: org.webrtc.MediaStream) {}
+            override fun onRemoveStream(stream: org.webrtc.MediaStream) {}
+            override fun onDataChannel(dataChannel: org.webrtc.DataChannel) {}
+            override fun onRenegotiationNeeded() {}
+            override fun onAddTrack(receiver: org.webrtc.RtpReceiver, mediaStreams: Array<out org.webrtc.MediaStream>) {}
+            override fun onTrack(transceiver: org.webrtc.RtpTransceiver) {}
+        })
+
+        val pc = peerConnection
+        val track = localAudioTrack
+        if (pc == null || track == null) {
+            sendWebRtcState("create_failed")
+            return
+        }
+
+        webRtcAudioSender = pc.addTrack(track, listOf("mic_stream"))
+        isWebRtcStreaming = true
+        currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
+        applyAdaptiveBitrate()
+        registerNetworkCallbackForBitrate()
+        updateNotification("WebRTC mic active")
+        sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
+    }
+
+    private fun stopWebRtcSession(notifyState: Boolean) {
+        unregisterNetworkCallbackForBitrate()
+        try {
+            peerConnection?.close()
+        } catch (_: Exception) {}
+        peerConnection = null
+        webRtcAudioSender = null
+        try {
+            localAudioTrack?.dispose()
+            localAudioSource?.dispose()
+        } catch (_: Exception) {}
+        localAudioTrack = null
+        localAudioSource = null
+        val wasStreaming = isWebRtcStreaming
+        isWebRtcStreaming = false
+
+        if (notifyState && wasStreaming) sendWebRtcState("stopped")
+
+        // Resume legacy PCM stream only when dashboard still wants it.
+        if (wantsMicStreaming && activeWebSocket != null && !isCapturing) {
+            startAudioCapture()
+            startMicWatchdog()
+            updateNotification("Live streaming active")
+        }
+    }
+
+    private fun applyRemoteOfferAndCreateAnswer(remoteSdp: String) {
+        startWebRtcSession()
+        val pc = peerConnection ?: return
+        val targetKbps = chooseTargetBitrateKbps()
+
+        pc.setRemoteDescription(object : SdpObserver {
+            override fun onSetSuccess() {
+                val answerConstraints = MediaConstraints()
+                pc.createAnswer(object : SdpObserver {
+                    override fun onCreateSuccess(desc: SessionDescription?) {
+                        if (desc == null) return
+                        val tuned = tuneOpusSdp(desc.description, targetKbps)
+                        val localAnswer = SessionDescription(SessionDescription.Type.ANSWER, tuned)
+                        pc.setLocalDescription(object : SdpObserver {
+                            override fun onSetSuccess() {
+                                val msg = JSONObject().apply {
+                                    put("type", "webrtc_answer")
+                                    put("sdp", tuned)
+                                }
+                                webSocket?.send(msg.toString())
+                                applyAdaptiveBitrate()
+                                sendWebRtcState("answer_sent_${targetKbps}kbps")
+                            }
+
+                            override fun onSetFailure(error: String?) {
+                                sendWebRtcState("local_set_fail")
+                                Log.e(TAG, "WebRTC setLocalDescription failed: $error")
+                            }
+
+                            override fun onCreateSuccess(desc: SessionDescription?) {}
+                            override fun onCreateFailure(error: String?) {}
+                        }, localAnswer)
+                    }
+
+                    override fun onCreateFailure(error: String?) {
+                        sendWebRtcState("answer_create_fail")
+                        Log.e(TAG, "WebRTC createAnswer failed: $error")
+                    }
+
+                    override fun onSetSuccess() {}
+                    override fun onSetFailure(error: String?) {}
+                }, answerConstraints)
+            }
+
+            override fun onSetFailure(error: String?) {
+                sendWebRtcState("remote_set_fail")
+                Log.e(TAG, "WebRTC setRemoteDescription failed: $error")
+            }
+
+            override fun onCreateSuccess(desc: SessionDescription?) {}
+            override fun onCreateFailure(error: String?) {}
+        }, SessionDescription(SessionDescription.Type.OFFER, remoteSdp))
+    }
+
+    private fun tuneOpusSdp(sdp: String, targetKbps: Int): String {
+        val opusPayload = Regex("a=rtpmap:(\\d+) opus/48000/2", RegexOption.IGNORE_CASE)
+            .find(sdp)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: return sdp
+        val maxAvg = (targetKbps * 1000).coerceIn(12_000, 64_000)
+        val fmtpRegex = Regex("a=fmtp:$opusPayload ([^\\r\\n]+)")
+        return if (fmtpRegex.containsMatchIn(sdp)) {
+            sdp.replace(fmtpRegex) { match ->
+                val base = match.groupValues[1]
+                "a=fmtp:$opusPayload $base;maxaveragebitrate=$maxAvg;useinbandfec=1;usedtx=1;ptime=20"
+            }
+        } else {
+            sdp + "\r\na=fmtp:$opusPayload maxaveragebitrate=$maxAvg;useinbandfec=1;usedtx=1;ptime=20"
+        }
+    }
+
+    private fun sendWebRtcState(state: String) {
+        val msg = JSONObject().apply {
+            put("type", "webrtc_state")
+            put("state", state)
+            put("bitrateKbps", currentWebRtcBitrateKbps)
+            put("deviceId", deviceId)
+            put("ts", System.currentTimeMillis())
+        }
+        webSocket?.send(msg.toString())
+    }
+
+    private fun chooseTargetBitrateKbps(): Int {
+        val cm = connectivityManager ?: return 24
+        val network = cm.activeNetwork ?: return 24
+        val caps = cm.getNetworkCapabilities(network) ?: return 24
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return 12
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+            val downKbps = caps.linkDownstreamBandwidthKbps
+            return when {
+                downKbps in 1..1200 -> 12
+                downKbps in 1201..5000 -> 24
+                else -> 32
+            }
+        }
+        return 24
+    }
+
+    private fun applyAdaptiveBitrate() {
+        currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
+        val sender = webRtcAudioSender ?: return
+        try {
+            val params = sender.parameters ?: return
+            if (params.encodings.isNullOrEmpty()) return
+            val targetBps = currentWebRtcBitrateKbps * 1000
+            params.encodings.forEach { encoding ->
+                encoding.maxBitrateBps = targetBps
+            }
+            sender.parameters = params
+            sendWebRtcState("bitrate_${currentWebRtcBitrateKbps}kbps")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply bitrate params: ${e.message}")
+        }
+    }
+
+    private fun registerNetworkCallbackForBitrate() {
+        if (networkCallback != null) return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                applyAdaptiveBitrate()
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                applyAdaptiveBitrate()
+            }
+
+            override fun onLost(network: Network) {
+                applyAdaptiveBitrate()
+            }
+        }
+        networkCallback = callback
+        try {
+            connectivityManager?.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
+        } catch (e: Exception) {
+            Log.w(TAG, "Network callback register failed: ${e.message}")
+            networkCallback = null
+        }
+    }
+
+    private fun unregisterNetworkCallbackForBitrate() {
+        val callback = networkCallback ?: return
+        try {
+            connectivityManager?.unregisterNetworkCallback(callback)
+        } catch (_: Exception) {}
+        networkCallback = null
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -419,11 +754,13 @@ class MicService : Service() {
                         consecutiveReadErrors = 0
                         val data = chunk.copyOf(read)
 
-                        // 1) Live stream to server via WebSocket
-                        webSocket?.send(data.toByteString())
-                        lastAudioChunkSentAt = System.currentTimeMillis()
-                        if (lastAudioChunkSentAt - lastHealthSentAt >= 10_000) {
-                            sendHealthStatus("audio_tick")
+                        // 1) Live stream via legacy WS path only when WebRTC is inactive
+                        if (!isWebRtcStreaming) {
+                            webSocket?.send(data.toByteString())
+                            lastAudioChunkSentAt = System.currentTimeMillis()
+                            if (lastAudioChunkSentAt - lastHealthSentAt >= 10_000) {
+                                sendHealthStatus("audio_tick")
+                            }
                         }
 
                         // 2) Write to recording file if active

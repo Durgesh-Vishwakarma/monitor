@@ -563,6 +563,19 @@
       externalAnnotations="annotations.zip"
       proguardRules="proguard.txt"/>
   <library
+      name="io.github.webrtc-sdk:android:125.6422.07@aar"
+      jars="C:\Users\vishw\.gradle\caches\transforms-3\04125401d2f80508b663ef6b750170fd\transformed\jetified-android-125.6422.07\jars\classes.jar"
+      resolved="io.github.webrtc-sdk:android:125.6422.07"
+      folder="C:\Users\vishw\.gradle\caches\transforms-3\04125401d2f80508b663ef6b750170fd\transformed\jetified-android-125.6422.07"
+      manifest="AndroidManifest.xml"
+      resFolder="res"
+      assetsFolder="assets"
+      lintJar="lint.jar"
+      publicResources="public.txt"
+      symbolFile="R.txt"
+      externalAnnotations="annotations.zip"
+      proguardRules="proguard.txt"/>
+  <library
       name="androidx.emoji2:emoji2-views-helper:1.2.0@aar"
       jars="C:\Users\vishw\.gradle\caches\transforms-3\e4825fc5bb29eb9c076af1ad9fab39e2\transformed\jetified-emoji2-views-helper-1.2.0\jars\classes.jar"
       resolved="androidx.emoji2:emoji2-views-helper:1.2.0"

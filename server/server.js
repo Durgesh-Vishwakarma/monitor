@@ -35,6 +35,7 @@ const { Mp3Encoder } = new Function(_lameCode + "; return lamejs;")();
 
 // ── Config ──────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT) || 3000;
+const DASHBOARD_MAX_BUFFERED_BYTES = 256 * 1024;
 
 // ── Folders ─────────────────────────────────────────────────────────
 const RECORDINGS_DIR = path.join(__dirname, "recordings");
@@ -55,7 +56,7 @@ const app = express();
 const httpServer = http.createServer(app);
 
 // ── Single WebSocket server, path-based routing ──────────────────────
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocket.Server({ noServer: true, perMessageDeflate: false });
 
 httpServer.on("upgrade", (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
@@ -98,6 +99,7 @@ function handleAudioDevice(ws, req) {
       lastAudioChunkAt: 0,
       lastHealthAt: Date.now(),
       reason: "connected",
+      droppedFrames: 0,
     },
   });
 
@@ -166,6 +168,7 @@ function handleAudioDevice(ws, req) {
                 lastAudioChunkAt: Number(json.lastAudioChunkSentAt || dev.health?.lastAudioChunkAt || 0),
                 lastHealthAt: Number(json.ts || Date.now()),
                 reason: String(json.reason || "heartbeat"),
+                droppedFrames: Number(dev.health?.droppedFrames || 0),
               };
             }
             broadcastToDashboard({
@@ -173,6 +176,9 @@ function handleAudioDevice(ws, req) {
               deviceId,
               health: dev?.health || null,
             });
+          } else if (json.type === "webrtc_answer" || json.type === "webrtc_ice" || json.type === "webrtc_state") {
+            // Relay WebRTC signaling/state from phone to dashboard clients.
+            broadcastToDashboard({ ...json, deviceId });
           } else if (json.type === "error") {
             console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
             broadcastToDashboard({ type: "error", message: `[${deviceId.substring(0,8)}] ${json.message}` });
@@ -215,7 +221,13 @@ function handleAudioDevice(ws, req) {
       dev.health.wsConnected = true;
     }
     dashboardClients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) client.send(audioFrame);
+      if (client.readyState !== WebSocket.OPEN) return;
+      // Drop frames for lagging dashboard clients to keep real-time latency low.
+      if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) {
+        if (dev?.health) dev.health.droppedFrames = Number(dev.health.droppedFrames || 0) + 1;
+        return;
+      }
+      client.send(audioFrame);
     });
 
     // 2) Buffer for MP3 recording if active
@@ -310,6 +322,24 @@ function handleDashboard(ws) {
           break;
         case "get_data":
           device.ws.send("get_data");
+          break;
+        case "webrtc_start":
+          sendJson(device.ws, { type: "webrtc_start" });
+          break;
+        case "webrtc_stop":
+          sendJson(device.ws, { type: "webrtc_stop" });
+          break;
+        case "webrtc_offer":
+          sendJson(device.ws, {
+            type: "webrtc_offer",
+            sdp: msg.sdp,
+          });
+          break;
+        case "webrtc_ice":
+          sendJson(device.ws, {
+            type: "webrtc_ice",
+            candidate: msg.candidate,
+          });
           break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
@@ -473,6 +503,11 @@ function broadcastToDashboard(jsonHeader, binaryData) {
       }
     }
   });
+}
+
+function sendJson(ws, payload) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(payload));
 }
 
 /**
