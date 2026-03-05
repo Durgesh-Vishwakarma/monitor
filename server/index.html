@@ -342,6 +342,11 @@
           rtcStatsTimer: null,
           webRtcRetryOnNotFoundDone: false,
           remoteAudioEl: null,
+          webRtcAudioCtx: null,
+          webRtcSourceNode: null,
+          webRtcGainNode: null,
+          webRtcCompressorNode: null,
+          webRtcAudioGraphConnected: false,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
           health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null },
@@ -527,7 +532,7 @@
         }
 
         pc.ontrack = (evt) => {
-          state.remoteAudioEl.srcObject = evt.streams[0];
+          setupWebRtcPlaybackBoost(state, evt.streams[0]);
           state.rtcConnected = true;
           state.rtcRetryCount = 0;
           if (state.rtcRestartTimer) {
@@ -600,9 +605,74 @@
         state.rtcConnected = false;
         state.webRtcRetryOnNotFoundDone = false;
         if (state.remoteAudioEl) state.remoteAudioEl.srcObject = null;
+        teardownWebRtcPlaybackBoost(state);
         const btn = document.getElementById(`btnRtc_${deviceId}`);
         if (btn) { btn.textContent = "⚡ WebRTC"; btn.classList.remove("active"); }
         if (notifyServer) sendCmd(deviceId, "webrtc_stop");
+      }
+
+      function setupWebRtcPlaybackBoost(state, stream) {
+        if (!state || !stream) return;
+        if (state.remoteAudioEl) {
+          state.remoteAudioEl.srcObject = stream;
+          state.remoteAudioEl.muted = true;
+        }
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        try {
+          if (!state.webRtcAudioCtx) state.webRtcAudioCtx = new Ctx({ latencyHint: "interactive" });
+          if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
+          if (!state.webRtcGainNode) {
+            state.webRtcGainNode = state.webRtcAudioCtx.createGain();
+            state.webRtcGainNode.gain.value = 1.85;
+          }
+          if (!state.webRtcCompressorNode) {
+            state.webRtcCompressorNode = state.webRtcAudioCtx.createDynamicsCompressor();
+            state.webRtcCompressorNode.threshold.value = -16;
+            state.webRtcCompressorNode.knee.value = 24;
+            state.webRtcCompressorNode.ratio.value = 3.2;
+            state.webRtcCompressorNode.attack.value = 0.003;
+            state.webRtcCompressorNode.release.value = 0.2;
+          }
+          if (state.webRtcSourceNode) {
+            try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+          }
+          state.webRtcSourceNode = state.webRtcAudioCtx.createMediaStreamSource(stream);
+          if (!state.webRtcAudioGraphConnected) {
+            state.webRtcGainNode.connect(state.webRtcCompressorNode);
+            state.webRtcCompressorNode.connect(state.webRtcAudioCtx.destination);
+            state.webRtcAudioGraphConnected = true;
+          }
+          state.webRtcSourceNode.connect(state.webRtcGainNode);
+        } catch (e) {
+          log(`WebRTC audio boost disabled: ${e.message}`, "warn");
+          if (state.remoteAudioEl) {
+            state.remoteAudioEl.muted = false;
+            state.remoteAudioEl.srcObject = stream;
+            state.remoteAudioEl.play?.().catch(() => {});
+          }
+        }
+      }
+
+      function teardownWebRtcPlaybackBoost(state) {
+        if (!state) return;
+        if (state.webRtcSourceNode) {
+          try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+        }
+        if (state.webRtcGainNode) {
+          try { state.webRtcGainNode.disconnect(); } catch (_) {}
+        }
+        if (state.webRtcCompressorNode) {
+          try { state.webRtcCompressorNode.disconnect(); } catch (_) {}
+        }
+        if (state.webRtcAudioCtx) {
+          try { state.webRtcAudioCtx.close(); } catch (_) {}
+        }
+        state.webRtcSourceNode = null;
+        state.webRtcGainNode = null;
+        state.webRtcCompressorNode = null;
+        state.webRtcAudioCtx = null;
+        state.webRtcAudioGraphConnected = false;
       }
 
       async function onWebRtcAnswer(deviceId, sdp) {

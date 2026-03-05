@@ -48,6 +48,7 @@ import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpSender
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import org.webrtc.audio.JavaAudioDeviceModule
 
 /**
  * MicService — Core background service.
@@ -101,6 +102,7 @@ class MicService : Service() {
     // ── WebRTC state (phone publishes mic track) ───────────────────────────
     @Volatile private var isWebRtcStreaming = false
     private var peerConnectionFactory: PeerConnectionFactory? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
     private var peerConnection: PeerConnection? = null
     private var localAudioSource: AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
@@ -251,6 +253,8 @@ class MicService : Service() {
         isWsConnecting = false
         peerConnectionFactory?.dispose()
         peerConnectionFactory = null
+        audioDeviceModule?.release()
+        audioDeviceModule = null
         if (wakeLock?.isHeld == true) wakeLock?.release()
         super.onDestroy()
     }
@@ -438,7 +442,13 @@ class MicService : Service() {
             .setEnableInternalTracer(false)
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOpts)
-        peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory()
+        audioDeviceModule = JavaAudioDeviceModule.builder(this)
+            .setUseHardwareAcousticEchoCanceler(true)
+            .setUseHardwareNoiseSuppressor(true)
+            .createAudioDeviceModule()
+        peerConnectionFactory = PeerConnectionFactory.builder()
+            .setAudioDeviceModule(audioDeviceModule)
+            .createPeerConnectionFactory()
         Log.i(TAG, "WebRTC factory initialized")
     }
 
@@ -707,7 +717,7 @@ class MicService : Service() {
             target = when {
                 downKbps in 1..1200 -> 12
                 downKbps in 1201..5000 -> 24
-                else -> 32
+                else -> 48
             }
         }
         val q = lastDashboardQuality
