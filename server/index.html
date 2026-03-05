@@ -354,7 +354,10 @@
           webRtcMeterTimer: null,
           webRtcInboundRms: 0,
           rtcRxPacketsPerSec: 0,
+          rtcRxKbps: 0,
+          rtcRxMetricText: "-",
           rtcLastPacketsReceived: null,
+          rtcLastBytesReceived: null,
           rtcLastPacketsTs: null,
           webRtcGainNode: null,
           webRtcCompressorNode: null,
@@ -414,8 +417,10 @@
         }
         if (rx) {
           const v = Number(state.rtcRxPacketsPerSec || 0);
-          const cls = v >= 8 ? "ok-text" : (v > 0 ? "" : "bad-text");
-          rx.innerHTML = `<span class="${cls}">${v.toFixed(1)}</span>`;
+          const kb = Number(state.rtcRxKbps || 0);
+          const hasFlow = v > 0 || kb > 0;
+          const cls = hasFlow ? "ok-text" : "bad-text";
+          rx.innerHTML = `<span class="${cls}">${state.rtcRxMetricText || "-"}</span>`;
         }
         if (br) br.innerHTML = renderBitrateBadge(h.bitrateKbps);
         if (q) q.textContent = renderQualitySummary(h.quality);
@@ -725,7 +730,10 @@
         state.webRtcMeterData = null;
         state.webRtcInboundRms = 0;
         state.rtcRxPacketsPerSec = 0;
+        state.rtcRxKbps = 0;
+        state.rtcRxMetricText = "-";
         state.rtcLastPacketsReceived = null;
+        state.rtcLastBytesReceived = null;
         state.rtcLastPacketsTs = null;
         state.webRtcGainNode = null;
         state.webRtcCompressorNode = null;
@@ -815,8 +823,11 @@
         if (!state || !state.rtcPeer) return;
         if (state.rtcStatsTimer) clearInterval(state.rtcStatsTimer);
         state.rtcLastPacketsReceived = null;
+        state.rtcLastBytesReceived = null;
         state.rtcLastPacketsTs = null;
         state.rtcRxPacketsPerSec = 0;
+        state.rtcRxKbps = 0;
+        state.rtcRxMetricText = "-";
         state.rtcStatsTimer = setInterval(async () => {
           if (!state.rtcPeer || !state.useWebRtc) return;
           try {
@@ -824,20 +835,41 @@
             const quality = extractQualityFromStats(stats);
             const nowMs = Date.now();
             let packetsReceivedNow = null;
+            let bytesReceivedNow = null;
             stats.forEach((s) => {
-              if (s.type === "inbound-rtp" && s.kind === "audio" && Number.isFinite(Number(s.packetsReceived))) {
+              const isAudioInbound = s.type === "inbound-rtp" && (s.kind === "audio" || s.mediaType === "audio");
+              if (!isAudioInbound) return;
+              if (Number.isFinite(Number(s.packetsReceived))) {
                 packetsReceivedNow = Number(s.packetsReceived);
               }
+              if (Number.isFinite(Number(s.bytesReceived))) {
+                bytesReceivedNow = Number(s.bytesReceived);
+              }
             });
-            if (packetsReceivedNow != null) {
-              if (state.rtcLastPacketsReceived != null && state.rtcLastPacketsTs != null) {
-                const dtSec = Math.max(0.001, (nowMs - state.rtcLastPacketsTs) / 1000);
+            if (state.rtcLastPacketsTs != null) {
+              const dtSec = Math.max(0.001, (nowMs - state.rtcLastPacketsTs) / 1000);
+              if (packetsReceivedNow != null && state.rtcLastPacketsReceived != null) {
                 const dp = Math.max(0, packetsReceivedNow - state.rtcLastPacketsReceived);
                 state.rtcRxPacketsPerSec = dp / dtSec;
+                state.rtcRxMetricText = `${state.rtcRxPacketsPerSec.toFixed(1)} p/s`;
+              } else if (bytesReceivedNow != null && state.rtcLastBytesReceived != null) {
+                const db = Math.max(0, bytesReceivedNow - state.rtcLastBytesReceived);
+                state.rtcRxKbps = (db * 8) / dtSec / 1000;
+                state.rtcRxMetricText = `${state.rtcRxKbps.toFixed(1)} kb/s`;
               }
-              state.rtcLastPacketsReceived = packetsReceivedNow;
-              state.rtcLastPacketsTs = nowMs;
             }
+            if (packetsReceivedNow != null) {
+              state.rtcLastPacketsReceived = packetsReceivedNow;
+            }
+            if (bytesReceivedNow != null) {
+              state.rtcLastBytesReceived = bytesReceivedNow;
+            }
+            if (packetsReceivedNow == null && bytesReceivedNow == null && state.rtcLastPacketsTs != null) {
+              state.rtcRxPacketsPerSec = 0;
+              state.rtcRxKbps = 0;
+              state.rtcRxMetricText = "0.0";
+            }
+            state.rtcLastPacketsTs = nowMs;
             state.health = state.health || {};
             state.health.quality = quality;
             renderDeviceHealth(deviceId, state.health);
@@ -855,7 +887,7 @@
           if (s.type === "candidate-pair" && (s.nominated || s.selected) && Number.isFinite(Number(s.currentRoundTripTime))) {
             rttMs = Number(s.currentRoundTripTime) * 1000;
           }
-          if (s.type === "inbound-rtp" && s.kind === "audio") {
+          if (s.type === "inbound-rtp" && (s.kind === "audio" || s.mediaType === "audio")) {
             if (Number.isFinite(Number(s.jitter))) jitterMs = Number(s.jitter) * 1000;
             if (Number.isFinite(Number(s.packetsLost))) packetsLost = Number(s.packetsLost);
             if (Number.isFinite(Number(s.packetsReceived))) packetsReceived = Number(s.packetsReceived);
