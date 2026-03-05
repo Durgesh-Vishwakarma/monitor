@@ -113,6 +113,7 @@ class MicService : Service() {
     private var currentWebRtcBitrateKbps = 24
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var webRtcRecoveryJob: Job? = null
+    private var iceWatchdogJob: Job? = null
     private var lastDashboardQuality: JSONObject? = null
     private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
@@ -502,6 +503,8 @@ class MicService : Service() {
                     newState == PeerConnection.IceConnectionState.COMPLETED) {
                     webRtcRecoveryJob?.cancel()
                     webRtcRecoveryJob = null
+                    iceWatchdogJob?.cancel()
+                    iceWatchdogJob = null
                 }
                 if (newState == PeerConnection.IceConnectionState.DISCONNECTED ||
                     newState == PeerConnection.IceConnectionState.FAILED) {
@@ -545,6 +548,8 @@ class MicService : Service() {
     private fun stopWebRtcSession(notifyState: Boolean) {
         webRtcRecoveryJob?.cancel()
         webRtcRecoveryJob = null
+        iceWatchdogJob?.cancel()
+        iceWatchdogJob = null
         unregisterNetworkCallbackForBitrate()
         try {
             peerConnection?.close()
@@ -593,6 +598,20 @@ class MicService : Service() {
                                 webSocket?.send(msg.toString())
                                 applyAdaptiveBitrate()
                                 sendWebRtcState("answer_sent_${targetKbps}kbps")
+                                // Start a watchdog: if ICE hasn't connected in 15s, fall back to PCM.
+                                iceWatchdogJob?.cancel()
+                                iceWatchdogJob = serviceScope.launch(Dispatchers.IO) {
+                                    delay(15_000)
+                                    val iceState = peerConnection?.iceConnectionState()
+                                    val connected =
+                                        iceState == PeerConnection.IceConnectionState.CONNECTED ||
+                                        iceState == PeerConnection.IceConnectionState.COMPLETED
+                                    if (isWebRtcStreaming && !connected) {
+                                        Log.w(TAG, "ICE watchdog: no connection after 15s — falling back to PCM")
+                                        sendWebRtcState("ice_timeout")
+                                        stopWebRtcSession(notifyState = true)
+                                    }
+                                }
                             }
 
                             override fun onSetFailure(error: String?) {

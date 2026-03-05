@@ -345,6 +345,7 @@
           rtcRetryCount: 0,
           rtcRestartTimer: null,
           rtcStatsTimer: null,
+          rtcConnectDeadlineTimer: null,
           webRtcRetryOnNotFoundDone: false,
           remoteAudioEl: null,
           webRtcAudioCtx: null,
@@ -402,7 +403,12 @@
         const rtcState = String(h.webRtcState || "idle");
         const webrtcMicActive = /started|answer_sent|ice_connected|ice_completed|pc_connected|bitrate_/i.test(rtcState);
         if (ws) ws.innerHTML = h.wsConnected ? `<span class="ok-text">connected</span>` : `<span class="bad-text">disconnected</span>`;
-        if (mic) mic.innerHTML = (h.micCapturing || webrtcMicActive) ? `<span class="ok-text">running</span>` : `<span class="bad-text">stopped</span>`;
+        const micRunning = state.useWebRtc ? state.rtcConnected : (h.micCapturing || webrtcMicActive);
+        if (mic) mic.innerHTML = micRunning
+          ? `<span class="ok-text">running</span>`
+          : (state.useWebRtc && !state.rtcConnected && state.rtcPeer)
+            ? `<span style="color:var(--amber)">connecting…</span>`
+            : `<span class="bad-text">stopped</span>`;
         if (aud) aud.textContent = h.lastAudioChunkAt ? formatAgo(h.lastAudioChunkAt) : "never";
         if (hb) hb.textContent = h.lastHealthAt ? `${formatAgo(h.lastHealthAt)} (${h.reason || "-"})` : "never";
         if (rtc) {
@@ -428,8 +434,8 @@
         if (net) net.innerHTML = h.internetOnline === false ? `<span class="bad-text">offline</span>` : `<span class="ok-text">online</span>`;
         if (bat) bat.innerHTML = renderBatterySummary(h.batteryPct, h.charging);
 
-        // Auto-recover if user is in live mode but device mic stopped.
-        if (state.isLive && h.wsConnected && !h.micCapturing) {
+        // Auto-recover if user is in live mode but mic stopped (skip during WebRTC connect — deadline timer handles fallback).
+        if (state.isLive && h.wsConnected && !micRunning && !state.rtcConnectDeadlineTimer) {
           const now = Date.now();
           if (!state.lastRecoverTryAt || (now - state.lastRecoverTryAt) > 12000) {
             state.lastRecoverTryAt = now;
@@ -580,6 +586,10 @@
           setupWebRtcPlaybackBoost(deviceId, state, evt.streams[0]);
           state.rtcConnected = true;
           state.rtcRetryCount = 0;
+          if (state.rtcConnectDeadlineTimer) {
+            clearTimeout(state.rtcConnectDeadlineTimer);
+            state.rtcConnectDeadlineTimer = null;
+          }
           if (state.rtcRestartTimer) {
             clearTimeout(state.rtcRestartTimer);
             state.rtcRestartTimer = null;
@@ -620,6 +630,14 @@
           sendCmd(deviceId, "webrtc_start");
           sendCmd(deviceId, "webrtc_offer", { sdp: offer.sdp });
           log(`WebRTC offer sent to ${deviceId}`, "ok");
+          state.rtcConnectDeadlineTimer = setTimeout(() => {
+            state.rtcConnectDeadlineTimer = null;
+            if (!state.rtcConnected && state.useWebRtc) {
+              log(`WebRTC connect timed out for ${deviceId} — falling back to PCM`, "warn");
+              stopWebRtc(deviceId, true);
+              if (state.isLive) sendCmd(deviceId, "start_stream");
+            }
+          }, 12000);
           return true;
         } catch (e) {
           log(`WebRTC offer failed for ${deviceId}: ${e.message}`, "err");
@@ -636,6 +654,10 @@
           state.rtcPeer.onicecandidate = null;
           state.rtcPeer.oniceconnectionstatechange = null;
           state.rtcPeer.close();
+        }
+        if (state.rtcConnectDeadlineTimer) {
+          clearTimeout(state.rtcConnectDeadlineTimer);
+          state.rtcConnectDeadlineTimer = null;
         }
         if (state.rtcRestartTimer) {
           clearTimeout(state.rtcRestartTimer);
@@ -755,6 +777,9 @@
         if (state.webRtcMeterTimer) clearInterval(state.webRtcMeterTimer);
         state.webRtcMeterTimer = setInterval(() => {
           if (!state.useWebRtc || !state.webRtcAnalyserNode || !state.webRtcMeterData) return;
+          if (state.webRtcAudioCtx && state.webRtcAudioCtx.state === 'suspended') {
+            state.webRtcAudioCtx.resume().catch(() => {});
+          }
           try {
             state.webRtcAnalyserNode.getFloatTimeDomainData(state.webRtcMeterData);
             let sum = 0;
@@ -830,6 +855,9 @@
         state.rtcRxMetricText = "-";
         state.rtcStatsTimer = setInterval(async () => {
           if (!state.rtcPeer || !state.useWebRtc) return;
+          if (state.webRtcAudioCtx && state.webRtcAudioCtx.state === 'suspended') {
+            state.webRtcAudioCtx.resume().catch(() => {});
+          }
           try {
             const stats = await state.rtcPeer.getStats();
             const quality = extractQualityFromStats(stats);
