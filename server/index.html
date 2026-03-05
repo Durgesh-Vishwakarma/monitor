@@ -231,8 +231,35 @@
           case "webrtc_answer":      onWebRtcAnswer(msg.deviceId, msg.sdp); break;
           case "webrtc_ice":         onWebRtcIce(msg.deviceId, msg.candidate); break;
           case "webrtc_state":       renderWebRtcState(msg.deviceId, msg.state, msg.bitrateKbps, msg.quality || null); log(`WebRTC ${msg.deviceId}: ${msg.state || "state"}${msg.bitrateKbps ? ` (${msg.bitrateKbps} kbps)` : ""}`, "info"); break;
-          case "error":              log(`Error: ${msg.message}`, "err"); break;
+          case "error":              handleServerError(msg.message); break;
         }
+      }
+
+      function handleServerError(message) {
+        log(`Error: ${message}`, "err");
+        const m = /Device\s+([a-f0-9\-]+)\s+not found/i.exec(String(message || ""));
+        if (!m) return;
+        const missingId = m[1];
+        const state = deviceState[missingId];
+        if (!state) return;
+        if (!state.useWebRtc || state.rtcConnected) return;
+        if (state.webRtcRetryOnNotFoundDone) return;
+        state.webRtcRetryOnNotFoundDone = true;
+        log(`Refreshing device map and retrying WebRTC once for ${missingId}`, "warn");
+        sendCmd(missingId, "get_data");
+        sendCmd(missingId, "ping");
+        setTimeout(async () => {
+          if (!state.useWebRtc || state.rtcConnected || !state.rtcPeer) return;
+          try {
+            const offer = await state.rtcPeer.createOffer({ iceRestart: true });
+            await state.rtcPeer.setLocalDescription(offer);
+            sendCmd(missingId, "webrtc_start");
+            sendCmd(missingId, "webrtc_offer", { sdp: offer.sdp });
+            log(`WebRTC retry offer sent for ${missingId}`, "ok");
+          } catch (e) {
+            log(`WebRTC retry failed for ${missingId}: ${e.message}`, "err");
+          }
+        }, 800);
       }
 
       function handleAudioBinary(data) {
@@ -313,6 +340,7 @@
           rtcRetryCount: 0,
           rtcRestartTimer: null,
           rtcStatsTimer: null,
+          webRtcRetryOnNotFoundDone: false,
           remoteAudioEl: null,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
@@ -490,6 +518,7 @@
         state.rtcConnected = false;
         state.isLive = true;
         state.rtcRetryCount = 0;
+        state.webRtcRetryOnNotFoundDone = false;
 
         if (!state.remoteAudioEl) {
           state.remoteAudioEl = document.createElement("audio");
@@ -569,6 +598,7 @@
         state.rtcPeer = null;
         state.useWebRtc = false;
         state.rtcConnected = false;
+        state.webRtcRetryOnNotFoundDone = false;
         if (state.remoteAudioEl) state.remoteAudioEl.srcObject = null;
         const btn = document.getElementById(`btnRtc_${deviceId}`);
         if (btn) { btn.textContent = "⚡ WebRTC"; btn.classList.remove("active"); }

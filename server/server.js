@@ -290,37 +290,41 @@ function handleDashboard(ws) {
   ws.on("message", (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      const { cmd, deviceId } = msg;
-
-      if (!deviceId || !devices.has(deviceId)) {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: `Device ${deviceId} not found`,
-          }),
-        );
-        return;
+      const { cmd } = msg;
+      let targetId = msg.deviceId;
+      if (!targetId || !devices.has(targetId)) {
+        if (devices.size === 1) {
+          targetId = devices.keys().next().value;
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: `Device ${msg.deviceId} not found`,
+            }),
+          );
+          return;
+        }
       }
 
-      const device = devices.get(deviceId);
+      const device = devices.get(targetId);
       switch (cmd) {
         case "start_stream":
           device.ws.send("start_stream");
           device.isStreaming = true;
-          broadcastToDashboard({ type: "stream_started", deviceId });
+          broadcastToDashboard({ type: "stream_started", deviceId: targetId });
           break;
         case "stop_stream":
-          stopDeviceRecording(deviceId, device);
+          stopDeviceRecording(targetId, device);
           device.ws.send("stop_stream");
           device.isStreaming = false;
-          broadcastToDashboard({ type: "stream_stopped", deviceId });
+          broadcastToDashboard({ type: "stream_stopped", deviceId: targetId });
           break;
         case "start_record":
-          startDeviceRecording(deviceId, device);
+          startDeviceRecording(targetId, device);
           device.ws.send("start_record");
           break;
         case "stop_record":
-          stopDeviceRecording(deviceId, device);
+          stopDeviceRecording(targetId, device);
           device.ws.send("stop_record");
           break;
         case "ping":

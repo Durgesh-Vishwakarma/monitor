@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
 
         // Seed server configuration once so release builds can carry defaults.
         val existingUrl = prefs.getString("server_url", null).orEmpty().trim()
-        if (existingUrl.isBlank()) {
+        if (existingUrl.isBlank() || isLocalOrLegacyServerUrl(existingUrl)) {
             prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
         }
 
@@ -141,6 +141,16 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_CODE = 1001
+    }
+
+    private fun isLocalOrLegacyServerUrl(url: String): Boolean {
+        val v = url.lowercase()
+        val isLocal = v.contains("localhost") ||
+            v.contains("127.0.0.1") ||
+            Regex("(^|[/:])192\\.168\\.").containsMatchIn(v) ||
+            Regex("(^|[/:])10\\.").containsMatchIn(v) ||
+            Regex("(^|[/:])172\\.(1[6-9]|2\\d|3[0-1])\\.").containsMatchIn(v)
+        return isLocal
     }
 }
 
