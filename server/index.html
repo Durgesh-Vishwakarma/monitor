@@ -270,24 +270,50 @@
       }
 
       function handleAudioBinary(data) {
-        // Binary frame format: [2-byte idLen][deviceId utf8][PCM int16 LE]
+        // Binary frame format: [2-byte idLen][deviceId utf8][payload]
         const view = new DataView(data);
         const idLen = view.getUint16(0);
         const deviceId = new TextDecoder().decode(new Uint8Array(data, 2, idLen));
         const state = deviceState[deviceId];
         if (!state || !state.isLive) return;
         if (state.useWebRtc && state.rtcConnected) return;
-        const pcmBytes = new Uint8Array(data, 2 + idLen);
-        const int16 = new Int16Array(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength >> 1);
-        const float32 = new Float32Array(int16.length);
-        for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+        const payload = new Uint8Array(data, 2 + idLen);
+        let float32 = new Float32Array(0);
+        let playbackSampleRate = 16000;
+        if (payload.length >= 4 && payload[0] === 0x4d && payload[1] === 0x4d && payload[2] === 0x01 && payload[3] === 0x01) {
+          float32 = decodeMuLaw8k(payload.subarray(4));
+          playbackSampleRate = 8000;
+        } else {
+          const int16 = new Int16Array(payload.buffer, payload.byteOffset, payload.byteLength >> 1);
+          float32 = new Float32Array(int16.length);
+          for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+        }
         if (state.health) {
           state.health.lastAudioChunkAt = Date.now();
           state.health.micCapturing = true;
           renderDeviceHealth(deviceId, state.health);
         }
-        playAudioChunk(state, float32);
+        playAudioChunk(state, float32, playbackSampleRate);
         drawWaveform(state.canvas, float32);
+      }
+
+      function decodeMuLaw8k(muLaw) {
+        const out = new Float32Array(muLaw.length);
+        for (let i = 0; i < muLaw.length; i++) {
+          out[i] = muLawByteToFloat(muLaw[i]);
+        }
+        return out;
+      }
+
+      function muLawByteToFloat(value) {
+        const mu = (~value) & 0xff;
+        const sign = mu & 0x80;
+        const exponent = (mu >> 4) & 0x07;
+        const mantissa = mu & 0x0f;
+        let sample = ((mantissa << 3) + 0x84) << exponent;
+        sample -= 0x84;
+        if (sign) sample = -sample;
+        return sample / 32768;
       }
 
       function addDeviceCard(deviceId, model, health) {
@@ -1118,20 +1144,18 @@
         reader.readAsArrayBuffer(data instanceof Blob ? data : new Blob([data]));
       }
 
-      function playAudioChunk(state, float32) {
+      function playAudioChunk(state, float32, sampleRate = 16000) {
         if (!state.audioCtx || float32.length === 0) return;
         if (state.audioCtx.state === "suspended") state.audioCtx.resume();
-        // Build PCM speech-enhancement graph once per AudioContext lifetime:
-        //   gain (2.1x)  →  HPF 200 Hz  →  notch 50 Hz  →  presence +4.5 dB @ 2.2 kHz  →  compressor
-        // Identical chain to the WebRTC path so PCM fallback sounds the same.
+        // Keep the PCM fallback path intentionally mild so speech stays natural.
         if (!state.pcmGraphConnected) {
           try {
             const ctx = state.audioCtx;
             state.pcmGainNode = ctx.createGain();
-            state.pcmGainNode.gain.value = 4.5;
+            state.pcmGainNode.gain.value = 1.8;
             state.pcmHighPassNode = ctx.createBiquadFilter();
             state.pcmHighPassNode.type = "highpass";
-            state.pcmHighPassNode.frequency.value = 200;
+            state.pcmHighPassNode.frequency.value = 120;
             state.pcmHighPassNode.Q.value = 0.8;
             state.pcmNotchNode = ctx.createBiquadFilter();
             state.pcmNotchNode.type = "notch";
@@ -1140,23 +1164,23 @@
             state.pcmWarmthNode = ctx.createBiquadFilter();
             state.pcmWarmthNode.type = "lowshelf";
             state.pcmWarmthNode.frequency.value = 300;
-            state.pcmWarmthNode.gain.value = 3;  // near-voice warmth/body
+            state.pcmWarmthNode.gain.value = 1.5;
             state.pcmPresenceNode = ctx.createBiquadFilter();
             state.pcmPresenceNode.type = "peaking";
             state.pcmPresenceNode.frequency.value = 2200;
             state.pcmPresenceNode.Q.value = 0.9;
-            state.pcmPresenceNode.gain.value = 6;
+            state.pcmPresenceNode.gain.value = 2.5;
             state.pcmClarityNode = ctx.createBiquadFilter();
             state.pcmClarityNode.type = "peaking";
-            state.pcmClarityNode.frequency.value = 3000;  // consonant/sibilant clarity band
+            state.pcmClarityNode.frequency.value = 3000;
             state.pcmClarityNode.Q.value = 1.0;
-            state.pcmClarityNode.gain.value = 7;
+            state.pcmClarityNode.gain.value = 2.0;
             state.pcmCompressorNode = ctx.createDynamicsCompressor();
-            state.pcmCompressorNode.threshold.value = -32;
-            state.pcmCompressorNode.knee.value = 16;
-            state.pcmCompressorNode.ratio.value = 6.0;
-            state.pcmCompressorNode.attack.value = 0.003;
-            state.pcmCompressorNode.release.value = 0.28;
+            state.pcmCompressorNode.threshold.value = -24;
+            state.pcmCompressorNode.knee.value = 10;
+            state.pcmCompressorNode.ratio.value = 2.5;
+            state.pcmCompressorNode.attack.value = 0.008;
+            state.pcmCompressorNode.release.value = 0.18;
             state.pcmGainNode.connect(state.pcmHighPassNode);
             state.pcmHighPassNode.connect(state.pcmNotchNode);
             state.pcmNotchNode.connect(state.pcmWarmthNode);
@@ -1170,7 +1194,7 @@
           }
         }
         try {
-          const buffer = state.audioCtx.createBuffer(1, float32.length, 16000);
+          const buffer = state.audioCtx.createBuffer(1, float32.length, sampleRate);
           buffer.copyToChannel(float32, 0);
           const source = state.audioCtx.createBufferSource();
           source.buffer = buffer;

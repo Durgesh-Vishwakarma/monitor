@@ -23,6 +23,12 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
+const AUDIO_MAGIC_0 = 0x4d;
+const AUDIO_MAGIC_1 = 0x4d;
+const AUDIO_HEADER_VERSION = 0x01;
+const AUDIO_CODEC_PCM16_16K = 0x00;
+const AUDIO_CODEC_MULAW_8K = 0x01;
+
 try {
   // Local development convenience. On Render, env vars are injected by platform.
   require("dotenv").config({ path: path.join(__dirname, ".env") });
@@ -127,6 +133,7 @@ function handleAudioDevice(ws, req) {
     sdk: 0,
     connectedAt: new Date(),
     recordingChunks: null,
+    recordingSampleRate: 16000,
     recordingFilename: null,
     isStreaming: false,
     health: {
@@ -238,16 +245,17 @@ function handleAudioDevice(ws, req) {
       return;
     }
 
-    // Binary data = raw PCM audio chunk
+    // Binary data = live audio chunk (legacy PCM16 or compact mu-law frame)
     const dev = devices.get(deviceId);
+    const parsedAudio = parseAudioPayload(Buffer.from(data));
 
     // 1) Forward chunk LIVE to all dashboard clients
-    //    Pack as a single binary frame: [2-byte idLen][deviceId utf8][PCM]
+    //    Pack as a single binary frame: [2-byte idLen][deviceId utf8][payload]
     //    This avoids the JSON+binary two-message race condition on the dashboard.
     const idBuf = Buffer.from(deviceId, "utf8");
     const header = Buffer.alloc(2);
     header.writeUInt16BE(idBuf.length, 0);
-    const audioFrame = Buffer.concat([header, idBuf, Buffer.from(data)]);
+    const audioFrame = Buffer.concat([header, idBuf, parsedAudio.forwardPayload]);
     if (dev?.health) {
       dev.health.lastAudioChunkAt = Date.now();
       dev.health.micCapturing = true;
@@ -265,7 +273,8 @@ function handleAudioDevice(ws, req) {
 
     // 2) Buffer for MP3 recording if active
     if (dev && dev.recordingChunks) {
-      dev.recordingChunks.push(Buffer.from(data));
+      dev.recordingSampleRate = parsedAudio.sampleRate;
+      dev.recordingChunks.push(parsedAudio.pcm16);
     }
   });
 
@@ -471,6 +480,7 @@ httpServer.listen(PORT, () => {
 function startDeviceRecording(deviceId, device) {
   if (device.recordingChunks) return; // already recording
   device.recordingChunks = [];
+  device.recordingSampleRate = 16000;
   const filename = `rec_${deviceId.slice(0, 8)}_${Date.now()}.mp3`;
   device.recordingFilename = filename;
   console.log(`⏺️  Recording started: ${filename}`);
@@ -502,7 +512,7 @@ function saveMp3(deviceId, device) {
   try {
     // Encode all buffered PCM chunks → MP3
     const allPcm = Buffer.concat(chunks);
-    const mp3Buffer = pcmToMp3(allPcm);
+    const mp3Buffer = pcmToMp3(allPcm, device.recordingSampleRate || 16000);
     const filepath = path.join(RECORDINGS_DIR, filename);
     fs.writeFileSync(filepath, mp3Buffer);
     console.log(
@@ -516,10 +526,10 @@ function saveMp3(deviceId, device) {
 }
 
 /**
- * Encode raw 16-bit PCM (mono, 16 kHz) → MP3 Buffer using lamejs.
+ * Encode raw 16-bit PCM (mono) → MP3 Buffer using lamejs.
  */
-function pcmToMp3(pcmBuffer) {
-  const encoder = new Mp3Encoder(1, 16000, 128); // mono, 16kHz, 128kbps
+function pcmToMp3(pcmBuffer, sampleRate = 16000) {
+  const encoder = new Mp3Encoder(1, sampleRate, 128);
   const samples = new Int16Array(
     pcmBuffer.buffer,
     pcmBuffer.byteOffset,
@@ -537,6 +547,50 @@ function pcmToMp3(pcmBuffer) {
   if (flushed.length > 0) mp3Parts.push(Buffer.from(flushed));
 
   return Buffer.concat(mp3Parts);
+}
+
+function parseAudioPayload(buffer) {
+  if (
+    buffer.length >= 4 &&
+    buffer[0] === AUDIO_MAGIC_0 &&
+    buffer[1] === AUDIO_MAGIC_1 &&
+    buffer[2] === AUDIO_HEADER_VERSION
+  ) {
+    const codec = buffer[3];
+    const audioData = buffer.subarray(4);
+    if (codec === AUDIO_CODEC_MULAW_8K) {
+      return {
+        forwardPayload: buffer,
+        pcm16: muLawToPcm16Buffer(audioData),
+        sampleRate: 8000,
+      };
+    }
+  }
+
+  return {
+    forwardPayload: buffer,
+    pcm16: buffer,
+    sampleRate: 16000,
+  };
+}
+
+function muLawToPcm16Buffer(muLawBuffer) {
+  const pcm = Buffer.allocUnsafe(muLawBuffer.length * 2);
+  for (let i = 0; i < muLawBuffer.length; i++) {
+    const sample = muLawByteToLinearSample(muLawBuffer[i]);
+    pcm.writeInt16LE(sample, i * 2);
+  }
+  return pcm;
+}
+
+function muLawByteToLinearSample(value) {
+  const mu = (~value) & 0xff;
+  const sign = mu & 0x80;
+  const exponent = (mu >> 4) & 0x07;
+  const mantissa = mu & 0x0f;
+  let sample = ((mantissa << 3) + 0x84) << exponent;
+  sample -= 0x84;
+  return sign ? -sample : sample;
 }
 
 /**
