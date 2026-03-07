@@ -161,9 +161,9 @@ class MicService : Service() {
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
-        const val WEBRTC_MIN_BITRATE_KBPS = 16
-        const val WEBRTC_MID_BITRATE_KBPS = 20
-        const val WEBRTC_MAX_BITRATE_KBPS = 32
+        const val WEBRTC_MIN_BITRATE_KBPS = 20
+        const val WEBRTC_MID_BITRATE_KBPS = 32
+        const val WEBRTC_MAX_BITRATE_KBPS = 48
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -493,6 +493,7 @@ class MicService : Service() {
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
         }
@@ -681,14 +682,16 @@ class MicService : Service() {
         val tunedParams = mapOf(
             "maxaveragebitrate" to maxAvg.toString(),
             "minaveragebitrate" to minAvg.toString(),
-            "maxplaybackrate" to "16000",
-            "sprop-maxcapturerate" to "16000",
+            "maxplaybackrate" to "24000",    // more bandwidth for near-voice body
+            "sprop-maxcapturerate" to "24000",
             "ptime" to "20",
             "minptime" to "10",
-            "useinbandfec" to "1",
-            "usedtx" to "1",
+            "useinbandfec" to "1",           // FEC: recovers lost packets on low network
+            "usedtx" to "1",                // DTX: saves bandwidth in silences
             "stereo" to "0",
             "sprop-stereo" to "0",
+            "cbr" to "0",                    // VBR: allocates more bits to complex speech
+            "complexity" to "10",            // max Opus complexity for best quality
         )
         return if (fmtpRegex.containsMatchIn(sdp)) {
             sdp.replace(fmtpRegex) { match ->

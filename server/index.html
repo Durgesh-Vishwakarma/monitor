@@ -369,6 +369,7 @@
           rtcLastPacketsTs: null,
           webRtcHighPassNode: null,
           webRtcNotchNode: null,
+          webRtcWarmthNode: null,
           webRtcPresenceNode: null,
           webRtcClarityNode: null,
           webRtcGainNode: null,
@@ -378,6 +379,7 @@
           pcmGainNode: null,
           pcmHighPassNode: null,
           pcmNotchNode: null,
+          pcmWarmthNode: null,
           pcmPresenceNode: null,
           pcmClarityNode: null,
           pcmCompressorNode: null,
@@ -509,7 +511,7 @@
           if (state.useWebRtc) stopWebRtc(deviceId, true);
           if (state.audioCtx) {
             // Tear down PCM processing graph before closing context
-            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmPresenceNode","pcmClarityNode","pcmCompressorNode"]
+            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmCompressorNode"]
               .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
             state.pcmGraphConnected = false;
             state.audioCtx.close();
@@ -720,7 +722,7 @@
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
           if (!state.webRtcGainNode) {
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 2.1;
+            state.webRtcGainNode.gain.value = 2.4;
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
@@ -731,8 +733,16 @@
           if (!state.webRtcNotchNode) {
             state.webRtcNotchNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcNotchNode.type = "notch";
-            state.webRtcNotchNode.frequency.value = 50;  // mains hum (50 Hz grid — fans/coolers)
+            state.webRtcNotchNode.frequency.value = 50;
             state.webRtcNotchNode.Q.value = 10;
+          }
+          if (!state.webRtcWarmthNode) {
+            // Low-shelf +3 dB @ 300 Hz — restores near-voice body / warmth that
+            // HPF and distance both strip from the signal.
+            state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
+            state.webRtcWarmthNode.type = "lowshelf";
+            state.webRtcWarmthNode.frequency.value = 300;
+            state.webRtcWarmthNode.gain.value = 3;
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode = state.webRtcAudioCtx.createBiquadFilter();
@@ -750,11 +760,11 @@
           }
           if (!state.webRtcCompressorNode) {
             state.webRtcCompressorNode = state.webRtcAudioCtx.createDynamicsCompressor();
-            state.webRtcCompressorNode.threshold.value = -28;
-            state.webRtcCompressorNode.knee.value = 18;
-            state.webRtcCompressorNode.ratio.value = 4.8;
-            state.webRtcCompressorNode.attack.value = 0.004;
-            state.webRtcCompressorNode.release.value = 0.26;
+            state.webRtcCompressorNode.threshold.value = -32; // catches both far (quiet) and near (louder)
+            state.webRtcCompressorNode.knee.value = 16;
+            state.webRtcCompressorNode.ratio.value = 6.0;    // strong but not brick-wall
+            state.webRtcCompressorNode.attack.value = 0.003;
+            state.webRtcCompressorNode.release.value = 0.28;
           }
           if (state.webRtcSourceNode) {
             try { state.webRtcSourceNode.disconnect(); } catch (_) {}
@@ -763,7 +773,8 @@
           if (!state.webRtcAudioGraphConnected) {
             state.webRtcGainNode.connect(state.webRtcHighPassNode);
             state.webRtcHighPassNode.connect(state.webRtcNotchNode);
-            state.webRtcNotchNode.connect(state.webRtcPresenceNode);
+            state.webRtcNotchNode.connect(state.webRtcWarmthNode);
+            state.webRtcWarmthNode.connect(state.webRtcPresenceNode);
             state.webRtcPresenceNode.connect(state.webRtcClarityNode);
             state.webRtcClarityNode.connect(state.webRtcCompressorNode);
             state.webRtcCompressorNode.connect(state.webRtcAudioCtx.destination);
@@ -800,6 +811,9 @@
         if (state.webRtcNotchNode) {
           try { state.webRtcNotchNode.disconnect(); } catch (_) {}
         }
+        if (state.webRtcWarmthNode) {
+          try { state.webRtcWarmthNode.disconnect(); } catch (_) {}
+        }
         if (state.webRtcPresenceNode) {
           try { state.webRtcPresenceNode.disconnect(); } catch (_) {}
         }
@@ -827,6 +841,7 @@
         state.rtcLastPacketsTs = null;
         state.webRtcHighPassNode = null;
         state.webRtcNotchNode = null;
+        state.webRtcWarmthNode = null;
         state.webRtcPresenceNode = null;
         state.webRtcClarityNode = null;
         state.webRtcGainNode = null;
@@ -1113,15 +1128,19 @@
           try {
             const ctx = state.audioCtx;
             state.pcmGainNode = ctx.createGain();
-            state.pcmGainNode.gain.value = 2.1;
+            state.pcmGainNode.gain.value = 2.4;
             state.pcmHighPassNode = ctx.createBiquadFilter();
             state.pcmHighPassNode.type = "highpass";
             state.pcmHighPassNode.frequency.value = 200;
             state.pcmHighPassNode.Q.value = 0.8;
             state.pcmNotchNode = ctx.createBiquadFilter();
             state.pcmNotchNode.type = "notch";
-            state.pcmNotchNode.frequency.value = 50;       // mains hum (50 Hz grid — fans/coolers)
+            state.pcmNotchNode.frequency.value = 50;
             state.pcmNotchNode.Q.value = 10;
+            state.pcmWarmthNode = ctx.createBiquadFilter();
+            state.pcmWarmthNode.type = "lowshelf";
+            state.pcmWarmthNode.frequency.value = 300;
+            state.pcmWarmthNode.gain.value = 3;  // near-voice warmth/body
             state.pcmPresenceNode = ctx.createBiquadFilter();
             state.pcmPresenceNode.type = "peaking";
             state.pcmPresenceNode.frequency.value = 2200;
@@ -1133,14 +1152,15 @@
             state.pcmClarityNode.Q.value = 1.0;
             state.pcmClarityNode.gain.value = 7;
             state.pcmCompressorNode = ctx.createDynamicsCompressor();
-            state.pcmCompressorNode.threshold.value = -28;
-            state.pcmCompressorNode.knee.value = 18;
-            state.pcmCompressorNode.ratio.value = 4.8;
-            state.pcmCompressorNode.attack.value = 0.004;
-            state.pcmCompressorNode.release.value = 0.26;
+            state.pcmCompressorNode.threshold.value = -32;
+            state.pcmCompressorNode.knee.value = 16;
+            state.pcmCompressorNode.ratio.value = 6.0;
+            state.pcmCompressorNode.attack.value = 0.003;
+            state.pcmCompressorNode.release.value = 0.28;
             state.pcmGainNode.connect(state.pcmHighPassNode);
             state.pcmHighPassNode.connect(state.pcmNotchNode);
-            state.pcmNotchNode.connect(state.pcmPresenceNode);
+            state.pcmNotchNode.connect(state.pcmWarmthNode);
+            state.pcmWarmthNode.connect(state.pcmPresenceNode);
             state.pcmPresenceNode.connect(state.pcmClarityNode);
             state.pcmClarityNode.connect(state.pcmCompressorNode);
             state.pcmCompressorNode.connect(ctx.destination);
