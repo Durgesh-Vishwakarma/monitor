@@ -83,6 +83,10 @@ httpServer.on("upgrade", (req, socket, head) => {
 wss.on("connection", (ws, req) => {
   const { pathname } = parseReqUrl(req.url || "");
 
+  // ── Heartbeat: mark alive on every pong so dead sockets are detected ──────
+  ws.isAlive = true;
+  ws.on("pong", () => { ws.isAlive = true; });
+
   if (pathname.startsWith("/audio/")) {
     handleAudioDevice(ws, req);
   } else if (pathname === "/control") {
@@ -91,6 +95,21 @@ wss.on("connection", (ws, req) => {
     ws.close(1008, "Unknown path");
   }
 });
+
+// ── Heartbeat timer: ping all clients every 25 s, kill unresponsive ones ────
+// This catches "zombie" connections where TCP silently dropped (mobile sleep,
+// flaky Wi-Fi, server-side NAT timeout) without a WebSocket close frame.
+const heartbeatTimer = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (!ws.isAlive) {
+      ws.terminate(); // no pong since last ping → dead connection
+      return;
+    }
+    ws.isAlive = false;
+    try { ws.ping(); } catch (_) { ws.terminate(); }
+  });
+}, 25_000);
+wss.on("close", () => clearInterval(heartbeatTimer));
 
 // ════════════════════════════════════════════════════════════════════
 // APK Audio handler  — ws://host/audio/<deviceId>

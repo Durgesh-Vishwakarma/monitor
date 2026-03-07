@@ -102,6 +102,18 @@ class MicService : Service() {
     private var recordingFileStream: FileOutputStream? = null
     private var recordingFile: File? = null
 
+    // ── PCM enhancement filter state (persists across frames for continuity) ──
+    // Reset these at each capture start so a previous session's state is never reused.
+    private var hpfPrevX = 0.0      // HPF: previous raw input sample
+    private var hpfPrevY = 0.0      // HPF: previous output sample
+    private var bqX1 = 0.0          // Speech-band biquad: x[n-1]
+    private var bqX2 = 0.0          // Speech-band biquad: x[n-2]
+    private var bqY1 = 0.0          // Speech-band biquad: y[n-1]
+    private var bqY2 = 0.0          // Speech-band biquad: y[n-2]
+    private var smoothedGain = 1.0  // Temporally-smoothed gain (anti-pumping)
+    // Overlap-add FFT spectral denoiser — shared instance, reset each capture session.
+    private val spectralDenoiser = SpectralDenoiser()
+
     // ── WebRTC state (phone publishes mic track) ───────────────────────────
     @Volatile private var isWebRtcStreaming = false
     private var peerConnectionFactory: PeerConnectionFactory? = null
@@ -145,6 +157,9 @@ class MicService : Service() {
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
+        const val WEBRTC_MIN_BITRATE_KBPS = 16
+        const val WEBRTC_MID_BITRATE_KBPS = 20
+        const val WEBRTC_MAX_BITRATE_KBPS = 32
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -447,8 +462,10 @@ class MicService : Service() {
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOpts)
         audioDeviceModule = JavaAudioDeviceModule.builder(this)
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
+            // Far-field monitoring works better with explicit voice profile constraints
+            // than with aggressive hardware NS/AEC that may suppress distant speech.
+            .setUseHardwareAcousticEchoCanceler(false)
+            .setUseHardwareNoiseSuppressor(false)
             .createAudioDeviceModule()
         peerConnectionFactory = PeerConnectionFactory.builder()
             .setAudioDeviceModule(audioDeviceModule)
@@ -466,10 +483,14 @@ class MicService : Service() {
         stopAudioCapture()
 
         val constraints = MediaConstraints().apply {
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            // Keep AGC + high-pass, but disable aggressive suppression that removes far voices.
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
         }
         localAudioSource = factory.createAudioSource(constraints)
         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
@@ -650,16 +671,48 @@ class MicService : Service() {
             ?.groupValues
             ?.getOrNull(1)
             ?: return sdp
-        val maxAvg = (targetKbps * 1000).coerceIn(12_000, 64_000)
+        val maxAvg = (targetKbps * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, 64_000)
+        val minAvg = (WEBRTC_MIN_BITRATE_KBPS * 1000).coerceAtMost(maxAvg)
         val fmtpRegex = Regex("a=fmtp:$opusPayload ([^\\r\\n]+)")
+        val tunedParams = mapOf(
+            "maxaveragebitrate" to maxAvg.toString(),
+            "minaveragebitrate" to minAvg.toString(),
+            "maxplaybackrate" to "16000",
+            "sprop-maxcapturerate" to "16000",
+            "ptime" to "20",
+            "minptime" to "10",
+            "useinbandfec" to "1",
+            "usedtx" to "1",
+            "stereo" to "0",
+            "sprop-stereo" to "0",
+        )
         return if (fmtpRegex.containsMatchIn(sdp)) {
             sdp.replace(fmtpRegex) { match ->
-                val base = match.groupValues[1]
-                "a=fmtp:$opusPayload $base;maxaveragebitrate=$maxAvg;useinbandfec=1;usedtx=1;ptime=20"
+                val merged = mergeFmtpParams(match.groupValues[1], tunedParams)
+                "a=fmtp:$opusPayload $merged"
             }
         } else {
-            sdp + "\r\na=fmtp:$opusPayload maxaveragebitrate=$maxAvg;useinbandfec=1;usedtx=1;ptime=20"
+            val joined = tunedParams.entries.joinToString(";") { "${it.key}=${it.value}" }
+            sdp + "\r\na=fmtp:$opusPayload $joined"
         }
+    }
+
+    private fun mergeFmtpParams(base: String, updates: Map<String, String>): String {
+        val params = linkedMapOf<String, String>()
+        base.split(';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { token ->
+                val idx = token.indexOf('=')
+                if (idx <= 0 || idx >= token.length - 1) return@forEach
+                val key = token.substring(0, idx).trim().lowercase()
+                val value = token.substring(idx + 1).trim()
+                if (key.isNotBlank() && value.isNotBlank()) {
+                    params[key] = value
+                }
+            }
+        updates.forEach { (k, v) -> params[k.lowercase()] = v }
+        return params.entries.joinToString(";") { "${it.key}=${it.value}" }
     }
 
     private fun sendWebRtcState(state: String) {
@@ -732,29 +785,34 @@ class MicService : Service() {
     }
 
     private fun chooseTargetBitrateKbps(): Int {
-        val cm = connectivityManager ?: return 24
-        val network = cm.activeNetwork ?: return 24
-        val caps = cm.getNetworkCapabilities(network) ?: return 24
-        var target = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) 12 else 24
+        val cm = connectivityManager ?: return WEBRTC_MID_BITRATE_KBPS
+        val network = cm.activeNetwork ?: return WEBRTC_MID_BITRATE_KBPS
+        val caps = cm.getNetworkCapabilities(network) ?: return WEBRTC_MID_BITRATE_KBPS
+        var target = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+            WEBRTC_MIN_BITRATE_KBPS
+        } else {
+            WEBRTC_MID_BITRATE_KBPS
+        }
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             val downKbps = caps.linkDownstreamBandwidthKbps
             target = when {
-                downKbps in 1..1200 -> 12
-                downKbps in 1201..5000 -> 24
-                else -> 48
+                downKbps in 1..1200 -> WEBRTC_MIN_BITRATE_KBPS
+                downKbps in 1201..5000 -> WEBRTC_MID_BITRATE_KBPS
+                downKbps in 5001..12000 -> 24
+                else -> WEBRTC_MAX_BITRATE_KBPS
             }
         }
         val q = lastDashboardQuality
         val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
         val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
         val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
-        if (!loss.isNaN() && loss >= 10.0) return 12
-        if (!rtt.isNaN() && rtt >= 450.0) return 12
-        if (!jitter.isNaN() && jitter >= 120.0) return 12
+        if (!loss.isNaN() && loss >= 10.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!rtt.isNaN() && rtt >= 450.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!jitter.isNaN() && jitter >= 120.0) return WEBRTC_MIN_BITRATE_KBPS
         if ((!loss.isNaN() && loss >= 4.0) || (!rtt.isNaN() && rtt >= 250.0) || (!jitter.isNaN() && jitter >= 60.0)) {
-            return min(target, 24)
+            return min(target, WEBRTC_MID_BITRATE_KBPS)
         }
-        return target
+        return target.coerceIn(WEBRTC_MIN_BITRATE_KBPS, WEBRTC_MAX_BITRATE_KBPS)
     }
 
     private fun applyAdaptiveBitrate() {
@@ -868,6 +926,7 @@ class MicService : Service() {
                 }
 
                 audioRecord?.startRecording()
+                resetEnhancerState()   // clear filter memory from any prior session
                 Log.i(TAG, "🎙️ Audio capture started (${sampleRate}Hz, PCM16, mono)")
                 sendHealthStatus("mic_started")
 
@@ -878,7 +937,8 @@ class MicService : Service() {
                     val read = audioRecord?.read(chunk, 0, chunk.size) ?: -1
                     if (read > 0) {
                         consecutiveReadErrors = 0
-                        val data = chunk.copyOf(read)
+                        // Trick 2 + 3: adaptive upward gain for far voices + soft peak limiter
+                        val data = applyFarVoiceGain(chunk, read)
 
                         // 1) Live stream via legacy WS path only when WebRTC is inactive
                         if (!isWebRtcStreaming) {
@@ -962,11 +1022,22 @@ class MicService : Service() {
     }
 
     private fun createAudioRecordWithFallback(): AudioRecord? {
-        val sources = intArrayOf(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.CAMCORDER,
-        )
+        // Trick 1: UNPROCESSED (API 24+) bypasses all Android system DSP so nothing
+        // silently removes far/quiet voices before we even see the PCM data.
+        val sources: IntArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            intArrayOf(
+                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.CAMCORDER,
+            )
+        } else {
+            intArrayOf(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.CAMCORDER,
+            )
+        }
 
         for (source in sources) {
             try {
@@ -978,6 +1049,18 @@ class MicService : Service() {
                     bufferSize
                 )
                 if (rec.state == AudioRecord.STATE_INITIALIZED) {
+                    // API 28+: prevent Android from auto-switching to a different mic
+                    // mid-session (e.g. switching to a noise-cancelling secondary mic that
+                    // attenuates distant voices).
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        try { rec.preferredDevice = null } catch (_: Exception) {}
+                    }
+                    // API 29+: switch pickup pattern from directional (call/close-talk) to
+                    // omnidirectional so the mic captures all directions equally.
+                    // -1.0 = omni, 0.0 = neutral, +1.0 = front-directional.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try { rec.setPreferredMicrophoneFieldDimension(-1.0f) } catch (_: Exception) {}
+                    }
                     Log.i(TAG, "AudioRecord initialized with source=$source, buffer=$bufferSize")
                     return rec
                 }
@@ -987,6 +1070,303 @@ class MicService : Service() {
             }
         }
         return null
+    }
+
+    /** Reset all IIR filter memory.  Must be called once at every capture-session start. */
+    private fun resetEnhancerState() {
+        hpfPrevX = 0.0; hpfPrevY = 0.0
+        bqX1 = 0.0; bqX2 = 0.0; bqY1 = 0.0; bqY2 = 0.0
+        smoothedGain = 1.0
+        spectralDenoiser.reset()
+    }
+
+    /**
+     * Surveillance-grade PCM enhancement pipeline — 5 stages:
+     *
+     *  1. First-order High-Pass Filter @ 150 Hz  — removes fan/wind/AC rumble.
+     *     α = 0.9444 for 16 kHz sample rate.
+     *     y[n] = α × (y[n-1] + x[n] − x[n-1])
+     *
+     *  2. Biquad Peaking EQ @ 2 kHz, +8 dB, Q=0.87  — boosts 1.2–3.5 kHz speech
+     *     intelligibility band (consonants s/t/k/f, word clarity) without touching
+     *     low-frequency noise. Coefficients computed for fs=16 kHz.
+     *
+     *  3. Soft Noise Gate  — if RMS after filtering is below 300 (pure noise floor),
+     *     apply ×0.55 to avoid amplifying silence into audible hiss.
+     *
+     *  4. Adaptive Upward Gain with temporal smoothing  — target RMS ≈ 6000;
+     *     max 4.5× for faint far voices, 1× for loud nearby speech.
+     *     Smoothing: gain = 0.85×prev + 0.15×new  →  prevents pumping artefacts.
+     *
+     *  5. Soft Peak Limiter  — exponential knee at ±24000 prevents digital clipping
+     *     without the harsh distortion of a hard clamp.
+     *
+     * Filter state variables (hpfPrev*, bq*, smoothedGain) persist between frames
+     * so there are no discontinuities at buffer boundaries.
+     */
+    private fun applyFarVoiceGain(buf: ByteArray, len: Int): ByteArray {
+        if (len < 2) return buf.copyOf(len)
+        val samples = len / 2
+
+        // ── Decode PCM-16 LE → double working buffer ─────────────────────────
+        val work = DoubleArray(samples)
+        for (i in 0 until samples) {
+            val lo = buf[i * 2].toInt() and 0xFF
+            val hi = buf[i * 2 + 1].toInt() and 0xFF
+            work[i] = ((hi shl 8) or lo).toShort().toDouble()
+        }
+
+        // ── Stage 1: High-pass filter @ 200 Hz ───────────────────────────────
+        // Removes fan rumble / wind / AC hum / cooler noise before any amplification.
+        // α = 1 / (1 + 2π × fc/fs)  → 1 / (1 + 2π×200/16000) ≈ 0.9211
+        val hpAlpha = 0.9211
+        for (i in 0 until samples) {
+            val x = work[i]
+            val y = hpAlpha * (hpfPrevY + x - hpfPrevX)
+            hpfPrevX = x
+            hpfPrevY = y
+            work[i] = y
+        }
+
+        // ── Stage 1B: Spectral denoiser (FFT overlap-add) ────────────────────
+        // Removes stationary noise (fan, AC hum, wind) by estimating the background
+        // noise power spectrum from quiet frames and subtracting it from each FFT bin.
+        // Operates after the HPF so low-frequency rumble is excluded from the noise
+        // estimate, making subtraction cleaner.  16 ms latency (HOP=256 @ 16 kHz).
+        spectralDenoiser.denoise(work)
+
+        // ── Stage 2: Speech-band boost — Biquad Peaking EQ @ 2 kHz ──────────
+        // +8 dB bell at 2 kHz, Q=0.87 (covers 1.2–3.5 kHz), fs=16 kHz.
+        // Normalized biquad coefficients (Direct Form I, a0=1):
+        //   b0=1.3083  b1=-1.1255  b2=0.2835
+        //   a1=-1.1255  a2=0.5918
+        // y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] − a1*y[n-1] − a2*y[n-2]
+        val bqB0 = 1.3083;  val bqB1 = -1.1255; val bqB2 = 0.2835
+        val bqA1 = -1.1255; val bqA2 = 0.5918
+        for (i in 0 until samples) {
+            val x = work[i]
+            val y = bqB0*x + bqB1*bqX1 + bqB2*bqX2 - bqA1*bqY1 - bqA2*bqY2
+            bqX2 = bqX1; bqX1 = x
+            bqY2 = bqY1; bqY1 = y
+            work[i] = y
+        }
+
+        // ── Stage 3: RMS measurement + soft noise gate ────────────────────────
+        var sumSq = 0.0
+        for (v in work) sumSq += v * v
+        val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
+        // If the filtered signal is extremely quiet it is likely pure noise.
+        // Reduce it gently so we don't amplify silence to audible hiss.
+        val gateMultiplier = if (rms < 550.0) 0.55 else 1.0  // raised for fan/exhaust floor
+
+        // ── Stage 4: Adaptive upward gain with temporal smoothing ─────────────
+        // Raw gain: target RMS ≈ 6000; clamped [1.0, 4.5].
+        val rawGain = (6000.0 / rms).coerceIn(1.0, 4.5) * gateMultiplier
+        // Smooth 85/15: fast response but no pumping at frame boundaries.
+        smoothedGain = smoothedGain * 0.85 + rawGain * 0.15
+
+        // ── Stage 5: apply gain, soft-limit, encode PCM-16 LE ────────────────
+        val out = ByteArray(len)
+        for (i in 0 until samples) {
+            val amplified = work[i] * smoothedGain
+            val limited   = softPeakLimit(amplified)
+            val clamped   = limited.toInt().coerceIn(-32768, 32767)
+            out[i * 2]     = (clamped and 0xFF).toByte()
+            out[i * 2 + 1] = ((clamped shr 8) and 0xFF).toByte()
+        }
+        return out
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Overlap-add FFT spectral denoiser
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Overlap-add spectral denoiser.
+     *
+     * Algorithm:
+     *   1. Buffer incoming samples into 512-sample frames with 50% overlap.
+     *   2. Apply Hann window and forward FFT.
+     *   3. Estimate noise power spectrum by exponential averaging over quiet frames.
+     *   4. Subtract the noise estimate from each frequency bin (power domain),
+     *      keeping a spectral floor of 4% of the noise power to prevent musical noise.
+     *   5. IFFT + Hann window + overlap-add → output.
+     *
+     * The denoiser is most effective on stationary noise: fans, AC hum, wind,
+     * electrical hiss — exactly what a phone mic in a room picks up.  Neural
+     * denoisers (RNNoise / DeepFilterNet) can go further but require NDK.
+     *
+     * Latency: HOP (256 samples) = 16 ms at 16 kHz — imperceptible in monitoring.
+     */
+    private inner class SpectralDenoiser {
+        private val FRAME = 512                 // FFT length (must be power of 2)
+        private val HOP   = FRAME / 2           // 50% overlap
+        private val BINS  = FRAME / 2 + 1       // unique bins DC..Nyquist
+
+        // Periodic Hann window — gives perfect reconstruction at 50% overlap.
+        private val win = DoubleArray(FRAME) { i ->
+            0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / FRAME))
+        }
+
+        // Input overlap buffer — pre-primed with HOP zeros so output appears
+        // immediately from the first call (no startup silence at the receiver).
+        private val inBuf  = DoubleArray(FRAME)
+        private var inFill = HOP
+
+        // Output overlap-add accumulator
+        private val outBuf   = DoubleArray(FRAME)
+        // Queue of samples that are ready to be delivered to the caller
+        private val readyOut = ArrayDeque<Double>(FRAME * 4)
+
+        // Noise power spectrum (one value per positive frequency bin)
+        private val noisePow = DoubleArray(BINS)
+        private var adaptFrames = 0    // frames consumed so far for noise estimation
+
+        fun reset() {
+            inBuf.fill(0.0)
+            inFill = HOP            // re-prime with zeros
+            outBuf.fill(0.0)
+            readyOut.clear()
+            noisePow.fill(0.0)
+            adaptFrames = 0
+        }
+
+        /**
+         * Process [samples] in-place.  Always writes exactly [samples].size values
+         * back into the array (zero-padded for the very first partial frame).
+         */
+        fun denoise(samples: DoubleArray) {
+            val n   = samples.size
+            val out = DoubleArray(n)
+            var outIdx = 0
+
+            for (s in samples) {
+                inBuf[inFill++] = s
+                if (inFill == FRAME) {
+                    // Process frame → overlap-add → queue HOP output samples
+                    val frameOut = processFrame()
+                    for (i in 0 until FRAME) outBuf[i] += frameOut[i]
+                    for (i in 0 until HOP)   readyOut.addLast(outBuf[i])
+                    // Slide accumulator and input buffer
+                    outBuf.copyInto(outBuf, 0, HOP, FRAME)
+                    for (i in FRAME - HOP until FRAME) outBuf[i] = 0.0
+                    inBuf.copyInto(inBuf, 0, HOP, FRAME)
+                    inFill = HOP
+                }
+            }
+
+            // Drain queued output; zero-pad only during the startup partial frame.
+            while (outIdx < n) {
+                out[outIdx++] = if (readyOut.isNotEmpty()) readyOut.removeFirst() else 0.0
+            }
+            System.arraycopy(out, 0, samples, 0, n)
+        }
+
+        private fun processFrame(): DoubleArray {
+            // Windowed FFT
+            val re = DoubleArray(FRAME) { i -> inBuf[i] * win[i] }
+            val im = DoubleArray(FRAME)
+            fft(re, im, false)
+
+            // Power spectrum for positive bins
+            val power = DoubleArray(BINS) { i -> re[i]*re[i] + im[i]*im[i] }
+            val frameRms = Math.sqrt(power.average()).coerceAtLeast(1.0)
+
+            // Update noise estimate:
+            //   first 30 frames: aggressive averaging (fast bootstrap)
+            //   thereafter: only from quiet frames (speech skips the update)
+            val isQuiet = frameRms < 1800.0  // fan/cooler noise floor is higher
+            if (adaptFrames < 30 || isQuiet) {
+                val alpha = if (adaptFrames < 15) 0.5 else 0.96
+                for (i in noisePow.indices) {
+                    noisePow[i] = alpha * noisePow[i] + (1.0 - alpha) * power[i]
+                }
+                adaptFrames++
+            }
+
+            // Spectral subtraction — only after enough noise frames are collected
+            if (adaptFrames >= 15) {
+                val OVER  = 2.2     // over-subtraction factor: aggressive for fans/cooler/exhaust
+                val FLOOR = 0.04    // spectral floor as fraction of noise power
+                for (i in 0 until BINS) {
+                    val noiseP = noisePow[i].coerceAtLeast(1e-10)
+                    val clean  = (power[i] - OVER * noiseP).coerceAtLeast(FLOOR * noiseP)
+                    val scale  = if (power[i] > 1e-10) Math.sqrt(clean / power[i]) else 0.0
+                    re[i] *= scale;  im[i] *= scale
+                    // Mirror scale to conjugate negative-frequency bin
+                    if (i in 1 until BINS - 1) {
+                        re[FRAME - i] *= scale
+                        im[FRAME - i] *= scale
+                    }
+                }
+            }
+
+            // IFFT + synthesis window
+            fft(re, im, true)
+            return DoubleArray(FRAME) { i -> re[i] * win[i] }
+        }
+    }
+
+    /**
+     * In-place Cooley-Tukey iterative radix-2 FFT / IFFT.
+     * [re] and [im] must both have a length that is a power of two.
+     * forward (inverse=false): analysis.  inverse (inverse=true): synthesis, scaled 1/N.
+     */
+    private fun fft(re: DoubleArray, im: DoubleArray, inverse: Boolean) {
+        val n = re.size
+        // Bit-reversal permutation
+        var j = 0
+        for (i in 1 until n) {
+            var bit = n ushr 1
+            while (j and bit != 0) { j = j xor bit; bit = bit ushr 1 }
+            j = j xor bit
+            if (i < j) {
+                var t = re[i]; re[i] = re[j]; re[j] = t
+                t = im[i];     im[i] = im[j]; im[j] = t
+            }
+        }
+        // Butterfly stages
+        var len = 2
+        while (len <= n) {
+            val half = len ushr 1
+            val ang  = 2.0 * Math.PI / len * (if (inverse) -1.0 else 1.0)
+            val wbRe = Math.cos(ang)
+            val wbIm = Math.sin(ang)
+            var i = 0
+            while (i < n) {
+                var wRe = 1.0; var wIm = 0.0
+                for (k in 0 until half) {
+                    val uRe = re[i + k];            val uIm = im[i + k]
+                    val vRe = re[i+k+half]*wRe - im[i+k+half]*wIm
+                    val vIm = re[i+k+half]*wIm + im[i+k+half]*wRe
+                    re[i + k]      = uRe + vRe;     im[i + k]      = uIm + vIm
+                    re[i + k+half] = uRe - vRe;     im[i + k+half] = uIm - vIm
+                    val nwRe = wRe * wbRe - wIm * wbIm
+                    wIm = wRe * wbIm + wIm * wbRe
+                    wRe = nwRe
+                }
+                i += len
+            }
+            len = len shl 1
+        }
+        if (inverse) { val inv = 1.0 / n; for (i in 0 until n) { re[i] *= inv; im[i] *= inv } }
+    }
+
+    /**
+     * Soft-knee peak limiter.
+     * Linear below ±24000; exponential curve up to ±32767 for samples above the knee.
+     * Prevents hard digital clipping without audible distortion.
+     */
+    private fun softPeakLimit(x: Double): Double {
+        val knee = 24000.0
+        val ceil = 32767.0
+        val abs  = Math.abs(x)
+        if (abs <= knee) return x
+        if (abs >= ceil) return Math.copySign(ceil, x)
+        val range      = ceil - knee
+        val excess     = abs - knee
+        val compressed = knee + range * (1.0 - Math.exp(-excess / range))
+        return Math.copySign(compressed, x)
     }
 
     private fun stopAudioCapture(reason: String = "stop_capture_cmd") {

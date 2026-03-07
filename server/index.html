@@ -196,17 +196,24 @@
 
       let controlWs = null;
       const deviceState = {};
+      let _wsReconnectDelay = 2000;   // exponential backoff start
 
       function connectControlWs() {
         controlWs = new WebSocket(`${_wsProto}://${_wsHost}/control`);
         controlWs.binaryType = "arraybuffer";
-        controlWs.onopen = () => { setWsStatus(true); log("Connected to server", "ok"); };
+        controlWs.onopen = () => {
+          _wsReconnectDelay = 2000;  // reset backoff on successful connect
+          setWsStatus(true);
+          log("Connected to server", "ok");
+        };
         controlWs.onclose = () => {
           setWsStatus(false);
-          log("Disconnected — reconnecting in 3s…", "warn");
+          log(`Disconnected — reconnecting in ${(_wsReconnectDelay/1000).toFixed(0)}s…`, "warn");
           // Clear all device cards so they're rebuilt fresh on reconnect
           Object.keys(deviceState).forEach((id) => removeDeviceCard(id));
-          setTimeout(connectControlWs, 3000);
+          const delay = _wsReconnectDelay;
+          _wsReconnectDelay = Math.min(_wsReconnectDelay * 2, 30000); // cap at 30 s
+          setTimeout(connectControlWs, delay);
         };
         controlWs.onerror = () => { log("WebSocket error", "err"); };
         controlWs.onmessage = (event) => {
@@ -360,9 +367,19 @@
           rtcLastPacketsReceived: null,
           rtcLastBytesReceived: null,
           rtcLastPacketsTs: null,
+          webRtcHighPassNode: null,
+          webRtcNotchNode: null,
+          webRtcPresenceNode: null,
           webRtcGainNode: null,
           webRtcCompressorNode: null,
           webRtcAudioGraphConnected: false,
+          // PCM fallback processing nodes (same pipeline, separate graph)
+          pcmGainNode: null,
+          pcmHighPassNode: null,
+          pcmNotchNode: null,
+          pcmPresenceNode: null,
+          pcmCompressorNode: null,
+          pcmGraphConnected: false,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
           health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null, internetOnline: true, callActive: false, batteryPct: null, charging: null },
@@ -488,7 +505,14 @@
         if (state.isLive) {
           state.isLive = false;
           if (state.useWebRtc) stopWebRtc(deviceId, true);
-          if (state.audioCtx) { state.audioCtx.close(); state.audioCtx = null; }
+          if (state.audioCtx) {
+            // Tear down PCM processing graph before closing context
+            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmPresenceNode","pcmCompressorNode"]
+              .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
+            state.pcmGraphConnected = false;
+            state.audioCtx.close();
+            state.audioCtx = null;
+          }
           btn.textContent = "▶ Live Listen"; btn.classList.remove("active");
           clearCanvas(state.canvas);
           log(`Stopped live listen for ${deviceId}`, "info");
@@ -694,22 +718,44 @@
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
           if (!state.webRtcGainNode) {
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 1.85;
+            state.webRtcGainNode.gain.value = 1.45;
+          }
+          if (!state.webRtcHighPassNode) {
+            state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
+            state.webRtcHighPassNode.type = "highpass";
+            state.webRtcHighPassNode.frequency.value = 200;
+            state.webRtcHighPassNode.Q.value = 0.8;
+          }
+          if (!state.webRtcNotchNode) {
+            state.webRtcNotchNode = state.webRtcAudioCtx.createBiquadFilter();
+            state.webRtcNotchNode.type = "notch";
+            state.webRtcNotchNode.frequency.value = 50;  // mains hum (50 Hz grid — fans/coolers)
+            state.webRtcNotchNode.Q.value = 10;
+          }
+          if (!state.webRtcPresenceNode) {
+            state.webRtcPresenceNode = state.webRtcAudioCtx.createBiquadFilter();
+            state.webRtcPresenceNode.type = "peaking";
+            state.webRtcPresenceNode.frequency.value = 2200;
+            state.webRtcPresenceNode.Q.value = 0.9;
+            state.webRtcPresenceNode.gain.value = 4.5;
           }
           if (!state.webRtcCompressorNode) {
             state.webRtcCompressorNode = state.webRtcAudioCtx.createDynamicsCompressor();
-            state.webRtcCompressorNode.threshold.value = -16;
-            state.webRtcCompressorNode.knee.value = 24;
-            state.webRtcCompressorNode.ratio.value = 3.2;
-            state.webRtcCompressorNode.attack.value = 0.003;
-            state.webRtcCompressorNode.release.value = 0.2;
+            state.webRtcCompressorNode.threshold.value = -24;
+            state.webRtcCompressorNode.knee.value = 20;
+            state.webRtcCompressorNode.ratio.value = 3.8;
+            state.webRtcCompressorNode.attack.value = 0.004;
+            state.webRtcCompressorNode.release.value = 0.22;
           }
           if (state.webRtcSourceNode) {
             try { state.webRtcSourceNode.disconnect(); } catch (_) {}
           }
           state.webRtcSourceNode = state.webRtcAudioCtx.createMediaStreamSource(stream);
           if (!state.webRtcAudioGraphConnected) {
-            state.webRtcGainNode.connect(state.webRtcCompressorNode);
+            state.webRtcGainNode.connect(state.webRtcHighPassNode);
+            state.webRtcHighPassNode.connect(state.webRtcNotchNode);
+            state.webRtcNotchNode.connect(state.webRtcPresenceNode);
+            state.webRtcPresenceNode.connect(state.webRtcCompressorNode);
             state.webRtcCompressorNode.connect(state.webRtcAudioCtx.destination);
             state.webRtcAudioGraphConnected = true;
           }
@@ -738,6 +784,15 @@
         if (state.webRtcAnalyserNode) {
           try { state.webRtcAnalyserNode.disconnect(); } catch (_) {}
         }
+        if (state.webRtcHighPassNode) {
+          try { state.webRtcHighPassNode.disconnect(); } catch (_) {}
+        }
+        if (state.webRtcNotchNode) {
+          try { state.webRtcNotchNode.disconnect(); } catch (_) {}
+        }
+        if (state.webRtcPresenceNode) {
+          try { state.webRtcPresenceNode.disconnect(); } catch (_) {}
+        }
         if (state.webRtcGainNode) {
           try { state.webRtcGainNode.disconnect(); } catch (_) {}
         }
@@ -757,6 +812,9 @@
         state.rtcLastPacketsReceived = null;
         state.rtcLastBytesReceived = null;
         state.rtcLastPacketsTs = null;
+        state.webRtcHighPassNode = null;
+        state.webRtcNotchNode = null;
+        state.webRtcPresenceNode = null;
         state.webRtcGainNode = null;
         state.webRtcCompressorNode = null;
         state.webRtcAudioCtx = null;
@@ -1033,14 +1091,51 @@
 
       function playAudioChunk(state, float32) {
         if (!state.audioCtx || float32.length === 0) return;
-        // Ensure AudioContext is running before scheduling audio
-        if (state.audioCtx.state === "suspended") { state.audioCtx.resume(); }
+        if (state.audioCtx.state === "suspended") state.audioCtx.resume();
+        // Build PCM speech-enhancement graph once per AudioContext lifetime:
+        //   gain (1.5×)  →  HPF 140 Hz  →  presence +4.5 dB @ 2.2 kHz  →  compressor
+        // Identical chain to the WebRTC path so PCM fallback sounds the same.
+        if (!state.pcmGraphConnected) {
+          try {
+            const ctx = state.audioCtx;
+            state.pcmGainNode = ctx.createGain();
+            state.pcmGainNode.gain.value = 1.5;
+            state.pcmHighPassNode = ctx.createBiquadFilter();
+            state.pcmHighPassNode.type = "highpass";
+            state.pcmHighPassNode.frequency.value = 200;
+            state.pcmHighPassNode.Q.value = 0.8;
+            state.pcmNotchNode = ctx.createBiquadFilter();
+            state.pcmNotchNode.type = "notch";
+            state.pcmNotchNode.frequency.value = 50;       // mains hum (50 Hz grid — fans/coolers)
+            state.pcmNotchNode.Q.value = 10;
+            state.pcmPresenceNode = ctx.createBiquadFilter();
+            state.pcmPresenceNode.type = "peaking";
+            state.pcmPresenceNode.frequency.value = 2200;
+            state.pcmPresenceNode.Q.value = 0.9;
+            state.pcmPresenceNode.gain.value = 4.5;
+            state.pcmCompressorNode = ctx.createDynamicsCompressor();
+            state.pcmCompressorNode.threshold.value = -24;
+            state.pcmCompressorNode.knee.value = 20;
+            state.pcmCompressorNode.ratio.value = 3.8;
+            state.pcmCompressorNode.attack.value = 0.004;
+            state.pcmCompressorNode.release.value = 0.22;
+            state.pcmGainNode.connect(state.pcmHighPassNode);
+            state.pcmHighPassNode.connect(state.pcmNotchNode);
+            state.pcmNotchNode.connect(state.pcmPresenceNode);
+            state.pcmPresenceNode.connect(state.pcmCompressorNode);
+            state.pcmCompressorNode.connect(ctx.destination);
+            state.pcmGraphConnected = true;
+          } catch(e) {
+            state.pcmGraphConnected = false;
+          }
+        }
         try {
           const buffer = state.audioCtx.createBuffer(1, float32.length, 16000);
           buffer.copyToChannel(float32, 0);
           const source = state.audioCtx.createBufferSource();
           source.buffer = buffer;
-          source.connect(state.audioCtx.destination);
+          // Route through enhancement graph if available, else straight to destination.
+          source.connect(state.pcmGraphConnected ? state.pcmGainNode : state.audioCtx.destination);
           const now = state.audioCtx.currentTime;
           const targetLeadSec = 0.02;
           const maxLeadSec = 0.2;
