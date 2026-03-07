@@ -464,6 +464,12 @@ app.get("/api/recordings", (req, res) => {
 // Serve recording files for download
 app.use("/recordings", express.static(RECORDINGS_DIR));
 
+// Serve RNNoise worklet and wasm assets for dashboard-side AI denoise.
+app.use(
+  "/vendor/web-noise-suppressor",
+  express.static(path.join(__dirname, "node_modules/@sapphi-red/web-noise-suppressor/dist")),
+);
+
 // All other requests → static dashboard (index.html)
 app.use(express.static(path.join(__dirname)));
 app.get("*", (req, res) => {

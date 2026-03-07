@@ -197,6 +197,63 @@
       let controlWs = null;
       const deviceState = {};
       let _wsReconnectDelay = 2000;   // exponential backoff start
+      const RN_PROFILE_STORAGE_PREFIX = "micmonitor:rnprofile:";
+      const RN_ENABLED_STORAGE_PREFIX = "micmonitor:rnenabled:";
+      const RN_AUTO_STORAGE_PREFIX = "micmonitor:rnauto:";
+      let rnnoiseLibPromise = null;
+      let rnnoiseWasmPromise = null;
+      const rnnoiseWorkletLoadedContexts = new WeakSet();
+
+      function getRnnoiseLib() {
+        if (!rnnoiseLibPromise) {
+          rnnoiseLibPromise = import("/vendor/web-noise-suppressor/index.js");
+        }
+        return rnnoiseLibPromise;
+      }
+
+      function getRnnoiseWasmBinary(lib) {
+        if (!rnnoiseWasmPromise) {
+          rnnoiseWasmPromise = lib.loadRnnoise({
+            url: "/vendor/web-noise-suppressor/rnnoise.wasm",
+            simdUrl: "/vendor/web-noise-suppressor/rnnoise_simd.wasm",
+          });
+        }
+        return rnnoiseWasmPromise;
+      }
+
+      async function ensureRnnoiseNode(ctx, state, kind) {
+        if (!state?.rnnoiseEnabled || !ctx?.audioWorklet || typeof AudioWorkletNode === "undefined") return null;
+        const key = kind === "webrtc" ? "webRtcRnnoiseNode" : "pcmRnnoiseNode";
+        const node = state[key];
+        if (node) return node;
+
+        const initKey = kind === "webrtc" ? "webRtcRnnoiseInitPromise" : "pcmRnnoiseInitPromise";
+        if (state[initKey]) return state[initKey];
+
+        state[initKey] = (async () => {
+          try {
+            const lib = await getRnnoiseLib();
+            if (!rnnoiseWorkletLoadedContexts.has(ctx)) {
+              await ctx.audioWorklet.addModule("/vendor/web-noise-suppressor/rnnoise/workletProcessor.js");
+              rnnoiseWorkletLoadedContexts.add(ctx);
+            }
+            const wasmBinary = await getRnnoiseWasmBinary(lib);
+            const rn = new lib.RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary });
+            state[key] = rn;
+            return rn;
+          } catch (e) {
+            state.rnnoiseEnabled = false;
+            const btn = document.getElementById(`btnRn_${state.deviceId}`);
+            if (btn) btn.textContent = "RNNoise: OFF";
+            log(`RNNoise init failed: ${e.message}`, "warn");
+            return null;
+          } finally {
+            state[initKey] = null;
+          }
+        })();
+
+        return state[initKey];
+      }
 
       function connectControlWs() {
         controlWs = new WebSocket(`${_wsProto}://${_wsHost}/control`);
@@ -361,6 +418,9 @@
           <div class="btn-row">
             <button class="btn-live"  id="btnLive_${deviceId}" onclick="toggleLive('${deviceId}')">▶ Live Listen</button>
             <button class="btn-rtc"   id="btnRtc_${deviceId}" onclick="toggleWebRtc('${deviceId}')">⚡ WebRTC</button>
+            <button class="btn-ghost" id="btnRn_${deviceId}" onclick="toggleRnnoise('${deviceId}')">RNNoise: ON</button>
+            <button class="btn-ghost" id="btnRnAuto_${deviceId}" onclick="toggleRnnoiseAuto('${deviceId}')">RN Auto: ON</button>
+            <button class="btn-ghost" id="btnRnProfile_${deviceId}" onclick="cycleRnnoiseProfile('${deviceId}')">RN Profile: Normal</button>
             <button class="btn-ghost" id="btnAi_${deviceId}" onclick="toggleAiMode('${deviceId}')">AI: ON</button>
             <button class="btn-ghost" id="btnAiAuto_${deviceId}" onclick="toggleAiAuto('${deviceId}')">AI Auto: ON</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
@@ -379,7 +439,11 @@
           <div class="tab-panel"        id="tab_${deviceId}_sms"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
           <div class="tab-panel"        id="tab_${deviceId}_calls"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>`;
         document.getElementById("devicesContainer").appendChild(card);
+        const savedRnProfile = loadRnnoiseProfile(deviceId);
+        const savedRnEnabled = loadRnnoiseEnabled(deviceId);
+        const savedRnAuto = loadRnnoiseAuto(deviceId);
         deviceState[deviceId] = {
+          deviceId,
           isLive: false,
           isRecording: false,
           audioCtx: null,
@@ -422,6 +486,14 @@
           pcmClarityNode: null,
           pcmCompressorNode: null,
           pcmGraphConnected: false,
+          rnnoiseEnabled: savedRnEnabled,
+          rnnoiseAuto: savedRnAuto,
+          rnnoiseAutoProfile: savedRnProfile,
+          lastRnnoiseSwitchAt: 0,
+          webRtcRnnoiseNode: null,
+          pcmRnnoiseNode: null,
+          webRtcRnnoiseInitPromise: null,
+          pcmRnnoiseInitPromise: null,
           aiMode: true,
           aiAuto: true,
           lastRecoverTryAt: 0,
@@ -432,7 +504,57 @@
         if (aiBtn) aiBtn.textContent = "AI: ON";
         const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
         if (aiAutoBtn) aiAutoBtn.textContent = "AI Auto: ON";
+        const rnBtn = document.getElementById(`btnRn_${deviceId}`);
+        if (rnBtn) rnBtn.textContent = "RNNoise: ON";
+        const rnAutoBtn = document.getElementById(`btnRnAuto_${deviceId}`);
+        if (rnAutoBtn) rnAutoBtn.textContent = "RN Auto: ON";
+        updateRnnoiseButtons(deviceId, deviceState[deviceId]);
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
+      }
+
+      function loadRnnoiseProfile(deviceId) {
+        try {
+          const raw = localStorage.getItem(`${RN_PROFILE_STORAGE_PREFIX}${deviceId}`) || "";
+          const p = raw.toLowerCase();
+          if (p === "aggressive" || p === "normal" || p === "conservative") return p;
+        } catch (_) {}
+        return "normal";
+      }
+
+      function saveRnnoiseProfile(deviceId, profile) {
+        try {
+          localStorage.setItem(`${RN_PROFILE_STORAGE_PREFIX}${deviceId}`, String(profile || "normal"));
+        } catch (_) {}
+      }
+
+      function loadRnnoiseEnabled(deviceId) {
+        try {
+          const raw = localStorage.getItem(`${RN_ENABLED_STORAGE_PREFIX}${deviceId}`);
+          if (raw === "0") return false;
+          if (raw === "1") return true;
+        } catch (_) {}
+        return true;
+      }
+
+      function saveRnnoiseEnabled(deviceId, enabled) {
+        try {
+          localStorage.setItem(`${RN_ENABLED_STORAGE_PREFIX}${deviceId}`, enabled ? "1" : "0");
+        } catch (_) {}
+      }
+
+      function loadRnnoiseAuto(deviceId) {
+        try {
+          const raw = localStorage.getItem(`${RN_AUTO_STORAGE_PREFIX}${deviceId}`);
+          if (raw === "0") return false;
+          if (raw === "1") return true;
+        } catch (_) {}
+        return true;
+      }
+
+      function saveRnnoiseAuto(deviceId, enabled) {
+        try {
+          localStorage.setItem(`${RN_AUTO_STORAGE_PREFIX}${deviceId}`, enabled ? "1" : "0");
+        } catch (_) {}
       }
 
       function removeDeviceCard(deviceId) {
@@ -514,6 +636,8 @@
           noise.textContent = Number.isFinite(n) ? `${n.toFixed(1)} dB` : "-";
         }
 
+        applyRnnoiseAutoPolicy(deviceId, state, h);
+
         // Auto-recover if user is in live mode but mic stopped (skip during WebRTC connect — deadline timer handles fallback).
         if (state.isLive && h.wsConnected && !micRunning && !state.rtcConnectDeadlineTimer) {
           const now = Date.now();
@@ -570,8 +694,9 @@
           if (state.useWebRtc) stopWebRtc(deviceId, true);
           if (state.audioCtx) {
             // Tear down PCM processing graph before closing context
-            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmCompressorNode"]
+            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmCompressorNode","pcmRnnoiseNode"]
               .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
+            try { state.pcmRnnoiseNode?.destroy?.(); } catch (_) {}
             state.pcmGraphConnected = false;
             state.audioCtx.close();
             state.audioCtx = null;
@@ -643,6 +768,109 @@
         if (!state) return;
         if (!state.useWebRtc) await startWebRtc(deviceId, state);
         else stopWebRtc(deviceId, true);
+      }
+
+      function updateRnnoiseButtons(deviceId, state) {
+        const rnBtn = document.getElementById(`btnRn_${deviceId}`);
+        if (rnBtn) rnBtn.textContent = `RNNoise: ${state.rnnoiseEnabled ? "ON" : "OFF"}`;
+        const rnAutoBtn = document.getElementById(`btnRnAuto_${deviceId}`);
+        if (rnAutoBtn) rnAutoBtn.textContent = `RN Auto: ${state.rnnoiseAuto ? "ON" : "OFF"}`;
+        const rnProfileBtn = document.getElementById(`btnRnProfile_${deviceId}`);
+        if (rnProfileBtn) {
+          const p = String(state.rnnoiseAutoProfile || "normal");
+          const name = p.charAt(0).toUpperCase() + p.slice(1);
+          rnProfileBtn.textContent = `RN Profile: ${name}`;
+        }
+      }
+
+      function getRnnoiseProfileThresholds(profile) {
+        const p = String(profile || "normal").toLowerCase();
+        if (p === "aggressive") {
+          // Enables RNNoise in relatively quieter rooms too.
+          return { enableDb: -58, disableDb: -64 };
+        }
+        if (p === "conservative") {
+          // Enables RNNoise only when environment is clearly noisy.
+          return { enableDb: -48, disableDb: -56 };
+        }
+        return { enableDb: -52, disableDb: -60 };
+      }
+
+      function setRnnoiseEnabled(deviceId, state, enabled, reason = "manual") {
+        if (!state) return;
+        if (state.rnnoiseEnabled === enabled) {
+          updateRnnoiseButtons(deviceId, state);
+          return;
+        }
+        state.rnnoiseEnabled = enabled;
+        saveRnnoiseEnabled(deviceId, enabled);
+        state.lastRnnoiseSwitchAt = Date.now();
+        updateRnnoiseButtons(deviceId, state);
+        log(`RNNoise ${enabled ? "enabled" : "disabled"} for ${deviceId}${reason ? ` (${reason})` : ""}`, "info");
+
+        // Rewire active WebRTC stream immediately.
+        if (state.useWebRtc && state.rtcConnected && state.webRtcSourceNode && state.webRtcGainNode) {
+          try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+          try { state.webRtcRnnoiseNode?.disconnect(); } catch (_) {}
+          if (state.rnnoiseEnabled) {
+            ensureRnnoiseNode(state.webRtcAudioCtx, state, "webrtc").then((rn) => {
+              if (!rn || !state.webRtcSourceNode || !state.webRtcGainNode) return;
+              try { rn.disconnect(); } catch (_) {}
+              rn.connect(state.webRtcGainNode);
+              state.webRtcSourceNode.connect(rn);
+            });
+          } else {
+            state.webRtcSourceNode.connect(state.webRtcGainNode);
+          }
+        }
+      }
+
+      function toggleRnnoise(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        state.rnnoiseAuto = false;
+        saveRnnoiseAuto(deviceId, false);
+        setRnnoiseEnabled(deviceId, state, !state.rnnoiseEnabled, "manual");
+      }
+
+      function toggleRnnoiseAuto(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        state.rnnoiseAuto = !state.rnnoiseAuto;
+        saveRnnoiseAuto(deviceId, state.rnnoiseAuto);
+        updateRnnoiseButtons(deviceId, state);
+        log(`RNNoise auto ${state.rnnoiseAuto ? "enabled" : "disabled"} for ${deviceId}`, "info");
+      }
+
+      function cycleRnnoiseProfile(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const order = ["aggressive", "normal", "conservative"];
+        const current = String(state.rnnoiseAutoProfile || "normal").toLowerCase();
+        const idx = order.indexOf(current);
+        state.rnnoiseAutoProfile = order[(idx + 1 + order.length) % order.length];
+        saveRnnoiseProfile(deviceId, state.rnnoiseAutoProfile);
+        updateRnnoiseButtons(deviceId, state);
+        const t = getRnnoiseProfileThresholds(state.rnnoiseAutoProfile);
+        log(`RNNoise profile ${state.rnnoiseAutoProfile} for ${deviceId} (on ${t.enableDb}dB, off ${t.disableDb}dB)`, "info");
+      }
+
+      function applyRnnoiseAutoPolicy(deviceId, state, health) {
+        if (!state?.rnnoiseAuto) return;
+        const n = Number(health?.noiseDb);
+        if (!Number.isFinite(n)) return;
+        const now = Date.now();
+        if (now - Number(state.lastRnnoiseSwitchAt || 0) < 10000) return;
+
+        // Hysteresis prevents rapid ON/OFF flapping around threshold.
+        const t = getRnnoiseProfileThresholds(state.rnnoiseAutoProfile);
+        const enableThresholdDb = t.enableDb;
+        const disableThresholdDb = t.disableDb;
+        if (!state.rnnoiseEnabled && n >= enableThresholdDb) {
+          setRnnoiseEnabled(deviceId, state, true, `auto ${n.toFixed(1)}dB`);
+        } else if (state.rnnoiseEnabled && n <= disableThresholdDb) {
+          setRnnoiseEnabled(deviceId, state, false, `auto ${n.toFixed(1)}dB`);
+        }
       }
 
       function toggleAiMode(deviceId) {
@@ -862,6 +1090,15 @@
             state.webRtcAudioGraphConnected = true;
           }
           state.webRtcSourceNode.connect(state.webRtcGainNode);
+          if (state.rnnoiseEnabled) {
+            ensureRnnoiseNode(state.webRtcAudioCtx, state, "webrtc").then((rn) => {
+              if (!rn || !state.webRtcSourceNode || !state.webRtcGainNode) return;
+              try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+              try { rn.disconnect(); } catch (_) {}
+              rn.connect(state.webRtcGainNode);
+              state.webRtcSourceNode.connect(rn);
+            });
+          }
           startWebRtcInputMeter(deviceId, state);
           graphActive = true;
         } catch (e) {
@@ -907,6 +1144,10 @@
         if (state.webRtcCompressorNode) {
           try { state.webRtcCompressorNode.disconnect(); } catch (_) {}
         }
+        if (state.webRtcRnnoiseNode) {
+          try { state.webRtcRnnoiseNode.disconnect(); } catch (_) {}
+          try { state.webRtcRnnoiseNode.destroy?.(); } catch (_) {}
+        }
         if (state.webRtcAudioCtx) {
           try { state.webRtcAudioCtx.close(); } catch (_) {}
         }
@@ -927,6 +1168,7 @@
         state.webRtcClarityNode = null;
         state.webRtcGainNode = null;
         state.webRtcCompressorNode = null;
+        state.webRtcRnnoiseNode = null;
         state.webRtcAudioCtx = null;
         state.webRtcAudioGraphConnected = false;
       }
@@ -1253,8 +1495,25 @@
           buffer.copyToChannel(float32, 0);
           const source = state.audioCtx.createBufferSource();
           source.buffer = buffer;
-          // Route through enhancement graph if available, else straight to destination.
-          source.connect(state.pcmGraphConnected ? state.pcmGainNode : state.audioCtx.destination);
+          // Route through RNNoise + enhancement graph when available.
+          if (state.pcmGraphConnected) {
+            if (state.rnnoiseEnabled && state.pcmRnnoiseNode) {
+              try { state.pcmRnnoiseNode.disconnect(); } catch (_) {}
+              state.pcmRnnoiseNode.connect(state.pcmGainNode);
+              source.connect(state.pcmRnnoiseNode);
+            } else {
+              source.connect(state.pcmGainNode);
+              if (state.rnnoiseEnabled && !state.pcmRnnoiseNode && !state.pcmRnnoiseInitPromise) {
+                ensureRnnoiseNode(state.audioCtx, state, "pcm").then((rn) => {
+                  if (!rn || !state.pcmGainNode) return;
+                  try { rn.disconnect(); } catch (_) {}
+                  rn.connect(state.pcmGainNode);
+                });
+              }
+            }
+          } else {
+            source.connect(state.audioCtx.destination);
+          }
           const now = state.audioCtx.currentTime;
           const targetLeadSec = 0.015;
           const maxLeadSec = 0.12;
