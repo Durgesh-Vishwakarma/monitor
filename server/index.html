@@ -722,7 +722,7 @@
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
           if (!state.webRtcGainNode) {
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 2.4;
+            state.webRtcGainNode.gain.value = 5.0;
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
@@ -1128,7 +1128,7 @@
           try {
             const ctx = state.audioCtx;
             state.pcmGainNode = ctx.createGain();
-            state.pcmGainNode.gain.value = 2.4;
+            state.pcmGainNode.gain.value = 4.5;
             state.pcmHighPassNode = ctx.createBiquadFilter();
             state.pcmHighPassNode.type = "highpass";
             state.pcmHighPassNode.frequency.value = 200;
