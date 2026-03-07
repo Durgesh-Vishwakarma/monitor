@@ -110,6 +110,10 @@ class MicService : Service() {
     private var bqX2 = 0.0          // Speech-band biquad: x[n-2]
     private var bqY1 = 0.0          // Speech-band biquad: y[n-1]
     private var bqY2 = 0.0          // Speech-band biquad: y[n-2]
+    private var peX1 = 0.0          // Pre-emphasis biquad @ 3.5 kHz: x[n-1]
+    private var peX2 = 0.0          // Pre-emphasis biquad @ 3.5 kHz: x[n-2]
+    private var peY1 = 0.0          // Pre-emphasis biquad @ 3.5 kHz: y[n-1]
+    private var peY2 = 0.0          // Pre-emphasis biquad @ 3.5 kHz: y[n-2]
     private var smoothedGain = 1.0  // Temporally-smoothed gain (anti-pumping)
     // Overlap-add FFT spectral denoiser — shared instance, reset each capture session.
     private val spectralDenoiser = SpectralDenoiser()
@@ -1076,6 +1080,7 @@ class MicService : Service() {
     private fun resetEnhancerState() {
         hpfPrevX = 0.0; hpfPrevY = 0.0
         bqX1 = 0.0; bqX2 = 0.0; bqY1 = 0.0; bqY2 = 0.0
+        peX1 = 0.0;  peX2 = 0.0;  peY1 = 0.0;  peY2 = 0.0
         smoothedGain = 1.0
         spectralDenoiser.reset()
     }
@@ -1128,6 +1133,20 @@ class MicService : Service() {
             work[i] = y
         }
 
+        // ── Stage 1.5: Pre-emphasis @ 3.5 kHz +6 dB ────────────────────────────
+        // Boosts consonants (s/t/k/f: 3–5 kHz) BEFORE the spectral denoiser so they
+        // are well above the noise floor inside the FFT and survive spectral subtraction.
+        // Biquad peaking: fc=3500 Hz, +6 dB, Q=0.9, fs=16000 Hz.
+        // Coefficients: b0=1.2769 b1=-0.2816 b2=0.1662  a1=-0.2816 a2=0.4432
+        val peB0=1.2769; val peB1=-0.2816; val peB2=0.1662
+        val peA1=-0.2816; val peA2=0.4432
+        for (i in 0 until samples) {
+            val x = work[i]
+            val y = peB0*x + peB1*peX1 + peB2*peX2 - peA1*peY1 - peA2*peY2
+            peX2=peX1; peX1=x; peY2=peY1; peY1=y
+            work[i] = y
+        }
+
         // ── Stage 1B: Spectral denoiser (FFT overlap-add) ────────────────────
         // Removes stationary noise (fan, AC hum, wind) by estimating the background
         // noise power spectrum from quiet frames and subtracting it from each FFT bin.
@@ -1157,13 +1176,18 @@ class MicService : Service() {
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         // If the filtered signal is extremely quiet it is likely pure noise.
         // Reduce it gently so we don't amplify silence to audible hiss.
-        val gateMultiplier = if (rms < 550.0) 0.55 else 1.0  // raised for fan/exhaust floor
+        // Extra-loud far-voice preset: almost no gate so distant speech is preserved.
+        val gateMultiplier = if (rms < 100.0) 0.90 else 1.0
 
-        // ── Stage 4: Adaptive upward gain with temporal smoothing ─────────────
-        // Raw gain: target RMS ≈ 6000; clamped [1.0, 4.5].
-        val rawGain = (6000.0 / rms).coerceIn(1.0, 4.5) * gateMultiplier
-        // Smooth 85/15: fast response but no pumping at frame boundaries.
-        smoothedGain = smoothedGain * 0.85 + rawGain * 0.15
+        // ── Stage 4: Adaptive upward gain — asymmetric attack/release ─────────
+        // Max far-voice profile: highest RMS target and ceiling.
+        val rawGain = (8500.0 / rms).coerceIn(1.15, 6.5) * gateMultiplier
+        // Very fast attack to catch quiet/far words immediately.
+        // Slow release keeps level stable between syllables.
+        smoothedGain = if (rawGain > smoothedGain)
+            smoothedGain * 0.50 + rawGain * 0.50
+        else
+            smoothedGain * 0.95 + rawGain * 0.05
 
         // ── Stage 5: apply gain, soft-limit, encode PCM-16 LE ────────────────
         val out = ByteArray(len)
@@ -1275,7 +1299,12 @@ class MicService : Service() {
             // Update noise estimate:
             //   first 30 frames: aggressive averaging (fast bootstrap)
             //   thereafter: only from quiet frames (speech skips the update)
-            val isQuiet = frameRms < 1800.0  // fan/cooler noise floor is higher
+            // Adaptive threshold: only update if this frame is close to the current
+            // estimated noise floor. A fixed threshold failed because quiet far-voice
+            // frames (slightly above noise) were still classified as "quiet" and the
+            // noise model absorbed the voice and then subtracted it.
+            val noiseFloorRms = Math.sqrt(noisePow.average()).coerceAtLeast(1.0)
+            val isQuiet = frameRms < noiseFloorRms * 1.6 + 50.0
             if (adaptFrames < 30 || isQuiet) {
                 val alpha = if (adaptFrames < 15) 0.5 else 0.96
                 for (i in noisePow.indices) {
@@ -1286,8 +1315,8 @@ class MicService : Service() {
 
             // Spectral subtraction — only after enough noise frames are collected
             if (adaptFrames >= 15) {
-                val OVER  = 2.2     // over-subtraction factor: aggressive for fans/cooler/exhaust
-                val FLOOR = 0.04    // spectral floor as fraction of noise power
+                val OVER  = 1.0     // subtract exactly mean noise — preserves far voice above floor
+                val FLOOR = 0.20    // 20 % spectral floor: keeps residual so no musical noise holes
                 for (i in 0 until BINS) {
                     val noiseP = noisePow[i].coerceAtLeast(1e-10)
                     val clean  = (power[i] - OVER * noiseP).coerceAtLeast(FLOOR * noiseP)

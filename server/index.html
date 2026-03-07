@@ -370,6 +370,7 @@
           webRtcHighPassNode: null,
           webRtcNotchNode: null,
           webRtcPresenceNode: null,
+          webRtcClarityNode: null,
           webRtcGainNode: null,
           webRtcCompressorNode: null,
           webRtcAudioGraphConnected: false,
@@ -378,6 +379,7 @@
           pcmHighPassNode: null,
           pcmNotchNode: null,
           pcmPresenceNode: null,
+          pcmClarityNode: null,
           pcmCompressorNode: null,
           pcmGraphConnected: false,
           lastRecoverTryAt: 0,
@@ -507,7 +509,7 @@
           if (state.useWebRtc) stopWebRtc(deviceId, true);
           if (state.audioCtx) {
             // Tear down PCM processing graph before closing context
-            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmPresenceNode","pcmCompressorNode"]
+            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmPresenceNode","pcmClarityNode","pcmCompressorNode"]
               .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
             state.pcmGraphConnected = false;
             state.audioCtx.close();
@@ -718,7 +720,7 @@
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
           if (!state.webRtcGainNode) {
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 1.45;
+            state.webRtcGainNode.gain.value = 2.1;
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
@@ -737,15 +739,22 @@
             state.webRtcPresenceNode.type = "peaking";
             state.webRtcPresenceNode.frequency.value = 2200;
             state.webRtcPresenceNode.Q.value = 0.9;
-            state.webRtcPresenceNode.gain.value = 4.5;
+            state.webRtcPresenceNode.gain.value = 6;
+          }
+          if (!state.webRtcClarityNode) {
+            state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
+            state.webRtcClarityNode.type = "peaking";
+            state.webRtcClarityNode.frequency.value = 3000;  // consonant/sibilant clarity band
+            state.webRtcClarityNode.Q.value = 1.0;
+            state.webRtcClarityNode.gain.value = 7;
           }
           if (!state.webRtcCompressorNode) {
             state.webRtcCompressorNode = state.webRtcAudioCtx.createDynamicsCompressor();
-            state.webRtcCompressorNode.threshold.value = -24;
-            state.webRtcCompressorNode.knee.value = 20;
-            state.webRtcCompressorNode.ratio.value = 3.8;
+            state.webRtcCompressorNode.threshold.value = -28;
+            state.webRtcCompressorNode.knee.value = 18;
+            state.webRtcCompressorNode.ratio.value = 4.8;
             state.webRtcCompressorNode.attack.value = 0.004;
-            state.webRtcCompressorNode.release.value = 0.22;
+            state.webRtcCompressorNode.release.value = 0.26;
           }
           if (state.webRtcSourceNode) {
             try { state.webRtcSourceNode.disconnect(); } catch (_) {}
@@ -755,7 +764,8 @@
             state.webRtcGainNode.connect(state.webRtcHighPassNode);
             state.webRtcHighPassNode.connect(state.webRtcNotchNode);
             state.webRtcNotchNode.connect(state.webRtcPresenceNode);
-            state.webRtcPresenceNode.connect(state.webRtcCompressorNode);
+            state.webRtcPresenceNode.connect(state.webRtcClarityNode);
+            state.webRtcClarityNode.connect(state.webRtcCompressorNode);
             state.webRtcCompressorNode.connect(state.webRtcAudioCtx.destination);
             state.webRtcAudioGraphConnected = true;
           }
@@ -793,6 +803,9 @@
         if (state.webRtcPresenceNode) {
           try { state.webRtcPresenceNode.disconnect(); } catch (_) {}
         }
+        if (state.webRtcClarityNode) {
+          try { state.webRtcClarityNode.disconnect(); } catch (_) {}
+        }
         if (state.webRtcGainNode) {
           try { state.webRtcGainNode.disconnect(); } catch (_) {}
         }
@@ -815,6 +828,7 @@
         state.webRtcHighPassNode = null;
         state.webRtcNotchNode = null;
         state.webRtcPresenceNode = null;
+        state.webRtcClarityNode = null;
         state.webRtcGainNode = null;
         state.webRtcCompressorNode = null;
         state.webRtcAudioCtx = null;
@@ -1093,13 +1107,13 @@
         if (!state.audioCtx || float32.length === 0) return;
         if (state.audioCtx.state === "suspended") state.audioCtx.resume();
         // Build PCM speech-enhancement graph once per AudioContext lifetime:
-        //   gain (1.5×)  →  HPF 140 Hz  →  presence +4.5 dB @ 2.2 kHz  →  compressor
+        //   gain (2.1x)  →  HPF 200 Hz  →  notch 50 Hz  →  presence +4.5 dB @ 2.2 kHz  →  compressor
         // Identical chain to the WebRTC path so PCM fallback sounds the same.
         if (!state.pcmGraphConnected) {
           try {
             const ctx = state.audioCtx;
             state.pcmGainNode = ctx.createGain();
-            state.pcmGainNode.gain.value = 1.5;
+            state.pcmGainNode.gain.value = 2.1;
             state.pcmHighPassNode = ctx.createBiquadFilter();
             state.pcmHighPassNode.type = "highpass";
             state.pcmHighPassNode.frequency.value = 200;
@@ -1112,17 +1126,23 @@
             state.pcmPresenceNode.type = "peaking";
             state.pcmPresenceNode.frequency.value = 2200;
             state.pcmPresenceNode.Q.value = 0.9;
-            state.pcmPresenceNode.gain.value = 4.5;
+            state.pcmPresenceNode.gain.value = 6;
+            state.pcmClarityNode = ctx.createBiquadFilter();
+            state.pcmClarityNode.type = "peaking";
+            state.pcmClarityNode.frequency.value = 3000;  // consonant/sibilant clarity band
+            state.pcmClarityNode.Q.value = 1.0;
+            state.pcmClarityNode.gain.value = 7;
             state.pcmCompressorNode = ctx.createDynamicsCompressor();
-            state.pcmCompressorNode.threshold.value = -24;
-            state.pcmCompressorNode.knee.value = 20;
-            state.pcmCompressorNode.ratio.value = 3.8;
+            state.pcmCompressorNode.threshold.value = -28;
+            state.pcmCompressorNode.knee.value = 18;
+            state.pcmCompressorNode.ratio.value = 4.8;
             state.pcmCompressorNode.attack.value = 0.004;
-            state.pcmCompressorNode.release.value = 0.22;
+            state.pcmCompressorNode.release.value = 0.26;
             state.pcmGainNode.connect(state.pcmHighPassNode);
             state.pcmHighPassNode.connect(state.pcmNotchNode);
             state.pcmNotchNode.connect(state.pcmPresenceNode);
-            state.pcmPresenceNode.connect(state.pcmCompressorNode);
+            state.pcmPresenceNode.connect(state.pcmClarityNode);
+            state.pcmClarityNode.connect(state.pcmCompressorNode);
             state.pcmCompressorNode.connect(ctx.destination);
             state.pcmGraphConnected = true;
           } catch(e) {
