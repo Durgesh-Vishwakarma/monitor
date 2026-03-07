@@ -48,7 +48,7 @@ const { Mp3Encoder } = new Function(_lameCode + "; return lamejs;")();
 
 // ── Config ──────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT) || 3000;
-const DASHBOARD_MAX_BUFFERED_BYTES = 256 * 1024;
+const DASHBOARD_MAX_BUFFERED_BYTES = 96 * 1024;
 const DEFAULT_STUN_URL = process.env.STUN_URL || "stun:stun.l.google.com:19302";
 const ICE_SERVERS = [{ urls: [DEFAULT_STUN_URL] }];
 
@@ -216,6 +216,9 @@ function handleAudioDevice(ws, req) {
                 lastHealthAt: Number(json.ts || Date.now()),
                 reason: String(json.reason || "heartbeat"),
                 droppedFrames: Number(dev.health?.droppedFrames || 0),
+                aiMode: json.aiMode !== false,
+                aiAuto: json.aiAuto !== false,
+                noiseDb: Number.isFinite(Number(json.noiseDb)) ? Number(json.noiseDb) : null,
                 internetOnline: json.internetOnline !== false,
                 callActive: json.callActive === true,
                 batteryPct: Number.isFinite(Number(json.batteryPct)) ? Number(json.batteryPct) : null,
@@ -393,6 +396,18 @@ function handleDashboard(ws) {
             quality: msg.quality || null,
           });
           break;
+        case "ai_mode":
+          sendJson(device.ws, {
+            type: "ai_mode",
+            enabled: msg.enabled !== false,
+          });
+          break;
+        case "ai_auto":
+          sendJson(device.ws, {
+            type: "ai_auto",
+            enabled: msg.enabled !== false,
+          });
+          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }
@@ -452,6 +467,9 @@ app.use("/recordings", express.static(RECORDINGS_DIR));
 // All other requests → static dashboard (index.html)
 app.use(express.static(path.join(__dirname)));
 app.get("*", (req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
@@ -558,6 +576,13 @@ function parseAudioPayload(buffer) {
   ) {
     const codec = buffer[3];
     const audioData = buffer.subarray(4);
+    if (codec === AUDIO_CODEC_PCM16_16K) {
+      return {
+        forwardPayload: buffer,
+        pcm16: audioData,
+        sampleRate: 16000,
+      };
+    }
     if (codec === AUDIO_CODEC_MULAW_8K) {
       return {
         forwardPayload: buffer,

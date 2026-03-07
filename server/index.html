@@ -280,9 +280,18 @@
         const payload = new Uint8Array(data, 2 + idLen);
         let float32 = new Float32Array(0);
         let playbackSampleRate = 16000;
-        if (payload.length >= 4 && payload[0] === 0x4d && payload[1] === 0x4d && payload[2] === 0x01 && payload[3] === 0x01) {
-          float32 = decodeMuLaw8k(payload.subarray(4));
-          playbackSampleRate = 8000;
+        if (payload.length >= 4 && payload[0] === 0x4d && payload[1] === 0x4d && payload[2] === 0x01) {
+          const codec = payload[3];
+          if (codec === 0x01) {
+            float32 = decodeMuLaw8k(payload.subarray(4));
+            playbackSampleRate = 8000;
+          } else {
+            const pcm = payload.subarray(4);
+            const int16 = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.byteLength >> 1);
+            float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
+            playbackSampleRate = 16000;
+          }
         } else {
           const int16 = new Int16Array(payload.buffer, payload.byteOffset, payload.byteLength >> 1);
           float32 = new Float32Array(int16.length);
@@ -343,6 +352,7 @@
             <div class="health-item"><div class="health-label">Call Status</div><div class="health-val" id="hcall_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Internet</div><div class="health-val" id="hnet_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Battery</div><div class="health-val" id="hbat_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Noise Floor</div><div class="health-val" id="hnoise_${deviceId}">-</div></div>
           </div>
           <div class="canvas-wrap">
             <span class="canvas-label">AUDIO</span>
@@ -351,6 +361,8 @@
           <div class="btn-row">
             <button class="btn-live"  id="btnLive_${deviceId}" onclick="toggleLive('${deviceId}')">▶ Live Listen</button>
             <button class="btn-rtc"   id="btnRtc_${deviceId}" onclick="toggleWebRtc('${deviceId}')">⚡ WebRTC</button>
+            <button class="btn-ghost" id="btnAi_${deviceId}" onclick="toggleAiMode('${deviceId}')">AI: ON</button>
+            <button class="btn-ghost" id="btnAiAuto_${deviceId}" onclick="toggleAiAuto('${deviceId}')">AI Auto: ON</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
@@ -410,10 +422,16 @@
           pcmClarityNode: null,
           pcmCompressorNode: null,
           pcmGraphConnected: false,
+          aiMode: true,
+          aiAuto: true,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
           health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null, internetOnline: true, callActive: false, batteryPct: null, charging: null },
         };
+        const aiBtn = document.getElementById(`btnAi_${deviceId}`);
+        if (aiBtn) aiBtn.textContent = "AI: ON";
+        const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
+        if (aiAutoBtn) aiAutoBtn.textContent = "AI Auto: ON";
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
       }
 
@@ -434,6 +452,16 @@
         const state = deviceState[deviceId];
         if (!state) return;
         if (health) state.health = { ...state.health, ...health };
+        if (typeof state.health.aiMode === "boolean") {
+          state.aiMode = state.health.aiMode;
+          const aiBtn = document.getElementById(`btnAi_${deviceId}`);
+          if (aiBtn) aiBtn.textContent = `AI: ${state.aiMode ? "ON" : "OFF"}`;
+        }
+        if (typeof state.health.aiAuto === "boolean") {
+          state.aiAuto = state.health.aiAuto;
+          const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
+          if (aiAutoBtn) aiAutoBtn.textContent = `AI Auto: ${state.aiAuto ? "ON" : "OFF"}`;
+        }
         const h = state.health || {};
         const ws = document.getElementById(`hws_${deviceId}`);
         const mic = document.getElementById(`hmic_${deviceId}`);
@@ -447,6 +475,7 @@
         const call = document.getElementById(`hcall_${deviceId}`);
         const net = document.getElementById(`hnet_${deviceId}`);
         const bat = document.getElementById(`hbat_${deviceId}`);
+        const noise = document.getElementById(`hnoise_${deviceId}`);
         const rtcState = String(h.webRtcState || "idle");
         const webrtcMicActive = /started|answer_sent|ice_connected|ice_completed|pc_connected|bitrate_/i.test(rtcState);
         if (ws) ws.innerHTML = h.wsConnected ? `<span class="ok-text">connected</span>` : `<span class="bad-text">disconnected</span>`;
@@ -480,6 +509,10 @@
         if (call) call.innerHTML = h.callActive ? `<span class="bad-text">on call</span>` : `<span class="ok-text">idle</span>`;
         if (net) net.innerHTML = h.internetOnline === false ? `<span class="bad-text">offline</span>` : `<span class="ok-text">online</span>`;
         if (bat) bat.innerHTML = renderBatterySummary(h.batteryPct, h.charging);
+        if (noise) {
+          const n = Number(h.noiseDb);
+          noise.textContent = Number.isFinite(n) ? `${n.toFixed(1)} dB` : "-";
+        }
 
         // Auto-recover if user is in live mode but mic stopped (skip during WebRTC connect — deadline timer handles fallback).
         if (state.isLive && h.wsConnected && !micRunning && !state.rtcConnectDeadlineTimer) {
@@ -610,6 +643,30 @@
         if (!state) return;
         if (!state.useWebRtc) await startWebRtc(deviceId, state);
         else stopWebRtc(deviceId, true);
+      }
+
+      function toggleAiMode(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        state.aiMode = !state.aiMode;
+        state.aiAuto = false;
+        sendCmd(deviceId, "ai_mode", { enabled: state.aiMode });
+        sendCmd(deviceId, "ai_auto", { enabled: false });
+        const aiBtn = document.getElementById(`btnAi_${deviceId}`);
+        if (aiBtn) aiBtn.textContent = `AI: ${state.aiMode ? "ON" : "OFF"}`;
+        const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
+        if (aiAutoBtn) aiAutoBtn.textContent = "AI Auto: OFF";
+        log(`AI mode ${state.aiMode ? "enabled" : "disabled"} for ${deviceId}`, "info");
+      }
+
+      function toggleAiAuto(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        state.aiAuto = !state.aiAuto;
+        sendCmd(deviceId, "ai_auto", { enabled: state.aiAuto });
+        const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
+        if (aiAutoBtn) aiAutoBtn.textContent = `AI Auto: ${state.aiAuto ? "ON" : "OFF"}`;
+        log(`AI auto ${state.aiAuto ? "enabled" : "disabled"} for ${deviceId}`, "info");
       }
 
       async function startWebRtc(deviceId, state) {
@@ -748,12 +805,12 @@
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
           if (!state.webRtcGainNode) {
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 5.0;
+            state.webRtcGainNode.gain.value = 1.9;
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcHighPassNode.type = "highpass";
-            state.webRtcHighPassNode.frequency.value = 200;
+            state.webRtcHighPassNode.frequency.value = 120;
             state.webRtcHighPassNode.Q.value = 0.8;
           }
           if (!state.webRtcNotchNode) {
@@ -763,34 +820,32 @@
             state.webRtcNotchNode.Q.value = 10;
           }
           if (!state.webRtcWarmthNode) {
-            // Low-shelf +3 dB @ 300 Hz — restores near-voice body / warmth that
-            // HPF and distance both strip from the signal.
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
             state.webRtcWarmthNode.frequency.value = 300;
-            state.webRtcWarmthNode.gain.value = 3;
+            state.webRtcWarmthNode.gain.value = 1.5;
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcPresenceNode.type = "peaking";
             state.webRtcPresenceNode.frequency.value = 2200;
             state.webRtcPresenceNode.Q.value = 0.9;
-            state.webRtcPresenceNode.gain.value = 6;
+            state.webRtcPresenceNode.gain.value = 2.8;
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
-            state.webRtcClarityNode.type = "peaking";
-            state.webRtcClarityNode.frequency.value = 3000;  // consonant/sibilant clarity band
+            state.webRtcClarityNode.type = "highshelf";
+            state.webRtcClarityNode.frequency.value = 3600;
             state.webRtcClarityNode.Q.value = 1.0;
-            state.webRtcClarityNode.gain.value = 7;
+            state.webRtcClarityNode.gain.value = 1.8;
           }
           if (!state.webRtcCompressorNode) {
             state.webRtcCompressorNode = state.webRtcAudioCtx.createDynamicsCompressor();
-            state.webRtcCompressorNode.threshold.value = -32; // catches both far (quiet) and near (louder)
-            state.webRtcCompressorNode.knee.value = 16;
-            state.webRtcCompressorNode.ratio.value = 6.0;    // strong but not brick-wall
-            state.webRtcCompressorNode.attack.value = 0.003;
-            state.webRtcCompressorNode.release.value = 0.28;
+            state.webRtcCompressorNode.threshold.value = -23;
+            state.webRtcCompressorNode.knee.value = 10;
+            state.webRtcCompressorNode.ratio.value = 2.6;
+            state.webRtcCompressorNode.attack.value = 0.01;
+            state.webRtcCompressorNode.release.value = 0.18;
           }
           if (state.webRtcSourceNode) {
             try { state.webRtcSourceNode.disconnect(); } catch (_) {}
@@ -1152,10 +1207,10 @@
           try {
             const ctx = state.audioCtx;
             state.pcmGainNode = ctx.createGain();
-            state.pcmGainNode.gain.value = 1.8;
+            state.pcmGainNode.gain.value = 1.9;
             state.pcmHighPassNode = ctx.createBiquadFilter();
             state.pcmHighPassNode.type = "highpass";
-            state.pcmHighPassNode.frequency.value = 120;
+            state.pcmHighPassNode.frequency.value = 100;
             state.pcmHighPassNode.Q.value = 0.8;
             state.pcmNotchNode = ctx.createBiquadFilter();
             state.pcmNotchNode.type = "notch";
@@ -1164,23 +1219,23 @@
             state.pcmWarmthNode = ctx.createBiquadFilter();
             state.pcmWarmthNode.type = "lowshelf";
             state.pcmWarmthNode.frequency.value = 300;
-            state.pcmWarmthNode.gain.value = 1.5;
+            state.pcmWarmthNode.gain.value = 1.2;
             state.pcmPresenceNode = ctx.createBiquadFilter();
             state.pcmPresenceNode.type = "peaking";
             state.pcmPresenceNode.frequency.value = 2200;
             state.pcmPresenceNode.Q.value = 0.9;
-            state.pcmPresenceNode.gain.value = 2.5;
+            state.pcmPresenceNode.gain.value = 2.2;
             state.pcmClarityNode = ctx.createBiquadFilter();
-            state.pcmClarityNode.type = "peaking";
-            state.pcmClarityNode.frequency.value = 3000;
+            state.pcmClarityNode.type = "highshelf";
+            state.pcmClarityNode.frequency.value = 3400;
             state.pcmClarityNode.Q.value = 1.0;
-            state.pcmClarityNode.gain.value = 2.0;
+            state.pcmClarityNode.gain.value = 1.5;
             state.pcmCompressorNode = ctx.createDynamicsCompressor();
-            state.pcmCompressorNode.threshold.value = -24;
+            state.pcmCompressorNode.threshold.value = -22;
             state.pcmCompressorNode.knee.value = 10;
             state.pcmCompressorNode.ratio.value = 2.5;
-            state.pcmCompressorNode.attack.value = 0.008;
-            state.pcmCompressorNode.release.value = 0.18;
+            state.pcmCompressorNode.attack.value = 0.01;
+            state.pcmCompressorNode.release.value = 0.16;
             state.pcmGainNode.connect(state.pcmHighPassNode);
             state.pcmHighPassNode.connect(state.pcmNotchNode);
             state.pcmNotchNode.connect(state.pcmWarmthNode);
@@ -1201,8 +1256,8 @@
           // Route through enhancement graph if available, else straight to destination.
           source.connect(state.pcmGraphConnected ? state.pcmGainNode : state.audioCtx.destination);
           const now = state.audioCtx.currentTime;
-          const targetLeadSec = 0.02;
-          const maxLeadSec = 0.2;
+          const targetLeadSec = 0.015;
+          const maxLeadSec = 0.12;
           if (state.nextPlayTime < now - 0.06) state.nextPlayTime = now + targetLeadSec;
           if (state.nextPlayTime > now + maxLeadSec) return;
           source.start(state.nextPlayTime);

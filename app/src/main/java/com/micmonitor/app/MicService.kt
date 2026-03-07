@@ -84,7 +84,8 @@ class MicService : Service() {
         if (min > 0) min else sampleRate
     }
     private val recordBufferSize by lazy { max(minBufferSize * 2, sampleRate * 4) }
-    private val streamChunkSize by lazy { max(minBufferSize, sampleRate) }
+    // 20 ms chunks keep streaming latency low and prevent multi-second playback drift.
+    private val streamChunkSize by lazy { ((sampleRate * 2) / 50).coerceAtLeast(640) }
 
     // ── WebSocket ────────────────────────────────────────────────────────────
     private var webSocket: WebSocket? = null
@@ -98,6 +99,8 @@ class MicService : Service() {
     // ── Recording state ──────────────────────────────────────────────────────
     @Volatile private var isCapturing   = false
     @Volatile private var isSavingFile  = false
+    @Volatile private var aiEnhancementEnabled = true
+    @Volatile private var aiAutoModeEnabled = true
     @Volatile private var wantsMicStreaming = true
     @Volatile private var isRecoveringMic = false
     @Volatile private var lastAudioChunkSentAt = 0L
@@ -105,6 +108,8 @@ class MicService : Service() {
     private var micWatchdogJob: Job? = null
     private var recordingFileStream: FileOutputStream? = null
     private var recordingFile: File? = null
+    private var estimatedNoiseDb = -62.0
+    private var lastAutoAiSwitchAt = 0L
 
     // ── PCM enhancement filter state (persists across frames for continuity) ──
     // Reset these at each capture start so a previous session's state is never reused.
@@ -170,9 +175,9 @@ class MicService : Service() {
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
-        const val WEBRTC_MIN_BITRATE_KBPS = 20
-        const val WEBRTC_MID_BITRATE_KBPS = 32
-        const val WEBRTC_MAX_BITRATE_KBPS = 48
+        const val WEBRTC_MIN_BITRATE_KBPS = 24
+        const val WEBRTC_MID_BITRATE_KBPS = 40
+        const val WEBRTC_MAX_BITRATE_KBPS = 64
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -461,6 +466,17 @@ class MicService : Service() {
                     lastDashboardQuality = obj.optJSONObject("quality")
                     applyAdaptiveBitrate()
                 }
+                "ai_mode" -> {
+                    aiAutoModeEnabled = false
+                    aiEnhancementEnabled = obj.optBoolean("enabled", true)
+                    sendHealthStatus(if (aiEnhancementEnabled) "ai_mode_on" else "ai_mode_off")
+                    Log.i(TAG, "AI mode set to $aiEnhancementEnabled")
+                }
+                "ai_auto" -> {
+                    aiAutoModeEnabled = obj.optBoolean("enabled", true)
+                    sendHealthStatus(if (aiAutoModeEnabled) "ai_auto_on" else "ai_auto_off")
+                    Log.i(TAG, "AI auto mode set to $aiAutoModeEnabled")
+                }
                 else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
             }
         } catch (e: Exception) {
@@ -475,10 +491,9 @@ class MicService : Service() {
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOpts)
         audioDeviceModule = JavaAudioDeviceModule.builder(this)
-            // Far-field monitoring works better with explicit voice profile constraints
-            // than with aggressive hardware NS/AEC that may suppress distant speech.
-            .setUseHardwareAcousticEchoCanceler(false)
-            .setUseHardwareNoiseSuppressor(false)
+            // Prefer platform AEC/NS when available to reduce room echo and steady noise.
+            .setUseHardwareAcousticEchoCanceler(true)
+            .setUseHardwareNoiseSuppressor(true)
             .createAudioDeviceModule()
         peerConnectionFactory = PeerConnectionFactory.builder()
             .setAudioDeviceModule(audioDeviceModule)
@@ -496,15 +511,18 @@ class MicService : Service() {
         stopAudioCapture()
 
         val constraints = MediaConstraints().apply {
-            // Keep AGC + high-pass, but disable aggressive suppression that removes far voices.
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
+            // Voice-first profile: keep echo/noise suppression and AGC for cleaner monitoring.
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
+            optional.add(MediaConstraints.KeyValuePair("googAudioNetworkAdaptor", "true"))
         }
         localAudioSource = factory.createAudioSource(constraints)
         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
@@ -691,12 +709,12 @@ class MicService : Service() {
         val tunedParams = mapOf(
             "maxaveragebitrate" to maxAvg.toString(),
             "minaveragebitrate" to minAvg.toString(),
-            "maxplaybackrate" to "24000",    // more bandwidth for near-voice body
-            "sprop-maxcapturerate" to "24000",
+            "maxplaybackrate" to "48000",
+            "sprop-maxcapturerate" to "48000",
             "ptime" to "20",
             "minptime" to "10",
             "useinbandfec" to "1",           // FEC: recovers lost packets on low network
-            "usedtx" to "1",                // DTX: saves bandwidth in silences
+            "usedtx" to "0",                // avoid silence gating artifacts on far speech
             "stereo" to "0",
             "sprop-stereo" to "0",
             "cbr" to "0",                    // VBR: allocates more bits to complex speech
@@ -962,6 +980,9 @@ class MicService : Service() {
                     val read = audioRecord?.read(chunk, 0, chunk.size) ?: -1
                     if (read > 0) {
                         consecutiveReadErrors = 0
+                        if (aiAutoModeEnabled) {
+                            updateAutoAiProfile(chunk, read)
+                        }
                         // Trick 2 + 3: adaptive upward gain for far voices + soft peak limiter
                         val pcmData = applyFarVoiceGain(chunk, read)
 
@@ -1093,14 +1114,27 @@ class MicService : Service() {
                         // are captured equally instead of favouring near/front speech.
                         try { rec.setPreferredMicrophoneDirection(0) } catch (_: Exception) {}
                     }
-                    // Disable hardware audio effects that can gate or attenuate distant voices.
+                    // AI mode: enable hardware NS/AGC for better environmental noise cleanup.
+                    // Natural mode: keep effects disabled for a more raw capture profile.
                     val sid = rec.audioSessionId
-                    if (NoiseSuppressor.isAvailable())
-                        try { NoiseSuppressor.create(sid)?.let { e -> e.enabled = false; e.release() } } catch (_: Exception) {}
+                    if (NoiseSuppressor.isAvailable()) {
+                        try {
+                            NoiseSuppressor.create(sid)?.let { e ->
+                                e.enabled = aiEnhancementEnabled
+                                e.release()
+                            }
+                        } catch (_: Exception) {}
+                    }
                     if (AcousticEchoCanceler.isAvailable())
-                        try { AcousticEchoCanceler.create(sid)?.let { e -> e.enabled = false; e.release() } } catch (_: Exception) {}
-                    if (AutomaticGainControl.isAvailable())
-                        try { AutomaticGainControl.create(sid)?.let { e -> e.enabled = false; e.release() } } catch (_: Exception) {}
+                        try { AcousticEchoCanceler.create(sid)?.let { e -> e.enabled = aiEnhancementEnabled; e.release() } } catch (_: Exception) {}
+                    if (AutomaticGainControl.isAvailable()) {
+                        try {
+                            AutomaticGainControl.create(sid)?.let { e ->
+                                e.enabled = aiEnhancementEnabled
+                                e.release()
+                            }
+                        } catch (_: Exception) {}
+                    }
                     Log.i(TAG, "AudioRecord initialized with source=$source, recordBuffer=$recordBufferSize, chunk=$streamChunkSize")
                     return rec
                 }
@@ -1123,19 +1157,16 @@ class MicService : Service() {
     }
 
     /**
-     * Surveillance-grade PCM enhancement pipeline.
+    * Voice-monitor PCM enhancement pipeline.
      *
-     * Correct order: gain BEFORE spectral denoiser so far voice is lifted above
-     * the noise floor before the FFT sees it — otherwise the denoiser mistakes
-     * quiet far-voice energy for noise and erases it.
+    * Correct order: denoise + controlled gain + limiter. Keep processing moderate
+    * to avoid the distortion artifacts from overly aggressive EQ/boost stacks.
      *
-     *  Stage 1 — HPF @ 120 Hz          removes sub-bass rumble, keeps voice body
-     *  Stage 2 — Adaptive gain (up 9×)  lifts far voice above noise floor FIRST
-     *  Stage 3 — FFT spectral denoiser  subtracts fan/AC from already-boosted signal
-     *  Stage 4 — EQ +6 dB  @ 1500 Hz   voice body / mid-range warmth
-     *  Stage 5 — EQ +10 dB @ 2500 Hz   primary speech intelligibility band
-     *  Stage 6 — EQ +6 dB  @ 3500 Hz   consonants / sibilants (s/t/k/f)
-     *  Stage 7 — Soft peak limiter      prevents digital clipping
+    *  Stage 1 — HPF @ 120 Hz            removes sub-bass rumble
+    *  Stage 2 — Spectral denoiser       suppresses steady fan/AC noise
+    *  Stage 3 — Adaptive gain (up 3.2x) lifts far voice without hard pumping
+    *  Stage 4 — Gentle presence boost   improves intelligibility
+    *  Stage 5 — Soft peak limiter       prevents digital clipping
      *
      * Filter state (hpfPrev*, eq1*, bq*, pe*, smoothedGain) persists between
      * frames so there are no discontinuities at buffer boundaries.
@@ -1143,6 +1174,7 @@ class MicService : Service() {
     private fun applyFarVoiceGain(buf: ByteArray, len: Int): ByteArray {
         if (len < 2) return buf.copyOf(len)
         val samples = len / 2
+        val strongAi = aiEnhancementEnabled
 
         // ── Decode PCM-16 LE → double working buffer ─────────────────────────
         val work = DoubleArray(samples)
@@ -1153,9 +1185,7 @@ class MicService : Service() {
         }
 
         // ── Pre-gain mic boost ────────────────────────────────────────────────
-        // Keep a small hardware-compensation lift, but avoid the larger boost that
-        // made fallback audio sound overly driven on some phones.
-        val micBoost = 1.7
+        val micBoost = if (strongAi) 1.2 else 1.05
         for (i in 0 until samples) work[i] *= micBoost
 
         // ── Stage 1: High-pass filter @ 120 Hz ───────────────────────────────
@@ -1169,70 +1199,42 @@ class MicService : Service() {
             work[i] = y
         }
 
-        // ── Stage 2: Adaptive upward gain — BEFORE spectral denoiser ─────────
-        // KEY: boost far voice above the noise floor FIRST so the FFT denoiser
-        // sees it as signal (not noise) and preserves it.
-        // No gate — surveillance mode; every frame is lifted.
+        // ── Stage 2: FFT Spectral denoiser ───────────────────────────────────
+        spectralDenoiser.denoise(work)
+
+        // ── Stage 3: Adaptive upward gain ────────────────────────────────────
         var sumSq = 0.0
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
-        val rawGain = (7000.0 / rms).coerceIn(1.1, 5.0)
-        // Softer attack/release keeps the fallback path from sounding pumped.
+        val gainCeil = if (strongAi) 3.2 else 2.2
+        val gainTarget = if (strongAi) 7000.0 else 5600.0
+        val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
+        // Smoother attack/release keeps the output natural.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.65 + rawGain * 0.35
+            smoothedGain * 0.82 + rawGain * 0.18
         else
-            smoothedGain * 0.97 + rawGain * 0.03
+            smoothedGain * 0.96 + rawGain * 0.04
         for (i in 0 until samples) work[i] *= smoothedGain
 
-        // ── Stage 3: FFT Spectral denoiser ───────────────────────────────────
-        // Operates on the amplified signal — fan/AC noise bins are subtracted
-        // but speech (now well above the noise estimate) survives intact.
-        spectralDenoiser.denoise(work)
-        val tonalBase = work.copyOf()
-
-        // ── Stage 4: EQ +6 dB @ 1500 Hz — voice body / mid warmth ───────────
-        // Peaking: A=1.4125, ω₀=0.5890, Q=0.9, fs=16000
-        // b0=1.1784 b1=-1.3648 b2=0.4629  a1=-1.3648 a2=0.6413
-        val eq1b0=1.1784; val eq1b1=-1.3648; val eq1b2=0.4629
-        val eq1a1=-1.3648; val eq1a2=0.6413
+        // ── Stage 4: Gentle presence boost @ 2.2 kHz ───────────────────────
+        // Peaking: +3 dB, Q=1.0
+        val eq1b0 = 1.1541
+        val eq1b1 = -1.2070
+        val eq1b2 = 0.5173
+        val eq1a1 = -1.2070
+        val eq1a2 = 0.6714
         for (i in 0 until samples) {
             val x = work[i]
-            val y = eq1b0*x + eq1b1*eq1X1 + eq1b2*eq1X2 - eq1a1*eq1Y1 - eq1a2*eq1Y2
-            eq1X2=eq1X1; eq1X1=x; eq1Y2=eq1Y1; eq1Y1=y
-            work[i] = x * 0.40 + y * 0.60
+            val y = eq1b0 * x + eq1b1 * eq1X1 + eq1b2 * eq1X2 - eq1a1 * eq1Y1 - eq1a2 * eq1Y2
+            eq1X2 = eq1X1
+            eq1X1 = x
+            eq1Y2 = eq1Y1
+            eq1Y1 = y
+            val wet = if (strongAi) 0.3 else 0.18
+            work[i] = x * (1.0 - wet) + y * wet
         }
 
-        // ── Stage 5: EQ +10 dB @ 2500 Hz — primary intelligibility band ──────
-        // Peaking: A=1.7783, ω₀=0.9817, Q=0.9, fs=16000
-        // b0=1.4460 b1=-0.8820 b2=0.1417  a1=-0.8820 a2=0.5876
-        val bqB0=1.4460; val bqB1=-0.8820; val bqB2=0.1417
-        val bqA1=-0.8820; val bqA2=0.5876
-        for (i in 0 until samples) {
-            val x = work[i]
-            val y = bqB0*x + bqB1*bqX1 + bqB2*bqX2 - bqA1*bqY1 - bqA2*bqY2
-            bqX2=bqX1; bqX1=x; bqY2=bqY1; bqY1=y
-            work[i] = x * 0.45 + y * 0.55
-        }
-
-        // ── Stage 6: EQ +6 dB @ 3500 Hz — consonants / sibilants ────────────
-        // Peaking: A=1.4125, ω₀=1.3744, Q=0.9, fs=16000
-        // b0=1.2774 b1=-0.2703 b2=0.1652  a1=-0.2703 a2=0.4427
-        val peB0=1.2774; val peB1=-0.2703; val peB2=0.1652
-        val peA1=-0.2703; val peA2=0.4427
-        for (i in 0 until samples) {
-            val x = work[i]
-            val y = peB0*x + peB1*peX1 + peB2*peX2 - peA1*peY1 - peA2*peY2
-            peX2=peX1; peX1=x; peY2=peY1; peY1=y
-            work[i] = x * 0.50 + y * 0.50
-        }
-
-        // Blend some denoised-but-unshaped signal back in so the fallback path
-        // keeps more natural tone and less EQ coloration.
-        for (i in 0 until samples) {
-            work[i] = tonalBase[i] * 0.45 + work[i] * 0.55
-        }
-
-        // ── Stage 7: Soft peak limiter + encode PCM-16 LE ────────────────────
+        // ── Stage 5: Soft peak limiter + encode PCM-16 LE ────────────────────
         val out = ByteArray(len)
         for (i in 0 until samples) {
             val limited = softPeakLimit(work[i])
@@ -1245,46 +1247,13 @@ class MicService : Service() {
 
     private fun encodeWsFallbackAudio(pcm16: ByteArray): ByteArray {
         if (pcm16.isEmpty()) return pcm16
-        val inputSamples = pcm16.size / 2
-        val outputSamples = (inputSamples + 1) / 2
-        val out = ByteArray(4 + outputSamples)
+        val out = ByteArray(4 + pcm16.size)
         out[0] = 0x4D.toByte()
         out[1] = 0x4D.toByte()
         out[2] = 0x01
-        out[3] = 0x01
-        var src = 0
-        var dst = 4
-        while (src < pcm16.size) {
-            val s0 = readLe16(pcm16, src)
-            val s1 = if (src + 3 < pcm16.size) readLe16(pcm16, src + 2) else s0
-            out[dst++] = linear16ToMuLaw(((s0 + s1) / 2).coerceIn(-32768, 32767)).toByte()
-            src += 4
-        }
+        out[3] = 0x00
+        System.arraycopy(pcm16, 0, out, 4, pcm16.size)
         return out
-    }
-
-    private fun readLe16(buf: ByteArray, offset: Int): Int {
-        val lo = buf[offset].toInt() and 0xFF
-        val hi = buf[offset + 1].toInt()
-        return ((hi shl 8) or lo).toShort().toInt()
-    }
-
-    private fun linear16ToMuLaw(sample: Int): Int {
-        val bias = 0x84
-        val clip = 32635
-        var value = sample.coerceIn(-clip, clip)
-        val sign = if (value < 0) 0x80 else 0x00
-        if (value < 0) value = -value
-        value += bias
-
-        var exponent = 7
-        var mask = 0x4000
-        while (exponent > 0 && value and mask == 0) {
-            exponent--
-            mask = mask shr 1
-        }
-        val mantissa = (value shr (exponent + 3)) and 0x0F
-        return (sign or (exponent shl 4) or mantissa).inv() and 0xFF
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -1473,7 +1442,7 @@ class MicService : Service() {
      * Prevents hard digital clipping without audible distortion.
      */
     private fun softPeakLimit(x: Double): Double {
-        val knee = 24000.0
+        val knee = 22000.0
         val ceil = 32767.0
         val abs  = Math.abs(x)
         if (abs <= knee) return x
@@ -1482,6 +1451,55 @@ class MicService : Service() {
         val excess     = abs - knee
         val compressed = knee + range * (1.0 - Math.exp(-excess / range))
         return Math.copySign(compressed, x)
+    }
+
+    private fun updateAutoAiProfile(pcm16: ByteArray, len: Int) {
+        val sampleCount = len / 2
+        if (sampleCount <= 0) return
+
+        var sumSq = 0.0
+        var peak = 0
+        var i = 0
+        while (i + 1 < len) {
+            val s = readLeSample(pcm16, i)
+            val abs = kotlin.math.abs(s)
+            if (abs > peak) peak = abs
+            sumSq += s.toDouble() * s.toDouble()
+            i += 2
+        }
+
+        val rms = kotlin.math.sqrt(sumSq / sampleCount).coerceAtLeast(1.0)
+        val rmsDb = 20.0 * kotlin.math.log10(rms / 32768.0)
+        val peakDb = 20.0 * kotlin.math.log10((peak.coerceAtLeast(1)).toDouble() / 32768.0)
+        val crestDb = peakDb - rmsDb
+
+        val likelySpeech = rmsDb > -48.0 && crestDb > 5.0
+        if (!likelySpeech) {
+            val alpha = if (rmsDb > estimatedNoiseDb) 0.90 else 0.97
+            estimatedNoiseDb = alpha * estimatedNoiseDb + (1.0 - alpha) * rmsDb
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastAutoAiSwitchAt < 12_000) return
+
+        val shouldEnableStrong = estimatedNoiseDb > -50.0
+        val shouldDisableStrong = estimatedNoiseDb < -58.0
+
+        if (!aiEnhancementEnabled && shouldEnableStrong) {
+            aiEnhancementEnabled = true
+            lastAutoAiSwitchAt = now
+            sendHealthStatus("auto_ai_on")
+        } else if (aiEnhancementEnabled && shouldDisableStrong) {
+            aiEnhancementEnabled = false
+            lastAutoAiSwitchAt = now
+            sendHealthStatus("auto_ai_off")
+        }
+    }
+
+    private fun readLeSample(buf: ByteArray, offset: Int): Int {
+        val lo = buf[offset].toInt() and 0xFF
+        val hi = buf[offset + 1].toInt()
+        return ((hi shl 8) or lo).toShort().toInt()
     }
 
     private fun stopAudioCapture(reason: String = "stop_capture_cmd") {
@@ -1515,6 +1533,9 @@ class MicService : Service() {
             put("lastAudioChunkSentAt", lastAudioChunkSentAt)
             put("reason", reason)
             put("ts", lastHealthSentAt)
+            put("aiMode", aiEnhancementEnabled)
+            put("aiAuto", aiAutoModeEnabled)
+            put("noiseDb", estimatedNoiseDb)
             put("internetOnline", internetOnline)
             put("callActive", callActive)
             if (battery != null) {
