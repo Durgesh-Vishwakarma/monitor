@@ -777,7 +777,7 @@
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
-            <button class="btn-ghost" id="btnGain_${deviceId}" onclick="cyclePlaybackGain('${deviceId}')">Gain: 1.0x</button>
+            <button class="btn-ghost" id="btnGain_${deviceId}" onclick="cyclePlaybackGain('${deviceId}')">Gain: 1.5x</button>
             <button class="btn-ghost" onclick="resetAudioSettings('${deviceId}')">Reset Audio</button>
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
           </div>
@@ -876,10 +876,10 @@
         try {
           const raw = localStorage.getItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
           const v = Number(raw);
-          const allowed = [1.0, 1.5, 2.0, 3.0];
+          const allowed = [1.0, 1.5, 2.0, 3.0, 4.0];
           if (allowed.some((x) => Math.abs(x - v) < 0.01)) return v;
         } catch (_) {}
-        return 1.0;
+        return 1.5;
       }
 
       function savePlaybackGain(deviceId, gain) {
@@ -1096,14 +1096,14 @@
         if (!state) return;
         const mul = Number(state.playbackGain || 1.0);
         // If pre-gain node exists, user gain is direct multiplier. If not, keep legacy fallback.
-        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = (state.webRtcPreGainNode ? 1.0 : 3.5) * mul;
-        if (state.pcmGainNode) state.pcmGainNode.gain.value = (state.pcmPreGainNode ? 1.0 : 3.5) * mul;
+        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = (state.webRtcPreGainNode ? 1.0 : 5.5) * mul;
+        if (state.pcmGainNode) state.pcmGainNode.gain.value = (state.pcmPreGainNode ? 1.0 : 5.5) * mul;
       }
 
       function cyclePlaybackGain(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        const levels = [1.0, 1.5, 2.0, 3.0];
+        const levels = [1.0, 1.5, 2.0, 3.0, 4.0];
         const current = Number(state.playbackGain || 1.0);
         const idx = levels.findIndex((v) => Math.abs(v - current) < 0.01);
         state.playbackGain = levels[(idx + 1 + levels.length) % levels.length];
@@ -1122,10 +1122,10 @@
           localStorage.removeItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
         } catch (_) {}
         setRnnoiseEnabled(deviceId, state, true, "reset");
-        state.playbackGain = 1.0;
-        savePlaybackGain(deviceId, 1.0);
+        state.playbackGain = 1.5;
+        savePlaybackGain(deviceId, 1.5);
         const gainBtn = document.getElementById(`btnGain_${deviceId}`);
-        if (gainBtn) gainBtn.textContent = "Gain: 1.0x";
+        if (gainBtn) gainBtn.textContent = "Gain: 1.5x";
         applyPlaybackGain(state);
         log(`Audio settings reset for ${deviceId}`, "ok");
       }
@@ -1324,7 +1324,7 @@
           if (!state.webRtcPreGainNode) {
             // Fixed pre-gain before RNNoise to prevent low/suppressed voice on quiet devices.
             state.webRtcPreGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcPreGainNode.gain.value = 3.5;
+            state.webRtcPreGainNode.gain.value = 5.5;
           }
           if (!state.webRtcGainNode) {
             // User gain stage (1.0x..3.0x)
@@ -1765,7 +1765,7 @@
         // enough input to correctly classify speech (not suppress it as noise),
         // and provides base loudness regardless of RNNoise state.
         state.pcmPreGainNode = ctx.createGain();
-        state.pcmPreGainNode.gain.value = 3.5;
+        state.pcmPreGainNode.gain.value = 5.5;
 
         // ── Stage 2: User-controlled gain ─────────────────────────────────────
         // Simple multiplier (no channel-count hacks). 1.0–3.0 range.

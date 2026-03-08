@@ -178,9 +178,9 @@ class MicService : Service() {
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
-        const val WEBRTC_MIN_BITRATE_KBPS = 16
-        const val WEBRTC_MID_BITRATE_KBPS = 24
-        const val WEBRTC_MAX_BITRATE_KBPS = 40
+        const val WEBRTC_MIN_BITRATE_KBPS = 24
+        const val WEBRTC_MID_BITRATE_KBPS = 48
+        const val WEBRTC_MAX_BITRATE_KBPS = 64
         const val WS_RECONNECT_BASE_MS = 2_000L
         const val WS_RECONNECT_MAX_MS = 30_000L
 
@@ -544,12 +544,12 @@ class MicService : Service() {
         stopAudioCapture()
 
         val constraints = MediaConstraints().apply {
-            // Voice-first profile: keep echo/noise suppression and AGC for cleaner monitoring.
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "true"))
+            // One-way monitoring: no echo cancel (saves latency), keep AGC + light NS.
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "true"))
@@ -742,12 +742,12 @@ class MicService : Service() {
         val tunedParams = mapOf(
             "maxaveragebitrate" to maxAvg.toString(),
             "minaveragebitrate" to minAvg.toString(),
-            "maxplaybackrate" to "16000",
-            "sprop-maxcapturerate" to "16000",
+            "maxplaybackrate" to "48000",
+            "sprop-maxcapturerate" to "48000",
             "ptime" to "20",
-            "minptime" to "10",
+            "minptime" to "20",
             "useinbandfec" to "1",           // FEC: recovers lost packets on low network
-            "usedtx" to "1",                // save bandwidth on silence in weak networks
+            "usedtx" to "0",                // DTX OFF: prevents audible gaps / "lag" feel
             "stereo" to "0",
             "sprop-stereo" to "0",
             "cbr" to "0",                    // VBR: allocates more bits to complex speech
@@ -863,9 +863,8 @@ class MicService : Service() {
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             val downKbps = caps.linkDownstreamBandwidthKbps
             target = when {
-                downKbps in 1..900 -> WEBRTC_MIN_BITRATE_KBPS
-                downKbps in 901..3000 -> WEBRTC_MID_BITRATE_KBPS
-                downKbps in 3001..9000 -> 32
+                downKbps in 1..500 -> WEBRTC_MIN_BITRATE_KBPS
+                downKbps in 501..2000 -> WEBRTC_MID_BITRATE_KBPS
                 else -> WEBRTC_MAX_BITRATE_KBPS
             }
         }
@@ -874,10 +873,10 @@ class MicService : Service() {
         val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
         val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
         if (wsReconnectAttempts >= 4) return WEBRTC_MIN_BITRATE_KBPS
-        if (!loss.isNaN() && loss >= 10.0) return WEBRTC_MIN_BITRATE_KBPS
-        if (!rtt.isNaN() && rtt >= 450.0) return WEBRTC_MIN_BITRATE_KBPS
-        if (!jitter.isNaN() && jitter >= 120.0) return WEBRTC_MIN_BITRATE_KBPS
-        if ((!loss.isNaN() && loss >= 4.0) || (!rtt.isNaN() && rtt >= 250.0) || (!jitter.isNaN() && jitter >= 60.0)) {
+        if (!loss.isNaN() && loss >= 15.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!rtt.isNaN() && rtt >= 600.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!jitter.isNaN() && jitter >= 200.0) return WEBRTC_MIN_BITRATE_KBPS
+        if ((!loss.isNaN() && loss >= 8.0) || (!rtt.isNaN() && rtt >= 400.0) || (!jitter.isNaN() && jitter >= 100.0)) {
             return min(target, WEBRTC_MID_BITRATE_KBPS)
         }
         return target.coerceIn(WEBRTC_MIN_BITRATE_KBPS, WEBRTC_MAX_BITRATE_KBPS)
