@@ -828,7 +828,7 @@
           webRtcPresenceNode: null,
           webRtcClarityNode: null,
           webRtcGainNode: null,
-          webRtcCompressorNode: null,
+          webRtcStereoNode: null,
           webRtcAudioGraphConnected: false,
           // PCM fallback processing nodes (same pipeline, separate graph)
           pcmGainNode: null,
@@ -837,7 +837,7 @@
           pcmWarmthNode: null,
           pcmPresenceNode: null,
           pcmClarityNode: null,
-          pcmCompressorNode: null,
+          pcmStereoNode: null,
           pcmGraphConnected: false,
           rnnoiseEnabled: savedRnEnabled,
           playbackGain: savedGain,
@@ -1019,7 +1019,7 @@
           if (state.useWebRtc) stopWebRtc(deviceId, true);
           if (state.audioCtx) {
             // Tear down PCM processing graph before closing context
-            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmCompressorNode","pcmRnnoiseNode"]
+            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmStereoNode","pcmRnnoiseNode"]
               .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
             try { state.pcmRnnoiseNode?.destroy?.(); } catch (_) {}
             state.pcmGraphConnected = false;
@@ -1097,14 +1097,14 @@
       function applyPlaybackGain(state) {
         if (!state) return;
         const mul = Number(state.playbackGain || 1.0);
-        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = 1.9 * mul;
-        if (state.pcmGainNode) state.pcmGainNode.gain.value = 1.9 * mul;
+        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = 3.0 * mul;
+        if (state.pcmGainNode) state.pcmGainNode.gain.value = 3.0 * mul;
       }
 
       function cyclePlaybackGain(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        const levels = [1.0, 1.3, 1.6, 2.0];
+        const levels = [1.0, 1.5, 2.0, 2.5];
         const current = Number(state.playbackGain || 1.0);
         const idx = levels.findIndex((v) => Math.abs(v - current) < 0.01);
         state.playbackGain = levels[(idx + 1 + levels.length) % levels.length];
@@ -1160,6 +1160,22 @@
             });
           } else {
             state.webRtcSourceNode.connect(state.webRtcGainNode);
+          }
+        }
+        // For PCM path: force graph rebuild so RNNoise is wired in/out correctly.
+        if (state.audioCtx && state.pcmGraphConnected) {
+          // Tear down existing static graph and rebuild on next chunk
+          ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmStereoNode"]
+            .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
+          state.pcmGraphConnected = false;
+          // Pre-init RNNoise node for PCM when enabling, so it's ready at graph rebuild
+          if (enabled && !state.pcmRnnoiseNode) {
+            ensureRnnoiseNode(state.audioCtx, state, "pcm").then((rn) => {
+              if (rn && state.pcmGainNode) {
+                try { rn.disconnect(); } catch (_) {}
+                rn.connect(state.pcmGainNode);
+              }
+            });
           }
         }
       }
@@ -1306,13 +1322,17 @@
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
           if (!state.webRtcGainNode) {
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 1.9 * Number(state.playbackGain || 1.0);
+            state.webRtcGainNode.gain.value = 3.0 * Number(state.playbackGain || 1.0);
+            // Force stereo upmix so mono RNNoise output plays in both ears
+            state.webRtcGainNode.channelCount = 2;
+            state.webRtcGainNode.channelCountMode = "explicit";
+            state.webRtcGainNode.channelInterpretation = "speakers";
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcHighPassNode.type = "highpass";
-            state.webRtcHighPassNode.frequency.value = 120;
-            state.webRtcHighPassNode.Q.value = 0.8;
+            state.webRtcHighPassNode.frequency.value = 80;
+            state.webRtcHighPassNode.Q.value = 0.7;
           }
           if (!state.webRtcNotchNode) {
             state.webRtcNotchNode = state.webRtcAudioCtx.createBiquadFilter();
@@ -1323,46 +1343,42 @@
           if (!state.webRtcWarmthNode) {
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
-            state.webRtcWarmthNode.frequency.value = 300;
-            state.webRtcWarmthNode.gain.value = 1.5;
+            state.webRtcWarmthNode.frequency.value = 250;
+            state.webRtcWarmthNode.gain.value = 1.0;
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcPresenceNode.type = "peaking";
-            state.webRtcPresenceNode.frequency.value = 2200;
+            state.webRtcPresenceNode.frequency.value = 2800;
             state.webRtcPresenceNode.Q.value = 0.9;
-            state.webRtcPresenceNode.gain.value = 2.8;
+            state.webRtcPresenceNode.gain.value = 3.5;
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcClarityNode.type = "highshelf";
-            state.webRtcClarityNode.frequency.value = 3600;
-            state.webRtcClarityNode.Q.value = 1.0;
-            state.webRtcClarityNode.gain.value = 1.8;
+            state.webRtcClarityNode.frequency.value = 5000;
+            state.webRtcClarityNode.gain.value = 2.5;
           }
-          if (!state.webRtcCompressorNode) {
-            state.webRtcCompressorNode = state.webRtcAudioCtx.createDynamicsCompressor();
-            state.webRtcCompressorNode.threshold.value = -23;
-            state.webRtcCompressorNode.knee.value = 10;
-            state.webRtcCompressorNode.ratio.value = 2.6;
-            state.webRtcCompressorNode.attack.value = 0.01;
-            state.webRtcCompressorNode.release.value = 0.18;
+          // StereoPanner at 0 guarantees mono→stereo so both earbuds work
+          if (!state.webRtcStereoNode) {
+            state.webRtcStereoNode = state.webRtcAudioCtx.createStereoPanner();
+            state.webRtcStereoNode.pan.value = 0;
           }
           if (state.webRtcSourceNode) {
             try { state.webRtcSourceNode.disconnect(); } catch (_) {}
           }
           state.webRtcSourceNode = state.webRtcAudioCtx.createMediaStreamSource(stream);
           if (!state.webRtcAudioGraphConnected) {
+            // Static chain: gain → highPass → notch → warmth → presence → clarity → stereo → destination
             state.webRtcGainNode.connect(state.webRtcHighPassNode);
             state.webRtcHighPassNode.connect(state.webRtcNotchNode);
             state.webRtcNotchNode.connect(state.webRtcWarmthNode);
             state.webRtcWarmthNode.connect(state.webRtcPresenceNode);
             state.webRtcPresenceNode.connect(state.webRtcClarityNode);
-            state.webRtcClarityNode.connect(state.webRtcCompressorNode);
-            state.webRtcCompressorNode.connect(state.webRtcAudioCtx.destination);
+            state.webRtcClarityNode.connect(state.webRtcStereoNode);
+            state.webRtcStereoNode.connect(state.webRtcAudioCtx.destination);
             state.webRtcAudioGraphConnected = true;
           }
-          state.webRtcSourceNode.connect(state.webRtcGainNode);
           if (state.rnnoiseEnabled) {
             ensureRnnoiseNode(state.webRtcAudioCtx, state, "webrtc").then((rn) => {
               if (!rn || !state.webRtcSourceNode || !state.webRtcGainNode) return;
@@ -1371,6 +1387,8 @@
               rn.connect(state.webRtcGainNode);
               state.webRtcSourceNode.connect(rn);
             });
+          } else {
+            state.webRtcSourceNode.connect(state.webRtcGainNode);
           }
           startWebRtcInputMeter(deviceId, state);
           graphActive = true;
@@ -1414,8 +1432,8 @@
         if (state.webRtcGainNode) {
           try { state.webRtcGainNode.disconnect(); } catch (_) {}
         }
-        if (state.webRtcCompressorNode) {
-          try { state.webRtcCompressorNode.disconnect(); } catch (_) {}
+        if (state.webRtcStereoNode) {
+          try { state.webRtcStereoNode.disconnect(); } catch (_) {}
         }
         if (state.webRtcRnnoiseNode) {
           try { state.webRtcRnnoiseNode.disconnect(); } catch (_) {}
@@ -1440,7 +1458,7 @@
         state.webRtcPresenceNode = null;
         state.webRtcClarityNode = null;
         state.webRtcGainNode = null;
-        state.webRtcCompressorNode = null;
+        state.webRtcStereoNode = null;
         state.webRtcRnnoiseNode = null;
         state.webRtcAudioCtx = null;
         state.webRtcAudioGraphConnected = false;
@@ -1714,50 +1732,69 @@
         reader.readAsArrayBuffer(data instanceof Blob ? data : new Blob([data]));
       }
 
+      function _buildPcmStaticGraph(state) {
+        // Build the static processing chain: gainNode → EQ → stereoNode → destination
+        // RNNoise (when enabled) inserts before gainNode dynamically per-chunk.
+        const ctx = state.audioCtx;
+        state.pcmGainNode = ctx.createGain();
+        state.pcmGainNode.gain.value = 3.0 * Number(state.playbackGain || 1.0);
+        // Force stereo output so mono audio plays in both ears
+        state.pcmGainNode.channelCount = 2;
+        state.pcmGainNode.channelCountMode = "explicit";
+        state.pcmGainNode.channelInterpretation = "speakers";
+        state.pcmHighPassNode = ctx.createBiquadFilter();
+        state.pcmHighPassNode.type = "highpass";
+        state.pcmHighPassNode.frequency.value = 80;
+        state.pcmHighPassNode.Q.value = 0.7;
+        state.pcmNotchNode = ctx.createBiquadFilter();
+        state.pcmNotchNode.type = "notch";
+        state.pcmNotchNode.frequency.value = 50;
+        state.pcmNotchNode.Q.value = 10;
+        state.pcmWarmthNode = ctx.createBiquadFilter();
+        state.pcmWarmthNode.type = "lowshelf";
+        state.pcmWarmthNode.frequency.value = 250;
+        state.pcmWarmthNode.gain.value = 1.0;
+        state.pcmPresenceNode = ctx.createBiquadFilter();
+        state.pcmPresenceNode.type = "peaking";
+        state.pcmPresenceNode.frequency.value = 2800;
+        state.pcmPresenceNode.Q.value = 0.9;
+        state.pcmPresenceNode.gain.value = 3.5;
+        state.pcmClarityNode = ctx.createBiquadFilter();
+        state.pcmClarityNode.type = "highshelf";
+        state.pcmClarityNode.frequency.value = 5000;
+        state.pcmClarityNode.gain.value = 2.5;
+        // StereoPanner at pan=0 guarantees mono→stereo upmix (both ears)
+        state.pcmStereoNode = ctx.createStereoPanner();
+        state.pcmStereoNode.pan.value = 0;
+        // Wire static chain
+        state.pcmGainNode.connect(state.pcmHighPassNode);
+        state.pcmHighPassNode.connect(state.pcmNotchNode);
+        state.pcmNotchNode.connect(state.pcmWarmthNode);
+        state.pcmWarmthNode.connect(state.pcmPresenceNode);
+        state.pcmPresenceNode.connect(state.pcmClarityNode);
+        state.pcmClarityNode.connect(state.pcmStereoNode);
+        state.pcmStereoNode.connect(ctx.destination);
+        // Pre-wire RNNoise → gain if node already exists (e.g. RN was toggled on earlier)
+        if (state.rnnoiseEnabled && state.pcmRnnoiseNode) {
+          try { state.pcmRnnoiseNode.disconnect(); } catch (_) {}
+          state.pcmRnnoiseNode.connect(state.pcmGainNode);
+        } else if (state.rnnoiseEnabled && !state.pcmRnnoiseNode) {
+          // Kick off async WASM init; on completion wire rn → gain
+          ensureRnnoiseNode(ctx, state, "pcm").then((rn) => {
+            if (rn && state.pcmGainNode) {
+              try { rn.disconnect(); } catch (_) {}
+              rn.connect(state.pcmGainNode);
+            }
+          });
+        }
+      }
+
       function playAudioChunk(state, float32, sampleRate = 16000) {
         if (!state.audioCtx || float32.length === 0) return;
         if (state.audioCtx.state === "suspended") state.audioCtx.resume();
-        // Keep the PCM fallback path intentionally mild so speech stays natural.
         if (!state.pcmGraphConnected) {
           try {
-            const ctx = state.audioCtx;
-            state.pcmGainNode = ctx.createGain();
-            state.pcmGainNode.gain.value = 1.9 * Number(state.playbackGain || 1.0);
-            state.pcmHighPassNode = ctx.createBiquadFilter();
-            state.pcmHighPassNode.type = "highpass";
-            state.pcmHighPassNode.frequency.value = 100;
-            state.pcmHighPassNode.Q.value = 0.8;
-            state.pcmNotchNode = ctx.createBiquadFilter();
-            state.pcmNotchNode.type = "notch";
-            state.pcmNotchNode.frequency.value = 50;
-            state.pcmNotchNode.Q.value = 10;
-            state.pcmWarmthNode = ctx.createBiquadFilter();
-            state.pcmWarmthNode.type = "lowshelf";
-            state.pcmWarmthNode.frequency.value = 300;
-            state.pcmWarmthNode.gain.value = 1.2;
-            state.pcmPresenceNode = ctx.createBiquadFilter();
-            state.pcmPresenceNode.type = "peaking";
-            state.pcmPresenceNode.frequency.value = 2200;
-            state.pcmPresenceNode.Q.value = 0.9;
-            state.pcmPresenceNode.gain.value = 2.2;
-            state.pcmClarityNode = ctx.createBiquadFilter();
-            state.pcmClarityNode.type = "highshelf";
-            state.pcmClarityNode.frequency.value = 3400;
-            state.pcmClarityNode.Q.value = 1.0;
-            state.pcmClarityNode.gain.value = 1.5;
-            state.pcmCompressorNode = ctx.createDynamicsCompressor();
-            state.pcmCompressorNode.threshold.value = -22;
-            state.pcmCompressorNode.knee.value = 10;
-            state.pcmCompressorNode.ratio.value = 2.5;
-            state.pcmCompressorNode.attack.value = 0.01;
-            state.pcmCompressorNode.release.value = 0.16;
-            state.pcmGainNode.connect(state.pcmHighPassNode);
-            state.pcmHighPassNode.connect(state.pcmNotchNode);
-            state.pcmNotchNode.connect(state.pcmWarmthNode);
-            state.pcmWarmthNode.connect(state.pcmPresenceNode);
-            state.pcmPresenceNode.connect(state.pcmClarityNode);
-            state.pcmClarityNode.connect(state.pcmCompressorNode);
-            state.pcmCompressorNode.connect(ctx.destination);
+            _buildPcmStaticGraph(state);
             state.pcmGraphConnected = true;
           } catch(e) {
             state.pcmGraphConnected = false;
@@ -1768,21 +1805,12 @@
           buffer.copyToChannel(float32, 0);
           const source = state.audioCtx.createBufferSource();
           source.buffer = buffer;
-          // Route through RNNoise + enhancement graph when available.
           if (state.pcmGraphConnected) {
+            // Route: source → [rnnoiseNode →] gainNode → EQ → stereoNode → destination
             if (state.rnnoiseEnabled && state.pcmRnnoiseNode) {
-              try { state.pcmRnnoiseNode.disconnect(); } catch (_) {}
-              state.pcmRnnoiseNode.connect(state.pcmGainNode);
               source.connect(state.pcmRnnoiseNode);
             } else {
               source.connect(state.pcmGainNode);
-              if (state.rnnoiseEnabled && !state.pcmRnnoiseNode && !state.pcmRnnoiseInitPromise) {
-                ensureRnnoiseNode(state.audioCtx, state, "pcm").then((rn) => {
-                  if (!rn || !state.pcmGainNode) return;
-                  try { rn.disconnect(); } catch (_) {}
-                  rn.connect(state.pcmGainNode);
-                });
-              }
             }
           } else {
             source.connect(state.audioCtx.destination);
