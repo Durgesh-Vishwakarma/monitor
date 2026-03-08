@@ -141,6 +141,55 @@
       .log-warn { color: var(--amber); }
       .log-ok   { color: var(--green); }
       .log-err  { color: var(--red); }
+
+      /* ── Light theme ──────────────────────────────────────────────── */
+      body.light {
+        --bg:      #f0f4f8;
+        --surface: #e2e8f0;
+        --card:    #ffffff;
+        --border:  #cbd5e1;
+        --border2: #94a3b8;
+        --accent:  #2563eb;
+        --accent2: #1d4ed8;
+        --green:   #16a34a;
+        --red:     #dc2626;
+        --amber:   #d97706;
+        --cyan:    #0891b2;
+        --text:    #0f172a;
+        --text2:   #334155;
+        --text3:   #64748b;
+      }
+      body.light .canvas-wrap { background: #f8fafc; }
+      body.light .tab-panel   { background: #f1f5f9; }
+      body.light #logOutput   { color: var(--text2); }
+
+      /* Theme toggle button */
+      #themeToggle { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; color: var(--text2); cursor: pointer; font-size: 13px; padding: 7px 14px; transition: all .2s; }
+      #themeToggle:hover { border-color: var(--border2); color: var(--text); }
+
+      /* ── VU Meter ─────────────────────────────────────────────────── */
+      .vu-wrap { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+      .vu-bar-bg { flex: 1; height: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+      .vu-bar-fill { height: 100%; width: 0%; border-radius: 4px; transition: width .08s linear; background: linear-gradient(90deg, #22c55e 0%, #f59e0b 75%, #ef4444 95%); }
+      .vu-db { font-family: var(--mono); font-size: 10px; color: var(--text3); min-width: 52px; text-align: right; }
+      .clip-warn { display: none; font-size: 10px; font-weight: 700; color: var(--red); letter-spacing: .06em; animation: clipBlink .35s infinite alternate; }
+      .clip-warn.active { display: inline; }
+      @keyframes clipBlink { from { opacity:1; } to { opacity:0.2; } }
+
+      /* ── Frequency bars ───────────────────────────────────────────── */
+      .canvas-wrap.freq canvas { height: 72px; }
+
+      /* ── Noise floor history chart ────────────────────────────────── */
+      .noise-chart-wrap { margin-bottom: 10px; }
+      .noise-chart-wrap canvas { width: 100%; height: 52px; display: block; background: #0a1628; border-radius: 8px; border: 1px solid var(--border); }
+      body.light .noise-chart-wrap canvas { background: #f8fafc; }
+
+      /* ── Connection quality indicator ─────────────────────────────── */
+      .conn-quality-bar { display: flex; gap: 3px; align-items: flex-end; height: 18px; }
+      .cq-seg { width: 6px; border-radius: 2px 2px 0 0; background: var(--border2); transition: background .3s, height .3s; }
+      .cq-seg.lit { background: var(--green); }
+      .cq-seg.warn { background: var(--amber); }
+      .cq-seg.bad  { background: var(--red); }
     </style>
   </head>
   <body>
@@ -152,9 +201,12 @@
           <div class="header-sub">Remote audio dashboard</div>
         </div>
       </div>
-      <div class="conn-pill" id="connPill">
-        <div id="wsDot" class="conn-dot"></div>
-        <span id="wsStatus">Connecting…</span>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button id="themeToggle" onclick="toggleTheme()">🌙 Dark</button>
+        <div class="conn-pill" id="connPill">
+          <div id="wsDot" class="conn-dot"></div>
+          <span id="wsStatus">Connecting…</span>
+        </div>
       </div>
     </div>
 
@@ -194,12 +246,147 @@
         tokenRequired: false,
       };
 
+      // ── Dark / Light theme ───────────────────────────────────────────────
+      (function initTheme() {
+        const saved = localStorage.getItem("micmonitor:theme") || "dark";
+        if (saved === "light") {
+          document.body.classList.add("light");
+          const btn = document.getElementById("themeToggle");
+          if (btn) btn.textContent = "☀️ Light";
+        }
+      })();
+      function toggleTheme() {
+        const isLight = document.body.classList.toggle("light");
+        const btn = document.getElementById("themeToggle");
+        if (btn) btn.textContent = isLight ? "☀️ Light" : "🌙 Dark";
+        try { localStorage.setItem("micmonitor:theme", isLight ? "light" : "dark"); } catch (_) {}
+      }
+
+      // ── Visualizer mode (wave / freq) per device ─────────────────────────
+      function cycleVizMode(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const modes = ["wave", "freq"];
+        const current = state.vizMode || "wave";
+        state.vizMode = modes[(modes.indexOf(current) + 1) % modes.length];
+        const btn = document.getElementById(`btnVizMode_${deviceId}`);
+        if (btn) btn.textContent = `Viz: ${state.vizMode.charAt(0).toUpperCase() + state.vizMode.slice(1)}`;
+        const wrap = document.getElementById(`vizWrap_${deviceId}`);
+        const label = document.getElementById(`vizLabel_${deviceId}`);
+        if (wrap) wrap.classList.toggle("freq", state.vizMode === "freq");
+        if (label) label.textContent = state.vizMode === "freq" ? "SPECTRUM" : "WAVEFORM";
+      }
+
+      // ── VU meter + Clipping detection ────────────────────────────────
+      function updateVuMeter(deviceId, float32) {
+        const fill = document.getElementById(`vuFill_${deviceId}`);
+        const dbEl = document.getElementById(`vuDb_${deviceId}`);
+        const clipEl = document.getElementById(`clipWarn_${deviceId}`);
+        if (!fill || !dbEl) return;
+        let peak = 0, sum = 0;
+        for (let i = 0; i < float32.length; i++) {
+          const a = Math.abs(float32[i]);
+          if (a > peak) peak = a;
+          sum += a * a;
+        }
+        const rms = Math.sqrt(sum / Math.max(1, float32.length));
+        const dbRms = rms > 0 ? 20 * Math.log10(rms) : -96;
+        const pct = Math.max(0, Math.min(100, ((dbRms + 60) / 60) * 100));
+        fill.style.width = pct.toFixed(1) + "%";
+        dbEl.textContent = dbRms > -96 ? dbRms.toFixed(1) + " dBFS" : "-∞ dBFS";
+        const clipping = peak >= 0.98;
+        if (clipEl) clipEl.classList.toggle("active", clipping);
+        if (clipping) {
+          const state = deviceState[deviceId];
+          if (state) { state._lastClipAt = Date.now(); }
+        }
+      }
+
+      // ── Noise Floor History Chart ────────────────────────────────────
+      const NOISE_HISTORY_MAX = 120; // keep last 120 data points
+      function pushNoiseHistory(deviceId, noiseDb) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        if (!state.noiseHistory) state.noiseHistory = [];
+        state.noiseHistory.push(noiseDb);
+        if (state.noiseHistory.length > NOISE_HISTORY_MAX) state.noiseHistory.shift();
+        drawNoiseChart(deviceId, state.noiseHistory);
+      }
+      function drawNoiseChart(deviceId, history) {
+        const canvas = document.getElementById(`noiseChart_${deviceId}`);
+        if (!canvas || !history || !history.length) return;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        const isLight = document.body.classList.contains("light");
+        ctx.fillStyle = isLight ? "#f8fafc" : "#0a1628";
+        ctx.fillRect(0, 0, W, H);
+        const MIN_DB = -80, MAX_DB = -30;
+        const range = MAX_DB - MIN_DB;
+        // Grid lines
+        ctx.strokeStyle = isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.06)";
+        ctx.lineWidth = 1;
+        for (const db of [-70, -60, -50, -40]) {
+          const y = H - ((db - MIN_DB) / range) * H;
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+          ctx.fillStyle = isLight ? "#94a3b8" : "#475569";
+          ctx.font = "9px monospace";
+          ctx.fillText(`${db}dB`, 2, y - 2);
+        }
+        // Line
+        const grad = ctx.createLinearGradient(0, 0, 0, H);
+        grad.addColorStop(0, "#ef4444"); grad.addColorStop(0.5, "#f59e0b"); grad.addColorStop(1, "#22c55e");
+        ctx.beginPath();
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.5;
+        const step = W / Math.max(1, NOISE_HISTORY_MAX - 1);
+        history.forEach((db, i) => {
+          const x = i * step;
+          const y = H - ((Math.max(MIN_DB, Math.min(MAX_DB, db)) - MIN_DB) / range) * H;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+
+      // ── Connection Quality Bars ──────────────────────────────────────
+      function updateConnectionQualityBar(deviceId, quality) {
+        const bar = document.getElementById(`cqBar_${deviceId}`);
+        if (!bar) return;
+        const segs = bar.querySelectorAll(".cq-seg");
+        // Score 0-4 based on RTT + loss + jitter
+        const rtt = Number(quality?.rttMs);
+        const loss = Number(quality?.lossPct);
+        const jitter = Number(quality?.jitterMs);
+        let score = 4;
+        if (Number.isFinite(rtt)) {
+          if (rtt > 300) score = Math.min(score, 1);
+          else if (rtt > 150) score = Math.min(score, 2);
+          else if (rtt > 80) score = Math.min(score, 3);
+        }
+        if (Number.isFinite(loss)) {
+          if (loss > 10) score = Math.min(score, 1);
+          else if (loss > 5) score = Math.min(score, 2);
+          else if (loss > 1) score = Math.min(score, 3);
+        }
+        if (Number.isFinite(jitter)) {
+          if (jitter > 80) score = Math.min(score, 1);
+          else if (jitter > 40) score = Math.min(score, 2);
+          else if (jitter > 20) score = Math.min(score, 3);
+        }
+        if (!Number.isFinite(rtt) && !Number.isFinite(loss) && !Number.isFinite(jitter)) score = 0;
+        const cls = score <= 1 ? "bad" : score <= 2 ? "warn" : "lit";
+        segs.forEach((seg, i) => {
+          seg.className = "cq-seg" + (i < score ? " " + cls : "");
+        });
+      }
+
       let controlWs = null;
       const deviceState = {};
       let _wsReconnectDelay = 2000;   // exponential backoff start
       const RN_PROFILE_STORAGE_PREFIX = "micmonitor:rnprofile:";
       const RN_ENABLED_STORAGE_PREFIX = "micmonitor:rnenabled:";
       const RN_AUTO_STORAGE_PREFIX = "micmonitor:rnauto:";
+      const GAIN_STORAGE_PREFIX = "micmonitor:gain:";
       let rnnoiseLibPromise = null;
       let rnnoiseWasmPromise = null;
       const rnnoiseWorkletLoadedContexts = new WeakSet();
@@ -359,8 +546,11 @@
           state.health.micCapturing = true;
           renderDeviceHealth(deviceId, state.health);
         }
+        updateVuMeter(deviceId, float32);
         playAudioChunk(state, float32, playbackSampleRate);
-        drawWaveform(state.canvas, float32);
+        const mode = state.vizMode || "wave";
+        if (mode === "freq") drawFreqBars(state.canvas, state.audioCtx, float32, playbackSampleRate);
+        else drawWaveform(state.canvas, float32);
       }
 
       function decodeMuLaw8k(muLaw) {
@@ -410,10 +600,19 @@
             <div class="health-item"><div class="health-label">Internet</div><div class="health-val" id="hnet_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Battery</div><div class="health-val" id="hbat_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Noise Floor</div><div class="health-val" id="hnoise_${deviceId}">-</div></div>
+            <div class="health-item"><div class="health-label">Conn Quality</div><div class="health-val" id="hcq_${deviceId}"><div class="conn-quality-bar" id="cqBar_${deviceId}"><div class="cq-seg" style="height:30%"></div><div class="cq-seg" style="height:50%"></div><div class="cq-seg" style="height:70%"></div><div class="cq-seg" style="height:100%"></div></div></div></div>
           </div>
-          <div class="canvas-wrap">
-            <span class="canvas-label">AUDIO</span>
+          <div class="vu-wrap">
+            <div class="vu-bar-bg"><div class="vu-bar-fill" id="vuFill_${deviceId}"></div></div>
+            <span class="vu-db" id="vuDb_${deviceId}">-∞ dBFS</span>
+            <span class="clip-warn" id="clipWarn_${deviceId}">⚠ CLIP</span>
+          </div>
+          <div class="canvas-wrap" id="vizWrap_${deviceId}">
+            <span class="canvas-label" id="vizLabel_${deviceId}">WAVEFORM</span>
             <canvas id="canvas_${deviceId}" width="600" height="56"></canvas>
+          </div>
+          <div class="noise-chart-wrap">
+            <canvas id="noiseChart_${deviceId}" width="600" height="52" title="Noise Floor History"></canvas>
           </div>
           <div class="btn-row">
             <button class="btn-live"  id="btnLive_${deviceId}" onclick="toggleLive('${deviceId}')">▶ Live Listen</button>
@@ -421,13 +620,14 @@
             <button class="btn-ghost" id="btnRn_${deviceId}" onclick="toggleRnnoise('${deviceId}')">RNNoise: ON</button>
             <button class="btn-ghost" id="btnRnAuto_${deviceId}" onclick="toggleRnnoiseAuto('${deviceId}')">RN Auto: ON</button>
             <button class="btn-ghost" id="btnRnProfile_${deviceId}" onclick="cycleRnnoiseProfile('${deviceId}')">RN Profile: Normal</button>
-            <button class="btn-ghost" id="btnAi_${deviceId}" onclick="toggleAiMode('${deviceId}')">AI: ON</button>
-            <button class="btn-ghost" id="btnAiAuto_${deviceId}" onclick="toggleAiAuto('${deviceId}')">AI Auto: ON</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="pingDevice('${deviceId}')">🏓 Ping</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
+            <button class="btn-ghost" id="btnGain_${deviceId}" onclick="cyclePlaybackGain('${deviceId}')">Gain: 1.0x</button>
+            <button class="btn-ghost" onclick="resetAudioSettings('${deviceId}')">Reset Audio</button>
+            <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
           </div>
           <div class="rec-list" id="recList_${deviceId}"></div>
           <div class="tab-bar">
@@ -442,6 +642,7 @@
         const savedRnProfile = loadRnnoiseProfile(deviceId);
         const savedRnEnabled = loadRnnoiseEnabled(deviceId);
         const savedRnAuto = loadRnnoiseAuto(deviceId);
+        const savedGain = loadPlaybackGain(deviceId);
         deviceState[deviceId] = {
           deviceId,
           isLive: false,
@@ -489,21 +690,21 @@
           rnnoiseEnabled: savedRnEnabled,
           rnnoiseAuto: savedRnAuto,
           rnnoiseAutoProfile: savedRnProfile,
+          playbackGain: savedGain,
           lastRnnoiseSwitchAt: 0,
           webRtcRnnoiseNode: null,
           pcmRnnoiseNode: null,
           webRtcRnnoiseInitPromise: null,
           pcmRnnoiseInitPromise: null,
-          aiMode: true,
-          aiAuto: true,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
+          vizMode: "wave",
+          noiseHistory: [],
+          _lastClipAt: 0,
           health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null, internetOnline: true, callActive: false, batteryPct: null, charging: null },
         };
-        const aiBtn = document.getElementById(`btnAi_${deviceId}`);
-        if (aiBtn) aiBtn.textContent = "AI: ON";
-        const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
-        if (aiAutoBtn) aiAutoBtn.textContent = "AI Auto: ON";
+        const gainBtn = document.getElementById(`btnGain_${deviceId}`);
+        if (gainBtn) gainBtn.textContent = `Gain: ${savedGain.toFixed(1)}x`;
         const rnBtn = document.getElementById(`btnRn_${deviceId}`);
         if (rnBtn) rnBtn.textContent = "RNNoise: ON";
         const rnAutoBtn = document.getElementById(`btnRnAuto_${deviceId}`);
@@ -557,6 +758,22 @@
         } catch (_) {}
       }
 
+      function loadPlaybackGain(deviceId) {
+        try {
+          const raw = localStorage.getItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
+          const v = Number(raw);
+          const allowed = [1.0, 1.3, 1.6, 2.0];
+          if (allowed.some((x) => Math.abs(x - v) < 0.01)) return v;
+        } catch (_) {}
+        return 1.0;
+      }
+
+      function savePlaybackGain(deviceId, gain) {
+        try {
+          localStorage.setItem(`${GAIN_STORAGE_PREFIX}${deviceId}`, Number(gain).toFixed(1));
+        } catch (_) {}
+      }
+
       function removeDeviceCard(deviceId) {
         stopWebRtc(deviceId, false);
         const card = document.getElementById(`card_${deviceId}`);
@@ -574,16 +791,6 @@
         const state = deviceState[deviceId];
         if (!state) return;
         if (health) state.health = { ...state.health, ...health };
-        if (typeof state.health.aiMode === "boolean") {
-          state.aiMode = state.health.aiMode;
-          const aiBtn = document.getElementById(`btnAi_${deviceId}`);
-          if (aiBtn) aiBtn.textContent = `AI: ${state.aiMode ? "ON" : "OFF"}`;
-        }
-        if (typeof state.health.aiAuto === "boolean") {
-          state.aiAuto = state.health.aiAuto;
-          const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
-          if (aiAutoBtn) aiAutoBtn.textContent = `AI Auto: ${state.aiAuto ? "ON" : "OFF"}`;
-        }
         const h = state.health || {};
         const ws = document.getElementById(`hws_${deviceId}`);
         const mic = document.getElementById(`hmic_${deviceId}`);
@@ -634,7 +841,11 @@
         if (noise) {
           const n = Number(h.noiseDb);
           noise.textContent = Number.isFinite(n) ? `${n.toFixed(1)} dB` : "-";
+          if (Number.isFinite(n)) pushNoiseHistory(deviceId, n);
         }
+
+        // Connection quality bars
+        if (h.quality) updateConnectionQualityBar(deviceId, h.quality);
 
         applyRnnoiseAutoPolicy(deviceId, state, h);
 
@@ -770,6 +981,56 @@
         else stopWebRtc(deviceId, true);
       }
 
+      function applyPlaybackGain(state) {
+        if (!state) return;
+        const mul = Number(state.playbackGain || 1.0);
+        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = 1.9 * mul;
+        if (state.pcmGainNode) state.pcmGainNode.gain.value = 1.9 * mul;
+      }
+
+      function cyclePlaybackGain(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const levels = [1.0, 1.3, 1.6, 2.0];
+        const current = Number(state.playbackGain || 1.0);
+        const idx = levels.findIndex((v) => Math.abs(v - current) < 0.01);
+        state.playbackGain = levels[(idx + 1 + levels.length) % levels.length];
+        savePlaybackGain(deviceId, state.playbackGain);
+        const gainBtn = document.getElementById(`btnGain_${deviceId}`);
+        if (gainBtn) gainBtn.textContent = `Gain: ${state.playbackGain.toFixed(1)}x`;
+        applyPlaybackGain(state);
+        log(`Playback gain ${state.playbackGain.toFixed(1)}x for ${deviceId}`, "info");
+      }
+
+      function resetAudioSettings(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+
+        try {
+          localStorage.removeItem(`${RN_PROFILE_STORAGE_PREFIX}${deviceId}`);
+          localStorage.removeItem(`${RN_ENABLED_STORAGE_PREFIX}${deviceId}`);
+          localStorage.removeItem(`${RN_AUTO_STORAGE_PREFIX}${deviceId}`);
+          localStorage.removeItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
+        } catch (_) {}
+
+        state.rnnoiseAuto = true;
+        saveRnnoiseAuto(deviceId, true);
+        state.rnnoiseAutoProfile = "normal";
+        saveRnnoiseProfile(deviceId, "normal");
+        updateRnnoiseButtons(deviceId, state);
+
+        // Use existing switch path so active graphs are rewired consistently.
+        setRnnoiseEnabled(deviceId, state, true, "reset");
+
+        state.playbackGain = 1.0;
+        savePlaybackGain(deviceId, 1.0);
+        const gainBtn = document.getElementById(`btnGain_${deviceId}`);
+        if (gainBtn) gainBtn.textContent = "Gain: 1.0x";
+        applyPlaybackGain(state);
+
+        log(`Audio settings reset for ${deviceId}`, "ok");
+      }
+
       function updateRnnoiseButtons(deviceId, state) {
         const rnBtn = document.getElementById(`btnRn_${deviceId}`);
         if (rnBtn) rnBtn.textContent = `RNNoise: ${state.rnnoiseEnabled ? "ON" : "OFF"}`;
@@ -871,30 +1132,6 @@
         } else if (state.rnnoiseEnabled && n <= disableThresholdDb) {
           setRnnoiseEnabled(deviceId, state, false, `auto ${n.toFixed(1)}dB`);
         }
-      }
-
-      function toggleAiMode(deviceId) {
-        const state = deviceState[deviceId];
-        if (!state) return;
-        state.aiMode = !state.aiMode;
-        state.aiAuto = false;
-        sendCmd(deviceId, "ai_mode", { enabled: state.aiMode });
-        sendCmd(deviceId, "ai_auto", { enabled: false });
-        const aiBtn = document.getElementById(`btnAi_${deviceId}`);
-        if (aiBtn) aiBtn.textContent = `AI: ${state.aiMode ? "ON" : "OFF"}`;
-        const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
-        if (aiAutoBtn) aiAutoBtn.textContent = "AI Auto: OFF";
-        log(`AI mode ${state.aiMode ? "enabled" : "disabled"} for ${deviceId}`, "info");
-      }
-
-      function toggleAiAuto(deviceId) {
-        const state = deviceState[deviceId];
-        if (!state) return;
-        state.aiAuto = !state.aiAuto;
-        sendCmd(deviceId, "ai_auto", { enabled: state.aiAuto });
-        const aiAutoBtn = document.getElementById(`btnAiAuto_${deviceId}`);
-        if (aiAutoBtn) aiAutoBtn.textContent = `AI Auto: ${state.aiAuto ? "ON" : "OFF"}`;
-        log(`AI auto ${state.aiAuto ? "enabled" : "disabled"} for ${deviceId}`, "info");
       }
 
       async function startWebRtc(deviceId, state) {
@@ -1033,7 +1270,7 @@
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
           if (!state.webRtcGainNode) {
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 1.9;
+            state.webRtcGainNode.gain.value = 1.9 * Number(state.playbackGain || 1.0);
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
@@ -1449,7 +1686,7 @@
           try {
             const ctx = state.audioCtx;
             state.pcmGainNode = ctx.createGain();
-            state.pcmGainNode.gain.value = 1.9;
+            state.pcmGainNode.gain.value = 1.9 * Number(state.playbackGain || 1.0);
             state.pcmHighPassNode = ctx.createBiquadFilter();
             state.pcmHighPassNode.type = "highpass";
             state.pcmHighPassNode.frequency.value = 100;
@@ -1544,6 +1781,50 @@
         ctx.stroke();
       }
 
+      function drawFreqBars(canvas, audioCtx, float32, sampleRate) {
+        if (!canvas) return;
+        // Simple FFT magnitude using built-in AnalyserNode approach via offline render is complex;
+        // Instead compute a fast approximate spectrum via DFT on downsampled bins.
+        const N = 64; // number of bars
+        const ctxC = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        ctxC.clearRect(0, 0, W, H);
+        ctxC.fillStyle = "#0a1628";
+        ctxC.fillRect(0, 0, W, H);
+        // Compute log-spaced magnitude bins via real FFT
+        const len = float32.length;
+        const binMags = new Float32Array(N);
+        const freqMin = 80, freqMax = 8000;
+        for (let b = 0; b < N; b++) {
+          // log-spaced frequency for this bar
+          const freq = freqMin * Math.pow(freqMax / freqMin, b / (N - 1));
+          const k = Math.max(1, Math.round((freq / (sampleRate || 16000)) * len));
+          const kEnd = Math.max(k + 1, Math.round(k * 1.2));
+          let mag = 0;
+          for (let ki = k; ki < Math.min(kEnd, len >> 1); ki++) {
+            // DFT magnitude at bin ki (real-only Goertzel approximation)
+            let re = 0, im = 0;
+            const omega = (2 * Math.PI * ki) / len;
+            const step = Math.max(1, Math.floor(len / 512)); // sample at most 512 points
+            for (let n = 0; n < len; n += step) {
+              re += float32[n] * Math.cos(omega * n);
+              im -= float32[n] * Math.sin(omega * n);
+            }
+            const m = Math.sqrt(re * re + im * im) / (len / step);
+            if (m > mag) mag = m;
+          }
+          binMags[b] = mag;
+        }
+        const barW = W / N;
+        for (let b = 0; b < N; b++) {
+          const mag = binMags[b];
+          const barH = Math.max(1, Math.min(H - 2, mag * H * 12));
+          const hue = 200 + (b / N) * 140; // blue -> purple spectrum
+          ctxC.fillStyle = `hsl(${hue}, 80%, 55%)`;
+          ctxC.fillRect(b * barW + 1, H - barH, barW - 2, barH);
+        }
+      }
+
       function clearCanvas(canvas) {
         if (!canvas) return;
         const ctx = canvas.getContext("2d");
@@ -1558,8 +1839,9 @@
           files.sort((a,b) => b.name.localeCompare(a.name));
           el.innerHTML = files.map((f) =>
             `<div class="rec-item">
-               <a href="/recordings/${f.name}" download="${f.name}" title="${f.name}">⬇ ${f.name}</a>
+               <a href="/recordings/${f.name}" title="${f.name}">&#9654; ${f.name}</a>
                <span class="rec-size">${formatSize(f.size)}</span>
+               <a href="/recordings/${f.name}" download="${f.name}" class="btn-ghost" style="padding:3px 10px;font-size:10px;font-weight:700;text-decoration:none;border-radius:6px;border:1px solid rgba(59,130,246,.25);color:var(--accent2);background:#0f2040;" title="Download ${f.name}">↓ DL</a>
              </div>`).join("");
         }).catch(()=>{});
       }
