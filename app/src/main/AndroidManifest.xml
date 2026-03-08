@@ -41,7 +41,7 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.MicMonitor"
-        tools:targetApi="34">
+        tools:targetApi="35">
 
         <!-- Main Activity (one-time setup screen) -->
         <activity

@@ -50,11 +50,12 @@
         font-family: "Inter","Segoe UI",sans-serif;
         background: var(--bg);
         background-image:
-          radial-gradient(ellipse 60% 40% at 15% -10%, rgba(124,58,237,.18) 0%, transparent 60%),
-          radial-gradient(ellipse 50% 35% at 90% 100%, rgba(20,184,166,.12) 0%, transparent 55%);
+          radial-gradient(ellipse 52% 34% at 12% -8%, rgba(124,58,237,.12) 0%, transparent 62%),
+          radial-gradient(ellipse 45% 30% at 90% 100%, rgba(20,184,166,.08) 0%, transparent 58%);
         color: var(--text);
         min-height: 100vh;
-        padding: 28px 22px;
+        padding: 24px 20px 28px;
+        line-height: 1.4;
       }
 
       ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -64,8 +65,8 @@
       /* ── Header ─────────────────────────────────────────────────── */
       .header {
         display: flex; align-items: center; justify-content: space-between;
-        margin-bottom: 28px; flex-wrap: wrap; gap: 14px;
-        padding-bottom: 20px;
+        margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
+        padding-bottom: 14px;
         border-bottom: 1px solid var(--border);
       }
       .header-left { display: flex; align-items: center; gap: 16px; }
@@ -77,8 +78,8 @@
         font-size: 24px;
         box-shadow: 0 0 24px var(--glow-v);
       }
-      .header-title { font-size: 21px; font-weight: 800; letter-spacing: -.4px; background: linear-gradient(90deg, var(--violet2), var(--teal2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-      .header-sub { font-size: 11px; color: var(--text3); margin-top: 3px; letter-spacing: .04em; text-transform: uppercase; }
+      .header-title { font-size: 20px; font-weight: 800; letter-spacing: -.3px; background: linear-gradient(90deg, var(--violet2), var(--teal2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+      .header-sub { font-size: 10px; color: var(--text3); margin-top: 2px; letter-spacing: .05em; text-transform: uppercase; }
 
       /* ── Connection pill ────────────────────────────────────────── */
       .conn-pill {
@@ -101,11 +102,11 @@
         display: flex; align-items: center; gap: 8px;
       }
       .section-label::before { content:''; flex: 0 0 3px; height: 14px; background: linear-gradient(180deg, var(--violet), var(--teal)); border-radius: 99px; }
-      .bottom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 20px; }
+      .bottom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
       @media(max-width:700px){ .bottom-row{ grid-template-columns:1fr; } }
 
       /* ── Devices container ──────────────────────────────────────── */
-      #devicesContainer { display: flex; flex-direction: column; gap: 16px; }
+      #devicesContainer { display: flex; flex-direction: column; gap: 12px; }
       #noDevices {
         background: var(--surface);
         border: 1px dashed var(--border2);
@@ -118,8 +119,8 @@
       .device-card {
         background: var(--card);
         border: 1px solid var(--border);
-        border-radius: 20px;
-        padding: 22px 22px 18px;
+        border-radius: 16px;
+        padding: 16px 16px 14px;
         transition: border-color .25s, box-shadow .25s;
         position: relative;
         overflow: hidden;
@@ -127,12 +128,9 @@
       .device-card::before {
         content: '';
         position: absolute; top: 0; left: 0; right: 0; height: 2px;
-        background: linear-gradient(90deg, var(--violet), var(--teal), var(--violet));
-        background-size: 200% 100%;
-        animation: shimmer 4s linear infinite;
+        background: linear-gradient(90deg, rgba(124,58,237,.75), rgba(20,184,166,.75));
       }
-      @keyframes shimmer { 0%{background-position:0% 0%} 100%{background-position:200% 0%} }
-      .device-card:hover { border-color: var(--border2); box-shadow: 0 8px 40px rgba(124,58,237,.12); }
+      .device-card:hover { border-color: var(--border2); box-shadow: 0 8px 24px rgba(8,10,24,.32); }
 
       .device-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
       .device-name {
@@ -156,15 +154,34 @@
         animation: recPulse 1.2s ease infinite;
       }
       @keyframes recPulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 10px rgba(244,63,94,.5)} }
-      .device-meta { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-bottom: 16px; margin-top: 5px; }
+      .device-meta { font-size: 11px; color: var(--text3); font-family: var(--mono); margin-bottom: 10px; margin-top: 3px; }
+      .link-badge-row { display: flex; justify-content: flex-end; margin: -4px 0 8px; }
+      .link-badge {
+        font-size: 10px; font-weight: 700; letter-spacing: .04em;
+        padding: 2px 9px; border-radius: 999px;
+        border: 1px solid var(--border2);
+        background: rgba(124,58,237,.08); color: var(--violet2);
+      }
+      .link-badge.good {
+        background: rgba(16,185,129,.14); color: var(--green2);
+        border-color: rgba(16,185,129,.4);
+      }
+      .link-badge.warn {
+        background: rgba(245,158,11,.14); color: #f59e0b;
+        border-color: rgba(245,158,11,.4);
+      }
+      .link-badge.bad {
+        background: rgba(244,63,94,.14); color: #fda4af;
+        border-color: rgba(244,63,94,.4);
+      }
 
       /* ── Health grid ────────────────────────────────────────────── */
-      .health-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; margin: 0 0 14px; }
+      .health-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; margin: 0 0 10px; }
       @media(max-width:900px){ .health-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
       .health-item {
         background: var(--bg2);
         border: 1px solid var(--border);
-        border-radius: 10px; padding: 7px 10px;
+        border-radius: 9px; padding: 6px 8px;
         transition: border-color .2s;
       }
       .health-item:hover { border-color: var(--border2); }
@@ -181,8 +198,8 @@
       .canvas-wrap {
         background: var(--bg2);
         border: 1px solid var(--border);
-        border-radius: 12px; overflow: hidden;
-        margin-bottom: 12px; position: relative;
+        border-radius: 10px; overflow: hidden;
+        margin-bottom: 10px; position: relative;
       }
       .canvas-wrap canvas { width: 100%; height: 60px; display: block; }
       .canvas-wrap.freq canvas { height: 78px; }
@@ -193,7 +210,7 @@
       }
 
       /* ── VU Meter ───────────────────────────────────────────────── */
-      .vu-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+      .vu-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
       .vu-bar-bg {
         flex: 1; height: 7px;
         background: var(--bg2); border: 1px solid var(--border);
@@ -209,35 +226,28 @@
       .clip-warn.active { display: inline; }
       @keyframes clipBlink { from{opacity:1} to{opacity:.15} }
 
-      /* ── Noise chart ────────────────────────────────────────────── */
-      .noise-chart-wrap { margin-bottom: 12px; }
-      .noise-chart-wrap canvas {
-        width: 100%; height: 54px; display: block;
-        background: var(--bg2); border-radius: 10px;
-        border: 1px solid var(--border);
-      }
-
       /* ── Buttons ────────────────────────────────────────────────── */
-      .btn-row { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+      .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
       button {
         font-family: "Inter",sans-serif;
         border: none; border-radius: 10px; cursor: pointer;
-        padding: 7px 14px; font-size: 12px; font-weight: 600;
-        transition: all .15s; display: flex; align-items: center; gap: 5px;
+        padding: 6px 11px; font-size: 11px; font-weight: 600;
+        transition: all .15s; display: flex; align-items: center; gap: 4px;
+        min-height: 31px;
         white-space: nowrap;
       }
       button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.15); }
       button:active:not(:disabled) { transform: translateY(0); filter: brightness(.95); }
       button:disabled { opacity: .3; cursor: not-allowed; }
 
-      .btn-live  { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; box-shadow: 0 3px 12px var(--glow-v); }
-      .btn-live.active { background: linear-gradient(135deg, #7c3aed, #a855f7); box-shadow: 0 3px 14px rgba(168,85,247,.55); }
-      .btn-rec   { background: linear-gradient(135deg, #be123c, #f43f5e); color: #fff; box-shadow: 0 3px 12px var(--glow-r); }
+      .btn-live  { background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; box-shadow: 0 2px 8px rgba(124,58,237,.35); }
+      .btn-live.active { background: linear-gradient(135deg, #7c3aed, #8b5cf6); box-shadow: 0 2px 10px rgba(168,85,247,.45); }
+      .btn-rec   { background: linear-gradient(135deg, #be123c, #f43f5e); color: #fff; box-shadow: 0 2px 8px rgba(244,63,94,.35); }
       .btn-stop  { background: var(--card2); color: var(--text2); border: 1px solid var(--border2); }
       .btn-ghost { background: rgba(124,58,237,.1); color: var(--violet2); border: 1px solid rgba(124,58,237,.25); }
       .btn-ghost:hover:not(:disabled) { background: rgba(124,58,237,.18); border-color: rgba(124,58,237,.45); }
-      .btn-rtc   { background: linear-gradient(135deg, #0f766e, #14b8a6); color: #fff; box-shadow: 0 3px 12px var(--glow-t); }
-      .btn-rtc.active { background: linear-gradient(135deg, #14b8a6, #2dd4bf); box-shadow: 0 3px 14px rgba(20,184,166,.6); }
+      .btn-rtc   { background: linear-gradient(135deg, #0f766e, #14b8a6); color: #fff; box-shadow: 0 2px 8px rgba(20,184,166,.35); }
+      .btn-rtc.active { background: linear-gradient(135deg, #14b8a6, #2dd4bf); box-shadow: 0 2px 10px rgba(20,184,166,.48); }
 
       /* ── Tabs ───────────────────────────────────────────────────── */
       .tab-bar {
@@ -272,19 +282,19 @@
       .sidebar { display: flex; flex-direction: column; gap: 16px; }
       .panel {
         background: var(--card); border: 1px solid var(--border);
-        border-radius: 18px; overflow: hidden;
+        border-radius: 14px; overflow: hidden;
       }
       .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px 0; }
       .panel-title { font-size: 11px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .1em; display: flex; align-items: center; gap: 8px; }
       .panel-title .pi { font-size: 15px; }
-      .panel-body { padding: 12px 18px 18px; }
+      .panel-body { padding: 10px 14px 14px; }
 
       /* ── Recordings list ────────────────────────────────────────── */
       #globalRecList { display: flex; flex-direction: column; gap: 6px; }
       .rec-item {
         display: flex; align-items: center; justify-content: space-between;
         background: var(--bg2); border: 1px solid var(--border);
-        border-radius: 9px; padding: 8px 12px; gap: 8px;
+        border-radius: 8px; padding: 7px 10px; gap: 8px;
         transition: border-color .15s;
       }
       .rec-item:hover { border-color: var(--border2); }
@@ -296,7 +306,7 @@
       .rec-list .rec-item a { max-width: none; }
 
       /* ── Event log ──────────────────────────────────────────────── */
-      #logOutput { font-family: var(--mono); font-size: 11px; color: var(--text2); height: 200px; overflow-y: auto; line-height: 1.75; }
+      #logOutput { font-family: var(--mono); font-size: 11px; color: var(--text2); height: 180px; overflow-y: auto; line-height: 1.6; }
       .log-entry { padding: 1px 0; display: flex; gap: 8px; align-items: baseline; }
       .log-ts   { color: var(--text3); font-size: 10px; flex-shrink: 0; }
       .log-info { color: var(--violet2); }
@@ -344,8 +354,7 @@
         --glow-t:  rgba(13,148,136,.25);
       }
       body.light { background-image: radial-gradient(ellipse 60% 40% at 10% -5%,rgba(109,40,217,.1) 0%,transparent 60%), radial-gradient(ellipse 50% 35% at 90% 105%,rgba(13,148,136,.08) 0%,transparent 55%); }
-      body.light .canvas-wrap,
-      body.light .noise-chart-wrap canvas { background: #eef0f9; }
+      body.light .canvas-wrap { background: #eef0f9; }
       body.light .tab-panel { background: #eceef5; }
       body.light #logOutput  { color: var(--text2); }
       body.light .device-card::before { opacity: .6; }
@@ -461,50 +470,41 @@
         }
       }
 
-      // ── Noise Floor History Chart ────────────────────────────────────
-      const NOISE_HISTORY_MAX = 120; // keep last 120 data points
-      function pushNoiseHistory(deviceId, noiseDb) {
-        const state = deviceState[deviceId];
-        if (!state) return;
-        if (!state.noiseHistory) state.noiseHistory = [];
-        state.noiseHistory.push(noiseDb);
-        if (state.noiseHistory.length > NOISE_HISTORY_MAX) state.noiseHistory.shift();
-        drawNoiseChart(deviceId, state.noiseHistory);
-      }
-      function drawNoiseChart(deviceId, history) {
-        const canvas = document.getElementById(`noiseChart_${deviceId}`);
-        if (!canvas || !history || !history.length) return;
-        const ctx = canvas.getContext("2d");
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        const isLight = document.body.classList.contains("light");
-        ctx.fillStyle = isLight ? "#f8fafc" : "#0a1628";
-        ctx.fillRect(0, 0, W, H);
-        const MIN_DB = -80, MAX_DB = -30;
-        const range = MAX_DB - MIN_DB;
-        // Grid lines
-        ctx.strokeStyle = isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.06)";
-        ctx.lineWidth = 1;
-        for (const db of [-70, -60, -50, -40]) {
-          const y = H - ((db - MIN_DB) / range) * H;
-          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-          ctx.fillStyle = isLight ? "#94a3b8" : "#475569";
-          ctx.font = "9px monospace";
-          ctx.fillText(`${db}dB`, 2, y - 2);
+      function updateLinkBadge(deviceId, state) {
+        const el = document.getElementById(`linkBadge_${deviceId}`);
+        if (!el || !state) return;
+        const h = state.health || {};
+        const wsOk = h.wsConnected !== false;
+        const kbFromHealth = Number(h.bitrateKbps);
+        const kb = Number.isFinite(kbFromHealth) && kbFromHealth > 0
+          ? Math.round(kbFromHealth)
+          : Math.max(0, Math.round(Number(state.rtcRxKbps || 0)));
+        let text = "IDLE";
+        let cls = "link-badge";
+
+        if (!wsOk) {
+          text = "WS OFFLINE";
+          cls += " bad";
+        } else if (state.useWebRtc) {
+          if (state.rtcConnected) {
+            text = kb > 0 ? `RTC ${kb} kbps` : "RTC LIVE";
+            cls += kb >= 28 ? " good" : (kb >= 18 ? " warn" : " bad");
+          } else if (state.rtcRetryCount > 0) {
+            text = `RTC RECOVER x${state.rtcRetryCount}`;
+            cls += " warn";
+          } else {
+            text = "RTC CONNECTING";
+            cls += " warn";
+          }
+        } else if (state.isLive) {
+          text = "PCM LIVE";
+          cls += " good";
+        } else {
+          cls += " warn";
         }
-        // Line
-        const grad = ctx.createLinearGradient(0, 0, 0, H);
-        grad.addColorStop(0, "#ef4444"); grad.addColorStop(0.5, "#f59e0b"); grad.addColorStop(1, "#22c55e");
-        ctx.beginPath();
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = 1.5;
-        const step = W / Math.max(1, NOISE_HISTORY_MAX - 1);
-        history.forEach((db, i) => {
-          const x = i * step;
-          const y = H - ((Math.max(MIN_DB, Math.min(MAX_DB, db)) - MIN_DB) / range) * H;
-          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        });
-        ctx.stroke();
+
+        el.textContent = text;
+        el.className = cls;
       }
 
       // ── Connection Quality Bars ──────────────────────────────────────
@@ -743,6 +743,7 @@
             <span class="device-badge" id="badge_${deviceId}">LIVE</span>
           </div>
           <div class="device-meta" id="meta_${deviceId}">${model || "Unknown"}</div>
+          <div class="link-badge-row"><span class="link-badge" id="linkBadge_${deviceId}">IDLE</span></div>
           <div class="health-grid" id="health_${deviceId}">
             <div class="health-item"><div class="health-label">WebSocket</div><div class="health-val" id="hws_${deviceId}">-</div></div>
             <div class="health-item"><div class="health-label">Mic Capture</div><div class="health-val" id="hmic_${deviceId}">-</div></div>
@@ -767,9 +768,6 @@
           <div class="canvas-wrap" id="vizWrap_${deviceId}">
             <span class="canvas-label" id="vizLabel_${deviceId}">WAVEFORM</span>
             <canvas id="canvas_${deviceId}" width="600" height="56"></canvas>
-          </div>
-          <div class="noise-chart-wrap">
-            <canvas id="noiseChart_${deviceId}" width="600" height="52" title="Noise Floor History"></canvas>
           </div>
           <div class="btn-row">
             <button class="btn-live"  id="btnLive_${deviceId}" onclick="toggleLive('${deviceId}')">▶ Live Listen</button>
@@ -827,17 +825,18 @@
           webRtcWarmthNode: null,
           webRtcPresenceNode: null,
           webRtcClarityNode: null,
+          webRtcPreGainNode: null,
           webRtcGainNode: null,
-          webRtcStereoNode: null,
+          webRtcMergerNode: null,
           webRtcAudioGraphConnected: false,
-          // PCM fallback processing nodes (same pipeline, separate graph)
+          // PCM fallback processing nodes
+          pcmPreGainNode: null,
           pcmGainNode: null,
           pcmHighPassNode: null,
-          pcmNotchNode: null,
           pcmWarmthNode: null,
           pcmPresenceNode: null,
           pcmClarityNode: null,
-          pcmStereoNode: null,
+          pcmMergerNode: null,
           pcmGraphConnected: false,
           rnnoiseEnabled: savedRnEnabled,
           playbackGain: savedGain,
@@ -848,7 +847,6 @@
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
           vizMode: "wave",
-          noiseHistory: [],
           _lastClipAt: 0,
           health: health || { wsConnected: true, micCapturing: false, lastAudioChunkAt: 0, lastHealthAt: 0, reason: "init", webRtcState: "idle", bitrateKbps: null, quality: null, internetOnline: true, callActive: false, batteryPct: null, charging: null },
         };
@@ -878,7 +876,7 @@
         try {
           const raw = localStorage.getItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
           const v = Number(raw);
-          const allowed = [1.0, 1.3, 1.6, 2.0];
+          const allowed = [1.0, 1.5, 2.0, 3.0];
           if (allowed.some((x) => Math.abs(x - v) < 0.01)) return v;
         } catch (_) {}
         return 1.0;
@@ -957,11 +955,11 @@
         if (noise) {
           const n = Number(h.noiseDb);
           noise.textContent = Number.isFinite(n) ? `${n.toFixed(1)} dB` : "-";
-          if (Number.isFinite(n)) pushNoiseHistory(deviceId, n);
         }
 
         // Connection quality bars
         if (h.quality) updateConnectionQualityBar(deviceId, h.quality);
+        updateLinkBadge(deviceId, state);
 
         // Auto-recover if user is in live mode but mic stopped (skip during WebRTC connect — deadline timer handles fallback).
         if (state.isLive && h.wsConnected && !micRunning && !state.rtcConnectDeadlineTimer) {
@@ -1019,7 +1017,7 @@
           if (state.useWebRtc) stopWebRtc(deviceId, true);
           if (state.audioCtx) {
             // Tear down PCM processing graph before closing context
-            ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmStereoNode","pcmRnnoiseNode"]
+            ["pcmPreGainNode","pcmGainNode","pcmHighPassNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmMergerNode","pcmRnnoiseNode"]
               .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
             try { state.pcmRnnoiseNode?.destroy?.(); } catch (_) {}
             state.pcmGraphConnected = false;
@@ -1097,14 +1095,15 @@
       function applyPlaybackGain(state) {
         if (!state) return;
         const mul = Number(state.playbackGain || 1.0);
-        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = 3.0 * mul;
-        if (state.pcmGainNode) state.pcmGainNode.gain.value = 3.0 * mul;
+        // If pre-gain node exists, user gain is direct multiplier. If not, keep legacy fallback.
+        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = (state.webRtcPreGainNode ? 1.0 : 3.5) * mul;
+        if (state.pcmGainNode) state.pcmGainNode.gain.value = (state.pcmPreGainNode ? 1.0 : 3.5) * mul;
       }
 
       function cyclePlaybackGain(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        const levels = [1.0, 1.5, 2.0, 2.5];
+        const levels = [1.0, 1.5, 2.0, 3.0];
         const current = Number(state.playbackGain || 1.0);
         const idx = levels.findIndex((v) => Math.abs(v - current) < 0.01);
         state.playbackGain = levels[(idx + 1 + levels.length) % levels.length];
@@ -1150,33 +1149,35 @@
         // Rewire active WebRTC stream immediately.
         if (state.useWebRtc && state.rtcConnected && state.webRtcSourceNode && state.webRtcGainNode) {
           try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+          try { state.webRtcPreGainNode?.disconnect(); } catch (_) {}
           try { state.webRtcRnnoiseNode?.disconnect(); } catch (_) {}
           if (state.rnnoiseEnabled) {
+            if (state.webRtcPreGainNode) {
+              state.webRtcSourceNode.connect(state.webRtcPreGainNode);
+              state.webRtcPreGainNode.connect(state.webRtcGainNode);
+            }
             ensureRnnoiseNode(state.webRtcAudioCtx, state, "webrtc").then((rn) => {
-              if (!rn || !state.webRtcSourceNode || !state.webRtcGainNode) return;
+              if (!rn || !state.webRtcSourceNode || !state.webRtcGainNode || !state.webRtcPreGainNode) return;
               try { rn.disconnect(); } catch (_) {}
+              try { state.webRtcPreGainNode.disconnect(); } catch (_) {}
+              state.webRtcSourceNode.connect(state.webRtcPreGainNode);
+              state.webRtcPreGainNode.connect(rn);
               rn.connect(state.webRtcGainNode);
-              state.webRtcSourceNode.connect(rn);
             });
           } else {
-            state.webRtcSourceNode.connect(state.webRtcGainNode);
+            if (state.webRtcPreGainNode) {
+              state.webRtcSourceNode.connect(state.webRtcPreGainNode);
+              state.webRtcPreGainNode.connect(state.webRtcGainNode);
+            } else {
+              state.webRtcSourceNode.connect(state.webRtcGainNode);
+            }
           }
         }
         // For PCM path: force graph rebuild so RNNoise is wired in/out correctly.
         if (state.audioCtx && state.pcmGraphConnected) {
-          // Tear down existing static graph and rebuild on next chunk
-          ["pcmGainNode","pcmHighPassNode","pcmNotchNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmStereoNode"]
+          ["pcmPreGainNode","pcmGainNode","pcmHighPassNode","pcmWarmthNode","pcmPresenceNode","pcmClarityNode","pcmMergerNode"]
             .forEach((k) => { try { state[k]?.disconnect(); } catch(_){} state[k] = null; });
           state.pcmGraphConnected = false;
-          // Pre-init RNNoise node for PCM when enabling, so it's ready at graph rebuild
-          if (enabled && !state.pcmRnnoiseNode) {
-            ensureRnnoiseNode(state.audioCtx, state, "pcm").then((rn) => {
-              if (rn && state.pcmGainNode) {
-                try { rn.disconnect(); } catch (_) {}
-                rn.connect(state.pcmGainNode);
-              }
-            });
-          }
         }
       }
 
@@ -1320,13 +1321,15 @@
         try {
           if (!state.webRtcAudioCtx) state.webRtcAudioCtx = new Ctx({ latencyHint: "interactive" });
           if (state.webRtcAudioCtx.state === "suspended") state.webRtcAudioCtx.resume();
+          if (!state.webRtcPreGainNode) {
+            // Fixed pre-gain before RNNoise to prevent low/suppressed voice on quiet devices.
+            state.webRtcPreGainNode = state.webRtcAudioCtx.createGain();
+            state.webRtcPreGainNode.gain.value = 3.5;
+          }
           if (!state.webRtcGainNode) {
+            // User gain stage (1.0x..3.0x)
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = 3.0 * Number(state.playbackGain || 1.0);
-            // Force stereo upmix so mono RNNoise output plays in both ears
-            state.webRtcGainNode.channelCount = 2;
-            state.webRtcGainNode.channelCountMode = "explicit";
-            state.webRtcGainNode.channelInterpretation = "speakers";
+            state.webRtcGainNode.gain.value = Number(state.playbackGain || 1.0);
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
@@ -1343,52 +1346,68 @@
           if (!state.webRtcWarmthNode) {
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
-            state.webRtcWarmthNode.frequency.value = 250;
-            state.webRtcWarmthNode.gain.value = 1.0;
+            state.webRtcWarmthNode.frequency.value = 280;
+            state.webRtcWarmthNode.gain.value = 2.0;
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcPresenceNode.type = "peaking";
             state.webRtcPresenceNode.frequency.value = 2800;
             state.webRtcPresenceNode.Q.value = 0.9;
-            state.webRtcPresenceNode.gain.value = 3.5;
+            state.webRtcPresenceNode.gain.value = 5.0;
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcClarityNode.type = "highshelf";
             state.webRtcClarityNode.frequency.value = 5000;
-            state.webRtcClarityNode.gain.value = 2.5;
+            state.webRtcClarityNode.gain.value = 3.0;
           }
-          // StereoPanner at 0 guarantees mono→stereo so both earbuds work
-          if (!state.webRtcStereoNode) {
-            state.webRtcStereoNode = state.webRtcAudioCtx.createStereoPanner();
-            state.webRtcStereoNode.pan.value = 0;
+          // ChannelMerger: explicitly routes mono ch0 → L and ch0 → R.
+          // Works reliably on all Android Chrome versions (no OEM-specific breakage).
+          if (!state.webRtcMergerNode) {
+            state.webRtcMergerNode = state.webRtcAudioCtx.createChannelMerger(2);
           }
           if (state.webRtcSourceNode) {
             try { state.webRtcSourceNode.disconnect(); } catch (_) {}
           }
           state.webRtcSourceNode = state.webRtcAudioCtx.createMediaStreamSource(stream);
           if (!state.webRtcAudioGraphConnected) {
-            // Static chain: gain → highPass → notch → warmth → presence → clarity → stereo → destination
+            // Static chain: gain → HP → notch → warmth → presence → clarity → merger(L+R) → dest
             state.webRtcGainNode.connect(state.webRtcHighPassNode);
             state.webRtcHighPassNode.connect(state.webRtcNotchNode);
             state.webRtcNotchNode.connect(state.webRtcWarmthNode);
             state.webRtcWarmthNode.connect(state.webRtcPresenceNode);
             state.webRtcPresenceNode.connect(state.webRtcClarityNode);
-            state.webRtcClarityNode.connect(state.webRtcStereoNode);
-            state.webRtcStereoNode.connect(state.webRtcAudioCtx.destination);
+            // Duplicate mono → both earbuds
+            state.webRtcClarityNode.connect(state.webRtcMergerNode, 0, 0);
+            state.webRtcClarityNode.connect(state.webRtcMergerNode, 0, 1);
+            state.webRtcMergerNode.connect(state.webRtcAudioCtx.destination);
             state.webRtcAudioGraphConnected = true;
           }
           if (state.rnnoiseEnabled) {
+            // Keep direct preGain path active immediately; swap to RNNoise once ready.
+            if (state.webRtcPreGainNode) {
+              try { state.webRtcPreGainNode.disconnect(); } catch (_) {}
+              state.webRtcPreGainNode.connect(state.webRtcGainNode);
+              state.webRtcSourceNode.connect(state.webRtcPreGainNode);
+            }
             ensureRnnoiseNode(state.webRtcAudioCtx, state, "webrtc").then((rn) => {
-              if (!rn || !state.webRtcSourceNode || !state.webRtcGainNode) return;
-              try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+              if (!rn || !state.webRtcSourceNode || !state.webRtcGainNode || !state.webRtcPreGainNode) return;
+              try { state.webRtcPreGainNode.disconnect(); } catch (_) {}
               try { rn.disconnect(); } catch (_) {}
+              state.webRtcPreGainNode.connect(rn);
               rn.connect(state.webRtcGainNode);
-              state.webRtcSourceNode.connect(rn);
+              try { state.webRtcSourceNode.disconnect(); } catch (_) {}
+              state.webRtcSourceNode.connect(state.webRtcPreGainNode);
             });
           } else {
-            state.webRtcSourceNode.connect(state.webRtcGainNode);
+            if (state.webRtcPreGainNode) {
+              try { state.webRtcPreGainNode.disconnect(); } catch (_) {}
+              state.webRtcPreGainNode.connect(state.webRtcGainNode);
+              state.webRtcSourceNode.connect(state.webRtcPreGainNode);
+            } else {
+              state.webRtcSourceNode.connect(state.webRtcGainNode);
+            }
           }
           startWebRtcInputMeter(deviceId, state);
           graphActive = true;
@@ -1429,11 +1448,14 @@
         if (state.webRtcClarityNode) {
           try { state.webRtcClarityNode.disconnect(); } catch (_) {}
         }
+        if (state.webRtcPreGainNode) {
+          try { state.webRtcPreGainNode.disconnect(); } catch (_) {}
+        }
         if (state.webRtcGainNode) {
           try { state.webRtcGainNode.disconnect(); } catch (_) {}
         }
-        if (state.webRtcStereoNode) {
-          try { state.webRtcStereoNode.disconnect(); } catch (_) {}
+        if (state.webRtcMergerNode) {
+          try { state.webRtcMergerNode.disconnect(); } catch (_) {}
         }
         if (state.webRtcRnnoiseNode) {
           try { state.webRtcRnnoiseNode.disconnect(); } catch (_) {}
@@ -1457,8 +1479,9 @@
         state.webRtcWarmthNode = null;
         state.webRtcPresenceNode = null;
         state.webRtcClarityNode = null;
+        state.webRtcPreGainNode = null;
         state.webRtcGainNode = null;
-        state.webRtcStereoNode = null;
+        state.webRtcMergerNode = null;
         state.webRtcRnnoiseNode = null;
         state.webRtcAudioCtx = null;
         state.webRtcAudioGraphConnected = false;
@@ -1523,6 +1546,7 @@
       function scheduleIceRecovery(deviceId, state, reason) {
         if (!state || !state.rtcPeer || !state.useWebRtc) return;
         if (state.rtcRestartTimer) clearTimeout(state.rtcRestartTimer);
+        renderDeviceHealth(deviceId, state.health);
         if (state.rtcRetryCount >= 3) {
           log(`WebRTC unstable for ${deviceId} (${reason}) — fallback to PCM`, "warn");
           stopWebRtc(deviceId, true);
@@ -1533,6 +1557,7 @@
         state.rtcRestartTimer = setTimeout(async () => {
           if (!state.rtcPeer || !state.useWebRtc) return;
           state.rtcRetryCount += 1;
+          renderDeviceHealth(deviceId, state.health);
           try {
             if (typeof state.rtcPeer.restartIce === "function") state.rtcPeer.restartIce();
             const offer = await state.rtcPeer.createOffer({ iceRestart: true });
@@ -1733,59 +1758,93 @@
       }
 
       function _buildPcmStaticGraph(state) {
-        // Build the static processing chain: gainNode → EQ → stereoNode → destination
-        // RNNoise (when enabled) inserts before gainNode dynamically per-chunk.
         const ctx = state.audioCtx;
+
+        // ── Stage 1: Fixed pre-amplifier ─────────────────────────────────────
+        // Boosts the raw PCM signal BEFORE RNNoise so the model receives a loud
+        // enough input to correctly classify speech (not suppress it as noise),
+        // and provides base loudness regardless of RNNoise state.
+        state.pcmPreGainNode = ctx.createGain();
+        state.pcmPreGainNode.gain.value = 3.5;
+
+        // ── Stage 2: User-controlled gain ─────────────────────────────────────
+        // Simple multiplier (no channel-count hacks). 1.0–3.0 range.
         state.pcmGainNode = ctx.createGain();
-        state.pcmGainNode.gain.value = 3.0 * Number(state.playbackGain || 1.0);
-        // Force stereo output so mono audio plays in both ears
-        state.pcmGainNode.channelCount = 2;
-        state.pcmGainNode.channelCountMode = "explicit";
-        state.pcmGainNode.channelInterpretation = "speakers";
+        state.pcmGainNode.gain.value = Number(state.playbackGain || 1.0);
+
+        // ── Stage 3: Voice EQ for clarity ────────────────────────────────────
         state.pcmHighPassNode = ctx.createBiquadFilter();
         state.pcmHighPassNode.type = "highpass";
         state.pcmHighPassNode.frequency.value = 80;
         state.pcmHighPassNode.Q.value = 0.7;
-        state.pcmNotchNode = ctx.createBiquadFilter();
-        state.pcmNotchNode.type = "notch";
-        state.pcmNotchNode.frequency.value = 50;
-        state.pcmNotchNode.Q.value = 10;
+
         state.pcmWarmthNode = ctx.createBiquadFilter();
         state.pcmWarmthNode.type = "lowshelf";
-        state.pcmWarmthNode.frequency.value = 250;
-        state.pcmWarmthNode.gain.value = 1.0;
+        state.pcmWarmthNode.frequency.value = 280;
+        state.pcmWarmthNode.gain.value = 2.0;
+
         state.pcmPresenceNode = ctx.createBiquadFilter();
         state.pcmPresenceNode.type = "peaking";
         state.pcmPresenceNode.frequency.value = 2800;
         state.pcmPresenceNode.Q.value = 0.9;
-        state.pcmPresenceNode.gain.value = 3.5;
+        state.pcmPresenceNode.gain.value = 5.0;
+
         state.pcmClarityNode = ctx.createBiquadFilter();
         state.pcmClarityNode.type = "highshelf";
         state.pcmClarityNode.frequency.value = 5000;
-        state.pcmClarityNode.gain.value = 2.5;
-        // StereoPanner at pan=0 guarantees mono→stereo upmix (both ears)
-        state.pcmStereoNode = ctx.createStereoPanner();
-        state.pcmStereoNode.pan.value = 0;
-        // Wire static chain
+        state.pcmClarityNode.gain.value = 3.0;
+
+        // ── Stage 4: Explicit mono→stereo (ChannelMerger) ─────────────────────
+        // Physically routes channel 0 to BOTH L (input 0) and R (input 1).
+        // This is 100% reliable on all Android Chrome versions, unlike StereoPanner
+        // or channelCount hacks which can silently strip the right channel in some
+        // OEM Chromium builds (Realme ColorOS, Xiaomi MIUI, etc.).
+        state.pcmMergerNode = ctx.createChannelMerger(2);
+
+        // ── Wire static chain ─────────────────────────────────────────────────
+        // preGain → gain → HP → warmth → presence → clarity → merger → dest
+        state.pcmPreGainNode.connect(state.pcmGainNode);
         state.pcmGainNode.connect(state.pcmHighPassNode);
-        state.pcmHighPassNode.connect(state.pcmNotchNode);
-        state.pcmNotchNode.connect(state.pcmWarmthNode);
+        state.pcmHighPassNode.connect(state.pcmWarmthNode);
         state.pcmWarmthNode.connect(state.pcmPresenceNode);
         state.pcmPresenceNode.connect(state.pcmClarityNode);
-        state.pcmClarityNode.connect(state.pcmStereoNode);
-        state.pcmStereoNode.connect(ctx.destination);
-        // Pre-wire RNNoise → gain if node already exists (e.g. RN was toggled on earlier)
-        if (state.rnnoiseEnabled && state.pcmRnnoiseNode) {
-          try { state.pcmRnnoiseNode.disconnect(); } catch (_) {}
-          state.pcmRnnoiseNode.connect(state.pcmGainNode);
-        } else if (state.rnnoiseEnabled && !state.pcmRnnoiseNode) {
-          // Kick off async WASM init; on completion wire rn → gain
-          ensureRnnoiseNode(ctx, state, "pcm").then((rn) => {
-            if (rn && state.pcmGainNode) {
+        // clarity → mergerNode (input 0 = L, input 1 = R) → destination
+        state.pcmClarityNode.connect(state.pcmMergerNode, 0, 0);
+        state.pcmClarityNode.connect(state.pcmMergerNode, 0, 1);
+        state.pcmMergerNode.connect(ctx.destination);
+
+        // ── Wire RNNoise if enabled ───────────────────────────────────────────
+        // RNNoise inserts BEFORE preGain so it receives intentionally boosted signal:
+        // source → preGain → rn → gain → EQ → merger → dest
+        // Wait — actually RNNoise should be AFTER preGain (gets loud signal for better
+        // speech detection), and before gain (user volume not affecting RNNoise output).
+        // source → rn → preGain → gain → EQ → merger → dest
+        // The preGain feeds RNNoise: source → preGain → rn → gain → EQ → merger → dest
+        // But that means preGain is always before rn, so for non-rn mode it's transparent.
+        //
+        // Simplest correct chain:
+        //  No RNNoise: source → pcmPreGainNode → pcmGainNode → EQ → merger → dest
+        //  With RNNoise: source → pcmPreGainNode → rn → pcmGainNode → EQ → merger → dest
+        //
+        // Default (no RNNoise): preGain already connects to gain above.
+        // RNNoise path: disconnect preGain from gain, insert rn in between.
+        if (state.rnnoiseEnabled) {
+          if (state.pcmRnnoiseNode) {
+            // Already initialized — insert rn between preGain and gain
+            try { state.pcmPreGainNode.disconnect(); } catch (_) {}
+            try { state.pcmRnnoiseNode.disconnect(); } catch (_) {}
+            state.pcmPreGainNode.connect(state.pcmRnnoiseNode);
+            state.pcmRnnoiseNode.connect(state.pcmGainNode);
+          } else {
+            // Init WASM async; until ready, audio flows preGain → gain (already wired)
+            ensureRnnoiseNode(ctx, state, "pcm").then((rn) => {
+              if (!rn || !state.pcmPreGainNode || !state.pcmGainNode) return;
+              try { state.pcmPreGainNode.disconnect(); } catch (_) {}
               try { rn.disconnect(); } catch (_) {}
+              state.pcmPreGainNode.connect(rn);
               rn.connect(state.pcmGainNode);
-            }
-          });
+            });
+          }
         }
       }
 
@@ -1805,13 +1864,9 @@
           buffer.copyToChannel(float32, 0);
           const source = state.audioCtx.createBufferSource();
           source.buffer = buffer;
-          if (state.pcmGraphConnected) {
-            // Route: source → [rnnoiseNode →] gainNode → EQ → stereoNode → destination
-            if (state.rnnoiseEnabled && state.pcmRnnoiseNode) {
-              source.connect(state.pcmRnnoiseNode);
-            } else {
-              source.connect(state.pcmGainNode);
-            }
+          // Always route into pcmPreGainNode — single entry point for both RNNoise and plain paths
+          if (state.pcmGraphConnected && state.pcmPreGainNode) {
+            source.connect(state.pcmPreGainNode);
           } else {
             source.connect(state.audioCtx.destination);
           }

