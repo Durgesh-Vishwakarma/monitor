@@ -107,6 +107,7 @@ class MicService : Service() {
     @Volatile private var wantsMicStreaming = true
     @Volatile private var isRecoveringMic = false
     @Volatile private var wsStreamMode = "auto" // auto | pcm | smart
+    @Volatile private var voiceProfile = "room" // near | room | far
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
     @Volatile private var audioSourceRotation = 0
@@ -533,6 +534,16 @@ class MicService : Service() {
                     }
                     sendHealthStatus("stream_codec_$wsStreamMode")
                     Log.i(TAG, "WS stream mode set to $wsStreamMode")
+                }
+                "voice_profile" -> {
+                    val profile = obj.optString("profile", "room").trim().lowercase()
+                    voiceProfile = when (profile) {
+                        "near" -> "near"
+                        "far" -> "far"
+                        else -> "room"
+                    }
+                    sendHealthStatus("voice_profile_$voiceProfile")
+                    Log.i(TAG, "Voice profile set to $voiceProfile")
                 }
                 else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
             }
@@ -1257,6 +1268,7 @@ class MicService : Service() {
         if (len < 2) return buf.copyOf(len)
         val samples = len / 2
         val strongAi = aiEnhancementEnabled
+        val p = voiceProfile
 
         // ── Decode PCM-16 LE → double working buffer ─────────────────────────
         val work = DoubleArray(samples)
@@ -1267,7 +1279,11 @@ class MicService : Service() {
         }
 
         // ── Pre-gain mic boost ────────────────────────────────────────────────
-        val micBoost = if (strongAi) 1.22 else 1.05
+        val micBoost = when (p) {
+            "near" -> if (strongAi) 1.08 else 1.00
+            "far" -> if (strongAi) 1.34 else 1.16
+            else -> if (strongAi) 1.22 else 1.05
+        }
         for (i in 0 until samples) work[i] *= micBoost
 
         // ── Stage 1: High-pass filter @ 120 Hz ───────────────────────────────
@@ -1288,8 +1304,16 @@ class MicService : Service() {
         var sumSq = 0.0
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
-        val gainCeil = if (strongAi) 3.0 else 2.2
-        val gainTarget = if (strongAi) 6900.0 else 5600.0
+        val gainCeil = when (p) {
+            "near" -> if (strongAi) 2.2 else 1.7
+            "far" -> if (strongAi) 3.6 else 2.8
+            else -> if (strongAi) 3.0 else 2.2
+        }
+        val gainTarget = when (p) {
+            "near" -> if (strongAi) 5600.0 else 4700.0
+            "far" -> if (strongAi) 7800.0 else 6400.0
+            else -> if (strongAi) 6900.0 else 5600.0
+        }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Smoother attack/release keeps the output natural.
         smoothedGain = if (rawGain > smoothedGain)
@@ -1312,7 +1336,11 @@ class MicService : Service() {
             eq1X1 = x
             eq1Y2 = eq1Y1
             eq1Y1 = y
-            val wet = if (strongAi) 0.38 else 0.24
+            val wet = when (p) {
+                "near" -> if (strongAi) 0.26 else 0.18
+                "far" -> if (strongAi) 0.46 else 0.32
+                else -> if (strongAi) 0.38 else 0.24
+            }
             work[i] = x * (1.0 - wet) + y * wet
         }
 
@@ -1674,6 +1702,7 @@ class MicService : Service() {
             put("aiAuto", aiAutoModeEnabled)
             put("streamCodecMode", wsStreamMode)
             put("streamCodec", if (chooseWsFallbackCodec() == AUDIO_CODEC_MULAW_8K) "smart" else "pcm")
+            put("voiceProfile", voiceProfile)
             put("noiseDb", estimatedNoiseDb)
             put("internetOnline", internetOnline)
             put("callActive", callActive)

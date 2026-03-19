@@ -228,6 +228,7 @@ function handleAudioDevice(ws, req) {
                 aiAuto: json.aiAuto !== false,
                 streamCodec: String(json.streamCodec || dev.health?.streamCodec || "pcm"),
                 streamCodecMode: String(json.streamCodecMode || dev.health?.streamCodecMode || "auto"),
+                voiceProfile: String(json.voiceProfile || dev.health?.voiceProfile || "room"),
                 noiseDb: Number.isFinite(Number(json.noiseDb)) ? Number(json.noiseDb) : null,
                 internetOnline: json.internetOnline !== false,
                 callActive: json.callActive === true,
@@ -418,6 +419,12 @@ function handleDashboard(ws) {
           sendJson(device.ws, {
             type: "stream_codec",
             mode: String(msg.mode || "auto").toLowerCase(),
+          });
+          break;
+        case "voice_profile":
+          sendJson(device.ws, {
+            type: "voice_profile",
+            profile: String(msg.profile || "room").toLowerCase(),
           });
           break;
         default:

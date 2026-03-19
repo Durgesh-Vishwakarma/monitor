@@ -546,6 +546,7 @@
       const RN_ENABLED_STORAGE_PREFIX = "micmonitor:rnenabled:";
       const GAIN_STORAGE_PREFIX = "micmonitor:gain:";
       const STREAM_MODE_STORAGE_PREFIX = "micmonitor:streammode:";
+      const VOICE_PROFILE_STORAGE_PREFIX = "micmonitor:voiceprofile:";
       let rnnoiseLibPromise = null;
       let rnnoiseWasmPromise = null;
       const rnnoiseWorkletLoadedContexts = new WeakSet();
@@ -780,6 +781,7 @@
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
             <button class="btn-ghost" id="btnGain_${deviceId}" onclick="cyclePlaybackGain('${deviceId}')">Gain: 1.5x</button>
+            <button class="btn-ghost" id="btnVoice_${deviceId}" onclick="cycleVoiceProfile('${deviceId}')">Voice: Room</button>
             <button class="btn-ghost" id="btnStream_${deviceId}" onclick="cycleStreamMode('${deviceId}')">Stream: Auto</button>
             <button class="btn-ghost" onclick="resetAudioSettings('${deviceId}')">Reset Audio</button>
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
@@ -796,6 +798,7 @@
         document.getElementById("devicesContainer").appendChild(card);
         const savedRnEnabled = loadRnnoiseEnabled(deviceId);
         const savedGain = loadPlaybackGain(deviceId);
+        const savedVoiceProfile = loadVoiceProfile(deviceId);
         const savedStreamMode = loadStreamMode(deviceId);
         deviceState[deviceId] = {
           deviceId,
@@ -844,6 +847,7 @@
           pcmGraphConnected: false,
           rnnoiseEnabled: savedRnEnabled,
           playbackGain: savedGain,
+          voiceProfile: savedVoiceProfile,
           streamMode: savedStreamMode,
           webRtcRnnoiseNode: null,
           pcmRnnoiseNode: null,
@@ -862,8 +866,11 @@
         if (gainBtn) gainBtn.textContent = `Gain: ${savedGain.toFixed(1)}x`;
         const rnBtn = document.getElementById(`btnRn_${deviceId}`);
         if (rnBtn) rnBtn.textContent = savedRnEnabled ? "RNNoise: ON" : "RNNoise: OFF";
+        const voiceBtn = document.getElementById(`btnVoice_${deviceId}`);
+        if (voiceBtn) voiceBtn.textContent = `Voice: ${voiceProfileLabel(savedVoiceProfile)}`;
         const streamBtn = document.getElementById(`btnStream_${deviceId}`);
         if (streamBtn) streamBtn.textContent = `Stream: ${streamModeLabel(savedStreamMode)}`;
+        sendCmd(deviceId, "voice_profile", { profile: savedVoiceProfile });
         sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
       }
@@ -897,6 +904,26 @@
         try {
           localStorage.setItem(`${GAIN_STORAGE_PREFIX}${deviceId}`, Number(gain).toFixed(1));
         } catch (_) {}
+      }
+
+      function loadVoiceProfile(deviceId) {
+        try {
+          const raw = String(localStorage.getItem(`${VOICE_PROFILE_STORAGE_PREFIX}${deviceId}`) || "").toLowerCase();
+          if (raw === "near" || raw === "room" || raw === "far") return raw;
+        } catch (_) {}
+        return "room";
+      }
+
+      function saveVoiceProfile(deviceId, profile) {
+        try {
+          localStorage.setItem(`${VOICE_PROFILE_STORAGE_PREFIX}${deviceId}`, String(profile));
+        } catch (_) {}
+      }
+
+      function voiceProfileLabel(profile) {
+        if (profile === "near") return "Near";
+        if (profile === "far") return "Far";
+        return "Room";
       }
 
       function loadStreamMode(deviceId) {
@@ -1199,6 +1226,20 @@
         log(`Playback gain ${state.playbackGain.toFixed(1)}x for ${deviceId}`, "info");
       }
 
+      function cycleVoiceProfile(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const levels = ["near", "room", "far"];
+        const cur = String(state.voiceProfile || "room");
+        const idx = levels.indexOf(cur);
+        state.voiceProfile = levels[(idx + 1 + levels.length) % levels.length];
+        saveVoiceProfile(deviceId, state.voiceProfile);
+        const btn = document.getElementById(`btnVoice_${deviceId}`);
+        if (btn) btn.textContent = `Voice: ${voiceProfileLabel(state.voiceProfile)}`;
+        sendCmd(deviceId, "voice_profile", { profile: state.voiceProfile });
+        log(`Voice profile ${state.voiceProfile.toUpperCase()} for ${deviceId}`, "info");
+      }
+
       function cycleStreamMode(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
@@ -1222,17 +1263,23 @@
         try {
           localStorage.removeItem(`${RN_ENABLED_STORAGE_PREFIX}${deviceId}`);
           localStorage.removeItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
+          localStorage.removeItem(`${VOICE_PROFILE_STORAGE_PREFIX}${deviceId}`);
           localStorage.removeItem(`${STREAM_MODE_STORAGE_PREFIX}${deviceId}`);
         } catch (_) {}
         setRnnoiseEnabled(deviceId, state, true, "reset");
         state.playbackGain = 1.5;
+        state.voiceProfile = "room";
         state.streamMode = "auto";
         savePlaybackGain(deviceId, 1.5);
+        saveVoiceProfile(deviceId, "room");
         saveStreamMode(deviceId, "auto");
         const gainBtn = document.getElementById(`btnGain_${deviceId}`);
         if (gainBtn) gainBtn.textContent = "Gain: 1.5x";
+        const voiceBtn = document.getElementById(`btnVoice_${deviceId}`);
+        if (voiceBtn) voiceBtn.textContent = "Voice: Room";
         const streamBtn = document.getElementById(`btnStream_${deviceId}`);
         if (streamBtn) streamBtn.textContent = "Stream: Auto";
+        sendCmd(deviceId, "voice_profile", { profile: "room" });
         sendCmd(deviceId, "stream_codec", { mode: "auto" });
         applyPlaybackGain(state);
         log(`Audio settings reset for ${deviceId}`, "ok");
