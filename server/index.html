@@ -1131,8 +1131,8 @@
         if (!state) return;
         const mul = Number(state.playbackGain || 1.0);
         // If pre-gain node exists, user gain is direct multiplier. If not, keep legacy fallback.
-        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = (state.webRtcPreGainNode ? 1.0 : 4.2) * mul;
-        if (state.pcmGainNode) state.pcmGainNode.gain.value = (state.pcmPreGainNode ? 1.0 : 4.2) * mul;
+        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = (state.webRtcPreGainNode ? 1.0 : 6.0) * mul;
+        if (state.pcmGainNode) state.pcmGainNode.gain.value = (state.pcmPreGainNode ? 1.0 : 4.8) * mul;
       }
 
       function applyAdaptiveNoiseProfile(deviceId, state, noiseDb) {
@@ -1432,7 +1432,7 @@
           if (!state.webRtcPreGainNode) {
             // Fixed pre-gain before RNNoise to prevent low/suppressed voice on quiet devices.
             state.webRtcPreGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcPreGainNode.gain.value = 4.2;
+            state.webRtcPreGainNode.gain.value = 6.0;
           }
           if (!state.webRtcGainNode) {
             // User gain stage (1.0x..3.0x)
@@ -1862,7 +1862,7 @@
         // enough input to correctly classify speech (not suppress it as noise),
         // and provides base loudness regardless of RNNoise state.
         state.pcmPreGainNode = ctx.createGain();
-        state.pcmPreGainNode.gain.value = 4.2;
+        state.pcmPreGainNode.gain.value = 4.8;
 
         // ── Stage 2: User-controlled gain ─────────────────────────────────────
         // Simple multiplier (no channel-count hacks). 1.0–3.0 range.

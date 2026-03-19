@@ -1035,6 +1035,8 @@ class MicService : Service() {
                 var consecutiveReadErrors = 0
                 var nearSilentFrames = 0
                 var rotateSourceOnExit = false
+                var sourceRotateAttempts = 0
+                val captureStartedAtMs = System.currentTimeMillis()
 
                 while (isCapturing && isActive) {
                     val read = audioRecord?.read(chunk, 0, chunk.size) ?: -1
@@ -1050,10 +1052,14 @@ class MicService : Service() {
                             if (abs > peakAbs) peakAbs = abs
                             i += 2
                         }
-                        nearSilentFrames = if (peakAbs < 220) (nearSilentFrames + 1) else 0
-                        if (nearSilentFrames >= 350 && !isDeviceInCall()) {
+                        // Rotate source only for true digital-near-zero capture during startup.
+                        // Normal quiet rooms or speech pauses must not trigger source restarts.
+                        nearSilentFrames = if (peakAbs < 14) (nearSilentFrames + 1) else 0
+                        val startupWindow = (System.currentTimeMillis() - captureStartedAtMs) <= 15_000L
+                        if (nearSilentFrames >= 500 && startupWindow && sourceRotateAttempts < 1 && !isDeviceInCall()) {
                             val sourceCount = preferredAudioSources().size.coerceAtLeast(1)
                             audioSourceRotation = (audioSourceRotation + 1) % sourceCount
+                            sourceRotateAttempts++
                             rotateSourceOnExit = true
                             isCapturing = false
                             sendHealthStatus("mic_source_rotate")
