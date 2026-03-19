@@ -1267,13 +1267,13 @@ class MicService : Service() {
         }
 
         // ── Pre-gain mic boost ────────────────────────────────────────────────
-        val micBoost = if (strongAi) 1.15 else 1.02
+        val micBoost = if (strongAi) 1.22 else 1.05
         for (i in 0 until samples) work[i] *= micBoost
 
         // ── Stage 1: High-pass filter @ 120 Hz ───────────────────────────────
-        // Keeps voice body (120–400 Hz chest tones) intact while removing rumble.
-        // α = 1/(1 + 2π×120/16000) ≈ 0.9550
-        val hpAlpha = 0.9550
+        // In noisy environments (fan/hum), push HPF slightly higher to remove rumble.
+        val noisyEnv = estimatedNoiseDb > -54.0
+        val hpAlpha = if (noisyEnv) 0.9470 else 0.9550
         for (i in 0 until samples) {
             val x = work[i]
             val y = hpAlpha * (hpfPrevY + x - hpfPrevX)
@@ -1288,14 +1288,14 @@ class MicService : Service() {
         var sumSq = 0.0
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
-        val gainCeil = if (strongAi) 2.6 else 1.9
-        val gainTarget = if (strongAi) 6100.0 else 5000.0
+        val gainCeil = if (strongAi) 3.0 else 2.2
+        val gainTarget = if (strongAi) 6900.0 else 5600.0
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Smoother attack/release keeps the output natural.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.86 + rawGain * 0.14
+            smoothedGain * 0.82 + rawGain * 0.18
         else
-            smoothedGain * 0.97 + rawGain * 0.03
+            smoothedGain * 0.96 + rawGain * 0.04
         for (i in 0 until samples) work[i] *= smoothedGain
 
         // ── Stage 4: Gentle presence boost @ 2.2 kHz ───────────────────────
@@ -1312,7 +1312,7 @@ class MicService : Service() {
             eq1X1 = x
             eq1Y2 = eq1Y1
             eq1Y1 = y
-            val wet = if (strongAi) 0.3 else 0.18
+            val wet = if (strongAi) 0.38 else 0.24
             work[i] = x * (1.0 - wet) + y * wet
         }
 
@@ -1505,8 +1505,10 @@ class MicService : Service() {
 
             // Spectral subtraction — only after enough noise frames are collected
             if (adaptFrames >= 15) {
-                val OVER  = 0.72    // milder subtraction to avoid over-processed voice
-                val FLOOR = 0.40    // preserve ambience and consonant transients
+                // Increase subtraction only in strong/noisy conditions (e.g. exhaust fans).
+                val strongDenoise = aiEnhancementEnabled || estimatedNoiseDb > -54.0
+                val OVER  = if (strongDenoise) 0.84 else 0.74
+                val FLOOR = if (strongDenoise) 0.26 else 0.38
                 for (i in 0 until BINS) {
                     val noiseP = noisePow[i].coerceAtLeast(1e-10)
                     val clean  = (power[i] - OVER * noiseP).coerceAtLeast(FLOOR * noiseP)
@@ -1617,8 +1619,8 @@ class MicService : Service() {
         val now = System.currentTimeMillis()
         if (now - lastAutoAiSwitchAt < 12_000) return
 
-        val shouldEnableStrong = estimatedNoiseDb > -50.0
-        val shouldDisableStrong = estimatedNoiseDb < -58.0
+        val shouldEnableStrong = estimatedNoiseDb > -55.0
+        val shouldDisableStrong = estimatedNoiseDb < -63.0
 
         if (!aiEnhancementEnabled && shouldEnableStrong) {
             aiEnhancementEnabled = true
