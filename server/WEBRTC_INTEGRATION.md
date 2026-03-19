@@ -10,7 +10,7 @@ Current status:
 - Dashboard can create a `recvonly` WebRTC offer.
 - Server relays signaling messages between dashboard and device.
 - Android app now implements WebRTC audio publish and signaling handling in `MicService.kt`.
-- Adaptive bitrate policy is enabled on Android (`12/24/32 kbps` based on network).
+- Adaptive bitrate policy is enabled on Android (`24/48/64 kbps` with network/quality adaptation).
 - Notification capture/relay UI path has been removed from app, server, and dashboard.
 - Dashboard now auto-recovers WebRTC (`iceRestart` + re-offer) and falls back to PCM after repeated ICE failures.
 - Dashboard sends live quality telemetry (`rttMs`, `lossPct`, `jitterMs`) to Android for bitrate adaptation.
@@ -24,7 +24,7 @@ Configure these on your server (Render/Railway/etc.):
 - `STUN_URL`: optional STUN URL (default is Google STUN).
 - `TURN_URL`: TURN URL, e.g. `turn:turn.example.com:3478?transport=udp` or `turns:turn.example.com:443?transport=tcp`.
 - `TURN_USERNAME`: TURN username.
-- `TURN_PASSWORD`: TURN credential.
+- `TURN_CREDENTIAL`: TURN credential.
 
 When `WS_AUTH_TOKEN` is set, open dashboard as:
 
@@ -38,7 +38,7 @@ and set Android preference `server_token` to the same token.
 
 - `TURN_URL`
 - `TURN_USERNAME`
-- `TURN_PASSWORD`
+- `TURN_CREDENTIAL`
 
 2. Optional auth:
 

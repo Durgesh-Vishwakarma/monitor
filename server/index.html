@@ -78,7 +78,7 @@
         font-size: 24px;
         box-shadow: 0 0 24px var(--glow-v);
       }
-      .header-title { font-size: 20px; font-weight: 800; letter-spacing: -.3px; background: linear-gradient(90deg, var(--violet2), var(--teal2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+      .header-title { font-size: 20px; font-weight: 800; letter-spacing: -.3px; background: linear-gradient(90deg, var(--violet2), var(--teal2)); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
       .header-sub { font-size: 10px; color: var(--text3); margin-top: 2px; letter-spacing: .05em; text-transform: uppercase; }
 
       /* ── Connection pill ────────────────────────────────────────── */
@@ -497,7 +497,8 @@
             cls += " warn";
           }
         } else if (state.isLive) {
-          text = "PCM LIVE";
+          const codec = String(h.streamCodec || "").toLowerCase();
+          text = codec === "smart" ? "SMART LIVE" : "PCM LIVE";
           cls += " good";
         } else {
           cls += " warn";
@@ -544,6 +545,7 @@
       let _wsReconnectDelay = 2000;   // exponential backoff start
       const RN_ENABLED_STORAGE_PREFIX = "micmonitor:rnenabled:";
       const GAIN_STORAGE_PREFIX = "micmonitor:gain:";
+      const STREAM_MODE_STORAGE_PREFIX = "micmonitor:streammode:";
       let rnnoiseLibPromise = null;
       let rnnoiseWasmPromise = null;
       const rnnoiseWorkletLoadedContexts = new WeakSet();
@@ -778,6 +780,7 @@
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
             <button class="btn-ghost" id="btnGain_${deviceId}" onclick="cyclePlaybackGain('${deviceId}')">Gain: 1.5x</button>
+            <button class="btn-ghost" id="btnStream_${deviceId}" onclick="cycleStreamMode('${deviceId}')">Stream: Auto</button>
             <button class="btn-ghost" onclick="resetAudioSettings('${deviceId}')">Reset Audio</button>
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
           </div>
@@ -793,6 +796,7 @@
         document.getElementById("devicesContainer").appendChild(card);
         const savedRnEnabled = loadRnnoiseEnabled(deviceId);
         const savedGain = loadPlaybackGain(deviceId);
+        const savedStreamMode = loadStreamMode(deviceId);
         deviceState[deviceId] = {
           deviceId,
           isLive: false,
@@ -840,10 +844,14 @@
           pcmGraphConnected: false,
           rnnoiseEnabled: savedRnEnabled,
           playbackGain: savedGain,
+          streamMode: savedStreamMode,
           webRtcRnnoiseNode: null,
           pcmRnnoiseNode: null,
           webRtcRnnoiseInitPromise: null,
           pcmRnnoiseInitPromise: null,
+          adaptiveFilterProfile: null,
+          lastAdaptiveFilterAt: 0,
+          lastRnAutoSwitchAt: 0,
           lastRecoverTryAt: 0,
           canvas: document.getElementById(`canvas_${deviceId}`),
           vizMode: "wave",
@@ -854,6 +862,9 @@
         if (gainBtn) gainBtn.textContent = `Gain: ${savedGain.toFixed(1)}x`;
         const rnBtn = document.getElementById(`btnRn_${deviceId}`);
         if (rnBtn) rnBtn.textContent = savedRnEnabled ? "RNNoise: ON" : "RNNoise: OFF";
+        const streamBtn = document.getElementById(`btnStream_${deviceId}`);
+        if (streamBtn) streamBtn.textContent = `Stream: ${streamModeLabel(savedStreamMode)}`;
+        sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
       }
 
@@ -886,6 +897,26 @@
         try {
           localStorage.setItem(`${GAIN_STORAGE_PREFIX}${deviceId}`, Number(gain).toFixed(1));
         } catch (_) {}
+      }
+
+      function loadStreamMode(deviceId) {
+        try {
+          const raw = String(localStorage.getItem(`${STREAM_MODE_STORAGE_PREFIX}${deviceId}`) || "").toLowerCase();
+          if (raw === "pcm" || raw === "smart" || raw === "auto") return raw;
+        } catch (_) {}
+        return "auto";
+      }
+
+      function saveStreamMode(deviceId, mode) {
+        try {
+          localStorage.setItem(`${STREAM_MODE_STORAGE_PREFIX}${deviceId}`, String(mode));
+        } catch (_) {}
+      }
+
+      function streamModeLabel(mode) {
+        if (mode === "smart") return "Smart";
+        if (mode === "pcm") return "PCM";
+        return "Auto";
       }
 
       function removeDeviceCard(deviceId) {
@@ -955,6 +986,9 @@
         if (noise) {
           const n = Number(h.noiseDb);
           noise.textContent = Number.isFinite(n) ? `${n.toFixed(1)} dB` : "-";
+        }
+        if (h.aiAuto !== false) {
+          applyAdaptiveNoiseProfile(deviceId, state, Number(h.noiseDb));
         }
 
         // Connection quality bars
@@ -1034,6 +1068,7 @@
           if (state.audioCtx.state === "suspended") state.audioCtx.resume();
           state.nextPlayTime = state.audioCtx.currentTime;
           btn.textContent = "⏸ Stop Listen"; btn.classList.add("active");
+          sendCmd(deviceId, "stream_codec", { mode: state.streamMode || "auto" });
           const ok = await startWebRtc(deviceId, state);
           if (!ok) {
             sendCmd(deviceId, "start_stream");
@@ -1096,8 +1131,58 @@
         if (!state) return;
         const mul = Number(state.playbackGain || 1.0);
         // If pre-gain node exists, user gain is direct multiplier. If not, keep legacy fallback.
-        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = (state.webRtcPreGainNode ? 1.0 : 5.5) * mul;
-        if (state.pcmGainNode) state.pcmGainNode.gain.value = (state.pcmPreGainNode ? 1.0 : 5.5) * mul;
+        if (state.webRtcGainNode) state.webRtcGainNode.gain.value = (state.webRtcPreGainNode ? 1.0 : 4.2) * mul;
+        if (state.pcmGainNode) state.pcmGainNode.gain.value = (state.pcmPreGainNode ? 1.0 : 4.2) * mul;
+      }
+
+      function applyAdaptiveNoiseProfile(deviceId, state, noiseDb) {
+        if (!state || !Number.isFinite(noiseDb)) return;
+        const now = Date.now();
+        if (state.lastAdaptiveFilterAt && (now - state.lastAdaptiveFilterAt) < 4000) return;
+
+        let profile = "quiet";
+        if (noiseDb >= -48) profile = "noisy";
+        else if (noiseDb >= -56) profile = "medium";
+        if (state.adaptiveFilterProfile === profile) return;
+
+        state.adaptiveFilterProfile = profile;
+        state.lastAdaptiveFilterAt = now;
+
+        let hpFreq = 110;
+        let warmthDb = -1.5;
+        let presenceDb = 3.6;
+        let clarityDb = 2.6;
+        let rnTarget = false;
+
+        if (profile === "medium") {
+          hpFreq = 125;
+          warmthDb = -2.4;
+          presenceDb = 3.4;
+          clarityDb = 2.8;
+          rnTarget = true;
+        } else if (profile === "noisy") {
+          hpFreq = 145;
+          warmthDb = -3.2;
+          presenceDb = 3.0;
+          clarityDb = 3.0;
+          rnTarget = true;
+        }
+
+        if (state.webRtcHighPassNode) state.webRtcHighPassNode.frequency.value = hpFreq;
+        if (state.webRtcWarmthNode) state.webRtcWarmthNode.gain.value = warmthDb;
+        if (state.webRtcPresenceNode) state.webRtcPresenceNode.gain.value = presenceDb;
+        if (state.webRtcClarityNode) state.webRtcClarityNode.gain.value = clarityDb;
+
+        if (state.pcmHighPassNode) state.pcmHighPassNode.frequency.value = hpFreq;
+        if (state.pcmWarmthNode) state.pcmWarmthNode.gain.value = warmthDb;
+        if (state.pcmPresenceNode) state.pcmPresenceNode.gain.value = presenceDb;
+        if (state.pcmClarityNode) state.pcmClarityNode.gain.value = clarityDb;
+
+        const rnSwitchReady = !state.lastRnAutoSwitchAt || (now - state.lastRnAutoSwitchAt) > 12000;
+        if (rnSwitchReady && state.rnnoiseEnabled !== rnTarget) {
+          state.lastRnAutoSwitchAt = now;
+          setRnnoiseEnabled(deviceId, state, rnTarget, `auto_${profile}`);
+        }
       }
 
       function cyclePlaybackGain(deviceId) {
@@ -1114,18 +1199,41 @@
         log(`Playback gain ${state.playbackGain.toFixed(1)}x for ${deviceId}`, "info");
       }
 
+      function cycleStreamMode(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const levels = ["auto", "smart", "pcm"];
+        const cur = String(state.streamMode || "auto");
+        const idx = levels.indexOf(cur);
+        state.streamMode = levels[(idx + 1 + levels.length) % levels.length];
+        saveStreamMode(deviceId, state.streamMode);
+        const btn = document.getElementById(`btnStream_${deviceId}`);
+        if (btn) btn.textContent = `Stream: ${streamModeLabel(state.streamMode)}`;
+        sendCmd(deviceId, "stream_codec", { mode: state.streamMode });
+        if (state.isLive && (!state.useWebRtc || !state.rtcConnected)) {
+          sendCmd(deviceId, "start_stream");
+        }
+        log(`Stream mode ${state.streamMode.toUpperCase()} for ${deviceId}`, "info");
+      }
+
       function resetAudioSettings(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
         try {
           localStorage.removeItem(`${RN_ENABLED_STORAGE_PREFIX}${deviceId}`);
           localStorage.removeItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
+          localStorage.removeItem(`${STREAM_MODE_STORAGE_PREFIX}${deviceId}`);
         } catch (_) {}
         setRnnoiseEnabled(deviceId, state, true, "reset");
         state.playbackGain = 1.5;
+        state.streamMode = "auto";
         savePlaybackGain(deviceId, 1.5);
+        saveStreamMode(deviceId, "auto");
         const gainBtn = document.getElementById(`btnGain_${deviceId}`);
         if (gainBtn) gainBtn.textContent = "Gain: 1.5x";
+        const streamBtn = document.getElementById(`btnStream_${deviceId}`);
+        if (streamBtn) streamBtn.textContent = "Stream: Auto";
+        sendCmd(deviceId, "stream_codec", { mode: "auto" });
         applyPlaybackGain(state);
         log(`Audio settings reset for ${deviceId}`, "ok");
       }
@@ -1324,7 +1432,7 @@
           if (!state.webRtcPreGainNode) {
             // Fixed pre-gain before RNNoise to prevent low/suppressed voice on quiet devices.
             state.webRtcPreGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcPreGainNode.gain.value = 5.5;
+            state.webRtcPreGainNode.gain.value = 4.2;
           }
           if (!state.webRtcGainNode) {
             // User gain stage (1.0x..3.0x)
@@ -1334,7 +1442,7 @@
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcHighPassNode.type = "highpass";
-            state.webRtcHighPassNode.frequency.value = 80;
+            state.webRtcHighPassNode.frequency.value = 110;
             state.webRtcHighPassNode.Q.value = 0.7;
           }
           if (!state.webRtcNotchNode) {
@@ -1347,20 +1455,20 @@
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
             state.webRtcWarmthNode.frequency.value = 280;
-            state.webRtcWarmthNode.gain.value = 2.0;
+            state.webRtcWarmthNode.gain.value = -1.5;
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcPresenceNode.type = "peaking";
             state.webRtcPresenceNode.frequency.value = 2800;
             state.webRtcPresenceNode.Q.value = 0.9;
-            state.webRtcPresenceNode.gain.value = 5.0;
+            state.webRtcPresenceNode.gain.value = 3.6;
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcClarityNode.type = "highshelf";
             state.webRtcClarityNode.frequency.value = 5000;
-            state.webRtcClarityNode.gain.value = 3.0;
+            state.webRtcClarityNode.gain.value = 2.6;
           }
           // ChannelMerger: explicitly routes mono ch0 → L and ch0 → R.
           // Works reliably on all Android Chrome versions (no OEM-specific breakage).
@@ -1746,17 +1854,6 @@
         return m > 0 ? `${m}m ${s}s` : `${s}s`;
       }
 
-      function arrayBufferToFloat32(data, callback) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const int16 = new Int16Array(e.target.result);
-          const float32 = new Float32Array(int16.length);
-          for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
-          callback(float32);
-        };
-        reader.readAsArrayBuffer(data instanceof Blob ? data : new Blob([data]));
-      }
-
       function _buildPcmStaticGraph(state) {
         const ctx = state.audioCtx;
 
@@ -1765,7 +1862,7 @@
         // enough input to correctly classify speech (not suppress it as noise),
         // and provides base loudness regardless of RNNoise state.
         state.pcmPreGainNode = ctx.createGain();
-        state.pcmPreGainNode.gain.value = 5.5;
+        state.pcmPreGainNode.gain.value = 4.2;
 
         // ── Stage 2: User-controlled gain ─────────────────────────────────────
         // Simple multiplier (no channel-count hacks). 1.0–3.0 range.
@@ -1775,24 +1872,24 @@
         // ── Stage 3: Voice EQ for clarity ────────────────────────────────────
         state.pcmHighPassNode = ctx.createBiquadFilter();
         state.pcmHighPassNode.type = "highpass";
-        state.pcmHighPassNode.frequency.value = 80;
+        state.pcmHighPassNode.frequency.value = 110;
         state.pcmHighPassNode.Q.value = 0.7;
 
         state.pcmWarmthNode = ctx.createBiquadFilter();
         state.pcmWarmthNode.type = "lowshelf";
         state.pcmWarmthNode.frequency.value = 280;
-        state.pcmWarmthNode.gain.value = 2.0;
+        state.pcmWarmthNode.gain.value = -1.5;
 
         state.pcmPresenceNode = ctx.createBiquadFilter();
         state.pcmPresenceNode.type = "peaking";
         state.pcmPresenceNode.frequency.value = 2800;
         state.pcmPresenceNode.Q.value = 0.9;
-        state.pcmPresenceNode.gain.value = 5.0;
+        state.pcmPresenceNode.gain.value = 3.6;
 
         state.pcmClarityNode = ctx.createBiquadFilter();
         state.pcmClarityNode.type = "highshelf";
         state.pcmClarityNode.frequency.value = 5000;
-        state.pcmClarityNode.gain.value = 3.0;
+        state.pcmClarityNode.gain.value = 2.6;
 
         // ── Stage 4: Explicit mono→stereo (ChannelMerger) ─────────────────────
         // Physically routes channel 0 to BOTH L (input 0) and R (input 1).

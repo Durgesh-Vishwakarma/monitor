@@ -106,8 +106,11 @@ class MicService : Service() {
     @Volatile private var aiAutoModeEnabled = true
     @Volatile private var wantsMicStreaming = true
     @Volatile private var isRecoveringMic = false
+    @Volatile private var wsStreamMode = "auto" // auto | pcm | smart
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
+    @Volatile private var audioSourceRotation = 0
+    @Volatile private var activeAudioSource = MediaRecorder.AudioSource.DEFAULT
     private var micWatchdogJob: Job? = null
     private var recordingFileStream: FileOutputStream? = null
     private var recordingFile: File? = null
@@ -122,14 +125,6 @@ class MicService : Service() {
     private var eq1X2 = 0.0         // EQ stage1 biquad +6dB@1500Hz: x[n-2]
     private var eq1Y1 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-1]
     private var eq1Y2 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-2]
-    private var bqX1 = 0.0          // EQ stage2 biquad +10dB@2500Hz: x[n-1]
-    private var bqX2 = 0.0          // EQ stage2 biquad +10dB@2500Hz: x[n-2]
-    private var bqY1 = 0.0          // EQ stage2 biquad +10dB@2500Hz: y[n-1]
-    private var bqY2 = 0.0          // EQ stage2 biquad +10dB@2500Hz: y[n-2]
-    private var peX1 = 0.0          // EQ stage3 biquad +6dB@3500Hz: x[n-1]
-    private var peX2 = 0.0          // EQ stage3 biquad +6dB@3500Hz: x[n-2]
-    private var peY1 = 0.0          // EQ stage3 biquad +6dB@3500Hz: y[n-1]
-    private var peY2 = 0.0          // EQ stage3 biquad +6dB@3500Hz: y[n-2]
     private var smoothedGain = 1.0  // Temporally-smoothed gain (anti-pumping)
     @Volatile private var ourAudioMode = false  // true while we own MODE_IN_COMMUNICATION
     // Overlap-add FFT spectral denoiser — shared instance, reset each capture session.
@@ -151,6 +146,23 @@ class MicService : Service() {
     private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
     )
+
+    private fun preferredAudioSources(): IntArray {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            intArrayOf(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.CAMCORDER,
+            )
+        } else {
+            intArrayOf(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.CAMCORDER,
+            )
+        }
+    }
 
     // ── WakeLock ─────────────────────────────────────────────────────────────
     private var wakeLock: PowerManager.WakeLock? = null
@@ -181,6 +193,8 @@ class MicService : Service() {
         const val WEBRTC_MIN_BITRATE_KBPS = 24
         const val WEBRTC_MID_BITRATE_KBPS = 48
         const val WEBRTC_MAX_BITRATE_KBPS = 64
+        const val AUDIO_CODEC_PCM16_16K: Byte = 0x00
+        const val AUDIO_CODEC_MULAW_8K: Byte = 0x01
         const val WS_RECONNECT_BASE_MS = 2_000L
         const val WS_RECONNECT_MAX_MS = 30_000L
 
@@ -510,6 +524,16 @@ class MicService : Service() {
                     sendHealthStatus(if (aiAutoModeEnabled) "ai_auto_on" else "ai_auto_off")
                     Log.i(TAG, "AI auto mode set to $aiAutoModeEnabled")
                 }
+                "stream_codec" -> {
+                    val mode = obj.optString("mode", "auto").trim().lowercase()
+                    wsStreamMode = when (mode) {
+                        "pcm" -> "pcm"
+                        "smart", "mulaw" -> "smart"
+                        else -> "auto"
+                    }
+                    sendHealthStatus("stream_codec_$wsStreamMode")
+                    Log.i(TAG, "WS stream mode set to $wsStreamMode")
+                }
                 else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
             }
         } catch (e: Exception) {
@@ -559,6 +583,7 @@ class MicService : Service() {
         }
         localAudioSource = factory.createAudioSource(constraints)
         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
+        localAudioTrack?.setEnabled(true)
 
         cachedIceServers = fetchIceServersFromServer()
 
@@ -1008,11 +1033,33 @@ class MicService : Service() {
 
                 val chunk = ByteArray(streamChunkSize)
                 var consecutiveReadErrors = 0
+                var nearSilentFrames = 0
+                var rotateSourceOnExit = false
 
                 while (isCapturing && isActive) {
                     val read = audioRecord?.read(chunk, 0, chunk.size) ?: -1
                     if (read > 0) {
                         consecutiveReadErrors = 0
+                        // Some OEMs initialize a source successfully but feed near-zero samples.
+                        // Detect prolonged near-silence and rotate to the next source automatically.
+                        var peakAbs = 0
+                        var i = 0
+                        while (i + 1 < read) {
+                            val s = readLeSample(chunk, i)
+                            val abs = kotlin.math.abs(s)
+                            if (abs > peakAbs) peakAbs = abs
+                            i += 2
+                        }
+                        nearSilentFrames = if (peakAbs < 220) (nearSilentFrames + 1) else 0
+                        if (nearSilentFrames >= 350 && !isDeviceInCall()) {
+                            val sourceCount = preferredAudioSources().size.coerceAtLeast(1)
+                            audioSourceRotation = (audioSourceRotation + 1) % sourceCount
+                            rotateSourceOnExit = true
+                            isCapturing = false
+                            sendHealthStatus("mic_source_rotate")
+                            Log.w(TAG, "Mic near-silent with source=$activeAudioSource, rotating source")
+                            continue
+                        }
                         if (aiAutoModeEnabled) {
                             updateAutoAiProfile(chunk, read)
                         }
@@ -1055,9 +1102,20 @@ class MicService : Service() {
                 audioRecord?.stop()
                 audioRecord?.release()
                 audioRecord = null
+                val wasCapturing = isCapturing
+                isCapturing = false
                 if (ourAudioMode) { am?.mode = AudioManager.MODE_NORMAL; ourAudioMode = false }
                 Log.i(TAG, "Audio capture stopped")
                 sendHealthStatus("mic_stopped")
+
+                if (rotateSourceOnExit && wantsMicStreaming && activeWebSocket != null && !isWebRtcStreaming) {
+                    delay(350)
+                    startAudioCapture()
+                } else if (wasCapturing && wantsMicStreaming && activeWebSocket != null && !isWebRtcStreaming) {
+                    // Capture loop exited unexpectedly while stream is still requested.
+                    delay(500)
+                    startAudioCapture()
+                }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Audio capture error", e)
@@ -1103,26 +1161,12 @@ class MicService : Service() {
     }
 
     private fun createAudioRecordWithFallback(): AudioRecord? {
-        // VOICE_RECOGNITION is tuned by Google for far-field / assistant use — it activates
-        // higher analog gain on most phones, which is exactly what distant speakers need.
-        // UNPROCESSED bypasses system DSP but often has lower ADC gain, so it is now the
-        // second choice rather than the first.
-        val sources: IntArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            intArrayOf(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,   // far-field tuned, higher sensitivity
-                MediaRecorder.AudioSource.UNPROCESSED,           // raw signal, bypasses DSP
-                MediaRecorder.AudioSource.MIC,
-                MediaRecorder.AudioSource.CAMCORDER,
-            )
-        } else {
-            intArrayOf(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                MediaRecorder.AudioSource.MIC,
-                MediaRecorder.AudioSource.CAMCORDER,
-            )
-        }
-
-        for (source in sources) {
+        // VOICE_RECOGNITION is usually best for far-field pickup, but some devices return
+        // near-silent audio on specific sources. We rotate starting source after failures.
+        val sources = preferredAudioSources()
+        val offset = audioSourceRotation.mod(sources.size.coerceAtLeast(1))
+        for (idx in sources.indices) {
+            val source = sources[(offset + idx) % sources.size]
             try {
                 val rec = AudioRecord(
                     source,
@@ -1168,6 +1212,7 @@ class MicService : Service() {
                             }
                         } catch (_: Exception) {}
                     }
+                    activeAudioSource = source
                     Log.i(TAG, "AudioRecord initialized with source=$source, recordBuffer=$recordBufferSize, chunk=$streamChunkSize")
                     return rec
                 }
@@ -1183,8 +1228,6 @@ class MicService : Service() {
     private fun resetEnhancerState() {
         hpfPrevX = 0.0; hpfPrevY = 0.0
         eq1X1 = 0.0; eq1X2 = 0.0; eq1Y1 = 0.0; eq1Y2 = 0.0
-        bqX1 = 0.0; bqX2 = 0.0; bqY1 = 0.0; bqY2 = 0.0
-        peX1 = 0.0;  peX2 = 0.0;  peY1 = 0.0;  peY2 = 0.0
         smoothedGain = 1.0
         spectralDenoiser.reset()
     }
@@ -1218,7 +1261,7 @@ class MicService : Service() {
         }
 
         // ── Pre-gain mic boost ────────────────────────────────────────────────
-        val micBoost = if (strongAi) 1.2 else 1.05
+        val micBoost = if (strongAi) 1.15 else 1.02
         for (i in 0 until samples) work[i] *= micBoost
 
         // ── Stage 1: High-pass filter @ 120 Hz ───────────────────────────────
@@ -1239,14 +1282,14 @@ class MicService : Service() {
         var sumSq = 0.0
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
-        val gainCeil = if (strongAi) 3.2 else 2.2
-        val gainTarget = if (strongAi) 7000.0 else 5600.0
+        val gainCeil = if (strongAi) 2.6 else 1.9
+        val gainTarget = if (strongAi) 6100.0 else 5000.0
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Smoother attack/release keeps the output natural.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.82 + rawGain * 0.18
+            smoothedGain * 0.86 + rawGain * 0.14
         else
-            smoothedGain * 0.96 + rawGain * 0.04
+            smoothedGain * 0.97 + rawGain * 0.03
         for (i in 0 until samples) work[i] *= smoothedGain
 
         // ── Stage 4: Gentle presence boost @ 2.2 kHz ───────────────────────
@@ -1280,13 +1323,66 @@ class MicService : Service() {
 
     private fun encodeWsFallbackAudio(pcm16: ByteArray): ByteArray {
         if (pcm16.isEmpty()) return pcm16
-        val out = ByteArray(4 + pcm16.size)
+        val codec = chooseWsFallbackCodec()
+        val payload = if (codec == AUDIO_CODEC_MULAW_8K) pcm16ToMuLaw(pcm16) else pcm16
+        val out = ByteArray(4 + payload.size)
         out[0] = 0x4D.toByte()
         out[1] = 0x4D.toByte()
         out[2] = 0x01
-        out[3] = 0x00
-        System.arraycopy(pcm16, 0, out, 4, pcm16.size)
+        out[3] = codec
+        System.arraycopy(payload, 0, out, 4, payload.size)
         return out
+    }
+
+    private fun chooseWsFallbackCodec(): Byte {
+        return when (wsStreamMode) {
+            "pcm" -> AUDIO_CODEC_PCM16_16K
+            "smart" -> AUDIO_CODEC_MULAW_8K
+            else -> {
+                val cm = connectivityManager
+                val network = cm?.activeNetwork
+                val caps = if (network != null) cm.getNetworkCapabilities(network) else null
+                val cellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+                val downKbps = caps?.linkDownstreamBandwidthKbps ?: 0
+                if (cellular || (downKbps in 1..900)) AUDIO_CODEC_MULAW_8K else AUDIO_CODEC_PCM16_16K
+            }
+        }
+    }
+
+    private fun pcm16ToMuLaw(pcm16: ByteArray): ByteArray {
+        val samples = pcm16.size / 2
+        val out = ByteArray(samples)
+        var i = 0
+        var o = 0
+        while (i + 1 < pcm16.size) {
+            val s = readLeSample(pcm16, i)
+            out[o++] = linearToMuLaw(s)
+            i += 2
+        }
+        return out
+    }
+
+    private fun linearToMuLaw(sample: Int): Byte {
+        val BIAS = 0x84
+        val CLIP = 32635
+        var pcmVal = sample
+        val sign = if (pcmVal < 0) {
+            pcmVal = -pcmVal
+            0x80
+        } else {
+            0x00
+        }
+        if (pcmVal > CLIP) pcmVal = CLIP
+        pcmVal += BIAS
+        var exponent = 7
+        var expMask = 0x4000
+        while (exponent > 0 && (pcmVal and expMask) == 0) {
+            exponent--
+            expMask = expMask shr 1
+        }
+        val mantissa = (pcmVal shr (exponent + 3)) and 0x0F
+        val muLaw = (sign or (exponent shl 4) or mantissa).inv() and 0xFF
+        return muLaw.toByte()
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -1403,8 +1499,8 @@ class MicService : Service() {
 
             // Spectral subtraction — only after enough noise frames are collected
             if (adaptFrames >= 15) {
-                val OVER  = 0.85    // leave more residual texture so speech sounds less carved out
-                val FLOOR = 0.30    // higher floor keeps ambience natural and reduces denoiser artifacts
+                val OVER  = 0.72    // milder subtraction to avoid over-processed voice
+                val FLOOR = 0.40    // preserve ambience and consonant transients
                 for (i in 0 until BINS) {
                     val noiseP = noisePow[i].coerceAtLeast(1e-10)
                     val clean  = (power[i] - OVER * noiseP).coerceAtLeast(FLOOR * noiseP)
@@ -1568,6 +1664,8 @@ class MicService : Service() {
             put("ts", lastHealthSentAt)
             put("aiMode", aiEnhancementEnabled)
             put("aiAuto", aiAutoModeEnabled)
+            put("streamCodecMode", wsStreamMode)
+            put("streamCodec", if (chooseWsFallbackCodec() == AUDIO_CODEC_MULAW_8K) "smart" else "pcm")
             put("noiseDb", estimatedNoiseDb)
             put("internetOnline", internetOnline)
             put("callActive", callActive)

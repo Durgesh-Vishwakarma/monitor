@@ -50,7 +50,19 @@ const { Mp3Encoder } = new Function(_lameCode + "; return lamejs;")();
 const PORT = parseInt(process.env.PORT) || 3000;
 const DASHBOARD_MAX_BUFFERED_BYTES = 96 * 1024;
 const DEFAULT_STUN_URL = process.env.STUN_URL || "stun:stun.l.google.com:19302";
-const ICE_SERVERS = [{ urls: [DEFAULT_STUN_URL] }];
+const FALLBACK_STUN_URLS = [
+  DEFAULT_STUN_URL,
+  "stun:stun1.l.google.com:19302",
+  "stun:stun2.l.google.com:19302",
+];
+const ICE_SERVERS = [{ urls: FALLBACK_STUN_URLS }];
+if (process.env.TURN_URL) {
+  ICE_SERVERS.push({
+    urls: [process.env.TURN_URL],
+    username: process.env.TURN_USERNAME || "",
+    credential: process.env.TURN_CREDENTIAL || "",
+  });
+}
 
 // ── Folders ─────────────────────────────────────────────────────────
 const RECORDINGS_DIR = path.join(__dirname, "recordings");
@@ -135,14 +147,12 @@ function handleAudioDevice(ws, req) {
     recordingChunks: null,
     recordingSampleRate: 16000,
     recordingFilename: null,
-    isStreaming: false,
     health: {
       wsConnected: true,
       micCapturing: false,
       lastAudioChunkAt: 0,
       lastHealthAt: Date.now(),
       reason: "connected",
-      droppedFrames: 0,
       internetOnline: true,
       callActive: false,
       batteryPct: null,
@@ -153,7 +163,6 @@ function handleAudioDevice(ws, req) {
   // If dashboards are already watching, start the mic immediately
   if (dashboardClients.size > 0) {
     ws.send("start_stream");
-    devices.get(deviceId).isStreaming = true;
     console.log(`🎙️  Auto-sent start_stream to new device: ${deviceId}`);
   }
 
@@ -215,9 +224,10 @@ function handleAudioDevice(ws, req) {
                 lastAudioChunkAt: Number(json.lastAudioChunkSentAt || dev.health?.lastAudioChunkAt || 0),
                 lastHealthAt: Number(json.ts || Date.now()),
                 reason: String(json.reason || "heartbeat"),
-                droppedFrames: Number(dev.health?.droppedFrames || 0),
                 aiMode: json.aiMode !== false,
                 aiAuto: json.aiAuto !== false,
+                streamCodec: String(json.streamCodec || dev.health?.streamCodec || "pcm"),
+                streamCodecMode: String(json.streamCodecMode || dev.health?.streamCodecMode || "auto"),
                 noiseDb: Number.isFinite(Number(json.noiseDb)) ? Number(json.noiseDb) : null,
                 internetOnline: json.internetOnline !== false,
                 callActive: json.callActive === true,
@@ -268,7 +278,6 @@ function handleAudioDevice(ws, req) {
       if (client.readyState !== WebSocket.OPEN) return;
       // Drop frames for lagging dashboard clients to keep real-time latency low.
       if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) {
-        if (dev?.health) dev.health.droppedFrames = Number(dev.health.droppedFrames || 0) + 1;
         return;
       }
       client.send(audioFrame);
@@ -308,7 +317,6 @@ function handleDashboard(ws) {
   if (wasEmpty) {
     devices.forEach((dev, id) => {
       dev.ws.send("start_stream");
-      dev.isStreaming = true;
       console.log(`🎙️  start_stream → ${id}`);
     });
   }
@@ -349,13 +357,11 @@ function handleDashboard(ws) {
       switch (cmd) {
         case "start_stream":
           device.ws.send("start_stream");
-          device.isStreaming = true;
           broadcastToDashboard({ type: "stream_started", deviceId: targetId });
           break;
         case "stop_stream":
           stopDeviceRecording(targetId, device);
           device.ws.send("stop_stream");
-          device.isStreaming = false;
           broadcastToDashboard({ type: "stream_stopped", deviceId: targetId });
           break;
         case "start_record":
@@ -408,6 +414,12 @@ function handleDashboard(ws) {
             enabled: msg.enabled !== false,
           });
           break;
+        case "stream_codec":
+          sendJson(device.ws, {
+            type: "stream_codec",
+            mode: String(msg.mode || "auto").toLowerCase(),
+          });
+          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }
@@ -424,7 +436,6 @@ function handleDashboard(ws) {
     if (dashboardClients.size === 0) {
       devices.forEach((dev, id) => {
         dev.ws.send("stop_stream");
-        dev.isStreaming = false;
         console.log(`🔇  stop_stream → ${id}`);
       });
     }
@@ -652,20 +663,6 @@ function parseReqUrl(url) {
     return { pathname: u.pathname, searchParams: u.searchParams };
   } catch (_) {
     return { pathname: url.split("?")[0] || "/", searchParams: new URLSearchParams() };
-  }
-}
-
-/**
- * Heuristic: first 200 bytes of a Buffer look like UTF-8 text?
- */
-function isTextMessage(buf) {
-  const sample = buf.slice(0, Math.min(200, buf.length));
-  try {
-    const decoded = sample.toString("utf8");
-    // If it contains unprintable chars (< 0x09 except newline/tab), treat as binary
-    return !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(decoded);
-  } catch (_) {
-    return false;
   }
 }
 
