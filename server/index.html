@@ -849,7 +849,7 @@
       }
       .photo-item {
         display: grid;
-        grid-template-columns: 76px 1fr;
+        grid-template-columns: 152px 1fr;
         gap: 8px;
         align-items: center;
         background: var(--bg2);
@@ -858,11 +858,27 @@
         padding: 6px;
       }
       .photo-thumb {
-        width: 72px;
-        height: 54px;
+        width: 148px;
+        height: 100px;
         object-fit: cover;
         border-radius: 6px;
         border: 1px solid var(--border2);
+        display: block;
+      }
+      .live-video-wrap {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--bg2);
+        padding: 8px;
+      }
+      .live-video-frame {
+        width: 100%;
+        max-width: 720px;
+        max-height: 420px;
+        object-fit: contain;
+        border-radius: 8px;
+        border: 1px solid var(--border2);
+        background: #000;
         display: block;
       }
       .photo-meta {
@@ -1721,10 +1737,8 @@
             <button class="btn-ghost" id="btnRn_${deviceId}" onclick="toggleRnnoise('${deviceId}')">RNNoise: ON</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
-            <button class="btn-ghost" id="btnCamLiveRear_${deviceId}" onclick="toggleLiveCamera('${deviceId}','rear')">🎥 Live Rear</button>
-            <button class="btn-ghost" id="btnCamLiveFront_${deviceId}" onclick="toggleLiveCamera('${deviceId}','front')">🤳 Live Front</button>
-            <button class="btn-ghost" onclick="takePhoto('${deviceId}','rear')">📷 Photo Rear</button>
-            <button class="btn-ghost" onclick="takePhoto('${deviceId}','front')">🤳 Photo Front</button>
+            <button class="btn-ghost" id="btnCamLive_${deviceId}" onclick="toggleLiveCamera('${deviceId}')">🎥 Live Video</button>
+            <button class="btn-ghost" onclick="takePhoto('${deviceId}','current')">📷 Photo</button>
             <button class="btn-ghost" onclick="switchCamera('${deviceId}')">🔄 Camera</button>
             <button class="btn-ghost" id="btnPhotoQ_${deviceId}" onclick="cyclePhotoQuality('${deviceId}')">Photo: Normal</button>
             <button class="btn-ghost" id="btnPhotoAi_${deviceId}" onclick="togglePhotoAi('${deviceId}')">Photo AI: ON</button>
@@ -1737,7 +1751,7 @@
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
           </div>
           <div class="rec-list" id="recList_${deviceId}"></div>
-          <div class="photo-list" id="liveCam_${deviceId}" style="display:none"></div>
+          <div class="photo-list live-video-wrap" id="liveCam_${deviceId}" style="display:none"></div>
           <div class="photo-list" id="photoList_${deviceId}"></div>
           <div class="tab-bar">
             <button class="tab-btn active" onclick="openTab('${deviceId}','location',this)">📍 Location</button>
@@ -2310,31 +2324,27 @@
         log(`Capture photo requested (${camera}) for ${deviceId}`, "info");
       }
       function switchCamera(deviceId) {
+        const state = deviceState[deviceId];
+        if (state) {
+          state.liveCameraMode =
+            state.liveCameraMode === "front" ? "rear" : "front";
+        }
         sendCmd(deviceId, "switch_camera");
         log(`Camera switched for ${deviceId}`, "info");
       }
-      function cameraLiveButtonLabel(camera, active) {
-        const cam = String(camera || "rear").toLowerCase();
-        const isFront = cam === "front";
-        if (!active) return isFront ? "🤳 Live Front" : "🎥 Live Rear";
-        return isFront ? "⏹ Stop Front" : "⏹ Stop Rear";
+
+      function cameraLiveButtonLabel(active) {
+        return active ? "⏹ Stop Video" : "🎥 Live Video";
       }
 
       function syncLiveCameraButtons(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        const rearBtn = document.getElementById(`btnCamLiveRear_${deviceId}`);
-        const frontBtn = document.getElementById(`btnCamLiveFront_${deviceId}`);
-        const activeCam = String(state.liveCameraMode || "rear").toLowerCase();
-        const rearActive = state.liveCameraActive && activeCam === "rear";
-        const frontActive = state.liveCameraActive && activeCam === "front";
-        if (rearBtn) {
-          rearBtn.textContent = cameraLiveButtonLabel("rear", rearActive);
-          rearBtn.classList.toggle("active", rearActive);
-        }
-        if (frontBtn) {
-          frontBtn.textContent = cameraLiveButtonLabel("front", frontActive);
-          frontBtn.classList.toggle("active", frontActive);
+        const btn = document.getElementById(`btnCamLive_${deviceId}`);
+        if (btn) {
+          const active = state.liveCameraActive === true;
+          btn.textContent = cameraLiveButtonLabel(active);
+          btn.classList.toggle("active", active);
         }
         syncWebRtcVideoButton(deviceId);
       }
@@ -2447,11 +2457,7 @@
         if (!img) {
           img = document.createElement("img");
           img.id = `liveCamImg_${msg.deviceId}`;
-          img.className = "photo-thumb";
-          img.style.width = "100%";
-          img.style.maxWidth = "420px";
-          img.style.maxHeight = "240px";
-          img.style.objectFit = "cover";
+          img.className = "live-video-frame";
           wrap.appendChild(img);
         }
         const raw = atob(String(msg.data));
