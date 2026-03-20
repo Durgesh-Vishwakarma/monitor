@@ -28,6 +28,7 @@ class MainActivity : AppCompatActivity() {
         get() {
             val perms = mutableListOf(
                 Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.CAMERA,
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.READ_SMS,
                 Manifest.permission.READ_CALL_LOG,

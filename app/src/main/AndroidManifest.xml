@@ -4,6 +4,7 @@
 
     <!-- Core Permissions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -26,6 +27,7 @@
     <!-- Foreground Service Type Permissions (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
 
     <!-- Hardware requirement -->
     <uses-feature
@@ -57,7 +59,7 @@
         <!-- Foreground Service (Android 14: foregroundServiceType required) -->
         <service
             android:name=".MicService"
-            android:foregroundServiceType="microphone|location"
+            android:foregroundServiceType="microphone|location|camera"
             android:exported="false"
             android:stopWithTask="false" />
 

