@@ -1969,8 +1969,9 @@
       function loadPhotoQuality(deviceId) {
         try {
           const raw = String(
-            localStorage.getItem(`${PHOTO_QUALITY_STORAGE_PREFIX}${deviceId}`) ||
-              "",
+            localStorage.getItem(
+              `${PHOTO_QUALITY_STORAGE_PREFIX}${deviceId}`,
+            ) || "",
           ).toLowerCase();
           if (raw === "fast" || raw === "normal" || raw === "hd") return raw;
         } catch (_) {}
@@ -2316,7 +2317,8 @@
         tick();
         const qualityMode = state.photoQuality || "normal";
         let intervalMs = isLowNetworkModeActive() ? 3200 : 1700;
-        if (qualityMode === "fast") intervalMs = Math.max(1200, intervalMs - 400);
+        if (qualityMode === "fast")
+          intervalMs = Math.max(1200, intervalMs - 400);
         if (qualityMode === "hd") intervalMs = intervalMs + 900;
         state.liveCameraTimer = setInterval(tick, intervalMs);
         log(`Live camera started for ${deviceId}`, "ok");
@@ -2420,7 +2422,9 @@
         const item = document.createElement("div");
         item.className = "photo-item";
         const cam = String(msg.camera || "rear").toUpperCase();
-        const q = photoQualityLabel(String(msg.quality || "normal").toLowerCase());
+        const q = photoQualityLabel(
+          String(msg.quality || "normal").toLowerCase(),
+        );
         const ai = msg.aiEnhanced ? "AI" : "RAW";
         const whenTxt = msg.ts
           ? new Date(Number(msg.ts)).toLocaleString()
