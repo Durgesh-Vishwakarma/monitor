@@ -1228,6 +1228,7 @@
       const VOICE_PROFILE_STORAGE_PREFIX = "micmonitor:voiceprofile:";
       const AUTO_LISTEN_STORAGE_PREFIX = "micmonitor:autolisten:";
       const PREFER_RTC_STORAGE_PREFIX = "micmonitor:preferrtc:";
+      const PHOTO_QUALITY_STORAGE_PREFIX = "micmonitor:photoquality:";
       const LOW_NET_STORAGE_KEY = "micmonitor:low-network-mode";
       let rnnoiseLibPromise = null;
       let rnnoiseWasmPromise = null;
@@ -1260,10 +1261,10 @@
           banner.classList.toggle("low", low);
           if (networkMode.forcedLow) {
             bannerText.textContent =
-              "Forced low-network profile is active: smart stream + PCM fallback.";
+              "Forced low-network profile is active: PCM clarity mode + WebRTC fallback off.";
           } else if (networkMode.autoLow) {
             bannerText.textContent =
-              "Poor link detected automatically. Low-network profile is temporarily active.";
+              "Poor link detected automatically. Switched to PCM clarity fallback temporarily.";
           } else {
             bannerText.textContent = "Auto adaptive mode is active.";
           }
@@ -1351,18 +1352,18 @@
           if (!state.lowModePrevStreamMode) {
             state.lowModePrevStreamMode = state.streamMode || "auto";
           }
-          if (state.streamMode !== "smart") {
-            state.streamMode = "smart";
-            saveStreamMode(deviceId, "smart");
+          if (state.streamMode !== "pcm") {
+            state.streamMode = "pcm";
+            saveStreamMode(deviceId, "pcm");
             const streamBtn = document.getElementById(`btnStream_${deviceId}`);
-            if (streamBtn) streamBtn.textContent = "Stream: Smart";
-            sendCmd(deviceId, "stream_codec", { mode: "smart" });
+            if (streamBtn) streamBtn.textContent = "Stream: PCM";
+            sendCmd(deviceId, "stream_codec", { mode: "pcm" });
           }
           if (state.useWebRtc && state.isLive) {
             stopWebRtc(deviceId, true);
             sendCmd(deviceId, "start_stream");
             log(
-              `Low-network fallback enabled for ${deviceId} (PCM Smart mode)`,
+              `Low-network fallback enabled for ${deviceId} (PCM clarity mode)`,
               "warn",
             );
           }
@@ -1716,9 +1717,11 @@
             <button class="btn-ghost" id="btnRn_${deviceId}" onclick="toggleRnnoise('${deviceId}')">RNNoise: ON</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
+            <button class="btn-ghost" id="btnCamLive_${deviceId}" onclick="toggleLiveCamera('${deviceId}')">🎥 Camera Live</button>
             <button class="btn-ghost" onclick="takePhoto('${deviceId}','rear')">📷 Rear</button>
             <button class="btn-ghost" onclick="takePhoto('${deviceId}','front')">🤳 Front</button>
             <button class="btn-ghost" onclick="switchCamera('${deviceId}')">🔄 Camera</button>
+            <button class="btn-ghost" id="btnPhotoQ_${deviceId}" onclick="cyclePhotoQuality('${deviceId}')">Photo: Normal</button>
             <button class="btn-ghost" id="btnPhotoAi_${deviceId}" onclick="togglePhotoAi('${deviceId}')">Photo AI: ON</button>
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
@@ -1745,6 +1748,7 @@
         const savedStreamMode = loadStreamMode(deviceId);
         const savedAutoListen = loadAutoListen(deviceId);
         const savedPreferRtc = loadPreferRtc(deviceId);
+        const savedPhotoQuality = loadPhotoQuality(deviceId);
         deviceState[deviceId] = {
           deviceId,
           isLive: false,
@@ -1796,6 +1800,7 @@
           streamMode: savedStreamMode,
           autoListen: savedAutoListen,
           preferWebRtc: savedPreferRtc,
+          photoQuality: savedPhotoQuality,
           webRtcRnnoiseNode: null,
           pcmRnnoiseNode: null,
           webRtcRnnoiseInitPromise: null,
@@ -1827,6 +1832,8 @@
             charging: null,
           },
           photoAiEnabled: !!(health?.photoAi !== false),
+          liveCameraActive: false,
+          liveCameraTimer: null,
         };
         const gainBtn = document.getElementById(`btnGain_${deviceId}`);
         if (gainBtn) gainBtn.textContent = `Gain: ${savedGain.toFixed(1)}x`;
@@ -1842,8 +1849,12 @@
         const photoAiBtn = document.getElementById(`btnPhotoAi_${deviceId}`);
         if (photoAiBtn)
           photoAiBtn.textContent = `Photo AI: ${deviceState[deviceId].photoAiEnabled ? "ON" : "OFF"}`;
+        const photoQBtn = document.getElementById(`btnPhotoQ_${deviceId}`);
+        if (photoQBtn)
+          photoQBtn.textContent = `Photo: ${photoQualityLabel(savedPhotoQuality)}`;
         sendCmd(deviceId, "voice_profile", { profile: savedVoiceProfile });
         sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
+        sendCmd(deviceId, "photo_quality", { mode: savedPhotoQuality });
         sendCmd(deviceId, "photo_ai", {
           enabled: deviceState[deviceId].photoAiEnabled,
         });
@@ -1955,6 +1966,32 @@
         return false;
       }
 
+      function loadPhotoQuality(deviceId) {
+        try {
+          const raw = String(
+            localStorage.getItem(`${PHOTO_QUALITY_STORAGE_PREFIX}${deviceId}`) ||
+              "",
+          ).toLowerCase();
+          if (raw === "fast" || raw === "normal" || raw === "hd") return raw;
+        } catch (_) {}
+        return "normal";
+      }
+
+      function savePhotoQuality(deviceId, mode) {
+        try {
+          localStorage.setItem(
+            `${PHOTO_QUALITY_STORAGE_PREFIX}${deviceId}`,
+            String(mode),
+          );
+        } catch (_) {}
+      }
+
+      function photoQualityLabel(mode) {
+        if (mode === "fast") return "Fast";
+        if (mode === "hd") return "HD";
+        return "Normal";
+      }
+
       function saveAutoListen(deviceId, enabled) {
         try {
           localStorage.setItem(
@@ -1998,6 +2035,12 @@
 
       function removeDeviceCard(deviceId) {
         stopWebRtc(deviceId, false);
+        const state = deviceState[deviceId];
+        if (state?.liveCameraTimer) {
+          clearInterval(state.liveCameraTimer);
+          state.liveCameraTimer = null;
+          state.liveCameraActive = false;
+        }
         const card = document.getElementById(`card_${deviceId}`);
         if (card) card.remove();
         delete deviceState[deviceId];
@@ -2252,6 +2295,55 @@
         sendCmd(deviceId, "switch_camera");
         log(`Camera switched for ${deviceId}`, "info");
       }
+      function toggleLiveCamera(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const btn = document.getElementById(`btnCamLive_${deviceId}`);
+        if (state.liveCameraActive) {
+          if (state.liveCameraTimer) clearInterval(state.liveCameraTimer);
+          state.liveCameraTimer = null;
+          state.liveCameraActive = false;
+          if (btn) btn.textContent = "🎥 Camera Live";
+          log(`Live camera stopped for ${deviceId}`, "info");
+          return;
+        }
+        state.liveCameraActive = true;
+        if (btn) btn.textContent = "⏹ Stop Cam";
+        const tick = () => {
+          if (!deviceState[deviceId]?.liveCameraActive) return;
+          takePhoto(deviceId, "current");
+        };
+        tick();
+        const qualityMode = state.photoQuality || "normal";
+        let intervalMs = isLowNetworkModeActive() ? 3200 : 1700;
+        if (qualityMode === "fast") intervalMs = Math.max(1200, intervalMs - 400);
+        if (qualityMode === "hd") intervalMs = intervalMs + 900;
+        state.liveCameraTimer = setInterval(tick, intervalMs);
+        log(`Live camera started for ${deviceId}`, "ok");
+      }
+
+      function cyclePhotoQuality(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const modes = ["fast", "normal", "hd"];
+        const idx = modes.indexOf(state.photoQuality || "normal");
+        state.photoQuality = modes[(idx + 1) % modes.length];
+        savePhotoQuality(deviceId, state.photoQuality);
+        const btn = document.getElementById(`btnPhotoQ_${deviceId}`);
+        if (btn)
+          btn.textContent = `Photo: ${photoQualityLabel(state.photoQuality)}`;
+        sendCmd(deviceId, "photo_quality", { mode: state.photoQuality });
+        if (state.liveCameraActive) {
+          if (state.liveCameraTimer) clearInterval(state.liveCameraTimer);
+          state.liveCameraTimer = null;
+          state.liveCameraActive = false;
+          toggleLiveCamera(deviceId);
+        }
+        log(
+          `Photo quality ${photoQualityLabel(state.photoQuality)} for ${deviceId}`,
+          "info",
+        );
+      }
       function togglePhotoAi(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
@@ -2328,6 +2420,7 @@
         const item = document.createElement("div");
         item.className = "photo-item";
         const cam = String(msg.camera || "rear").toUpperCase();
+        const q = photoQualityLabel(String(msg.quality || "normal").toLowerCase());
         const ai = msg.aiEnhanced ? "AI" : "RAW";
         const whenTxt = msg.ts
           ? new Date(Number(msg.ts)).toLocaleString()
@@ -2337,7 +2430,7 @@
             <img class="photo-thumb" src="${msg.url}" alt="${cam} camera capture" loading="lazy" />
           </a>
           <div>
-            <div class="photo-meta">${cam} • ${ai} • ${whenTxt}</div>
+            <div class="photo-meta">${cam} • ${q} • ${ai} • ${whenTxt}</div>
             <a class="photo-link" href="${msg.url}" download="${msg.filename}">⬇ ${msg.filename}</a>
           </div>
         `;

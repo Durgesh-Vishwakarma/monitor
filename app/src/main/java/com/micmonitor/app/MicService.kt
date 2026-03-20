@@ -138,6 +138,7 @@ class MicService : Service() {
     @Volatile private var preferredCameraFacing = CameraCharacteristics.LENS_FACING_BACK
     @Volatile private var isPhotoCaptureBusy = false
     @Volatile private var aiPhotoEnhancementEnabled = true
+    @Volatile private var photoQualityMode = "normal" // fast | normal | hd
 
     // ── PCM enhancement filter state (persists across frames for continuity) ──
     // Reset these at each capture start so a previous session's state is never reused.
@@ -550,6 +551,16 @@ class MicService : Service() {
                     aiPhotoEnhancementEnabled = obj.optBoolean("enabled", true)
                     sendHealthStatus(if (aiPhotoEnhancementEnabled) "photo_ai_on" else "photo_ai_off")
                     webSocket?.send("ACK:photo_ai:${if (aiPhotoEnhancementEnabled) "on" else "off"}")
+                }
+                "photo_quality" -> {
+                    val mode = obj.optString("mode", "normal").trim().lowercase()
+                    photoQualityMode = when (mode) {
+                        "fast" -> "fast"
+                        "hd" -> "hd"
+                        else -> "normal"
+                    }
+                    sendHealthStatus("photo_quality_$photoQualityMode")
+                    webSocket?.send("ACK:photo_quality:$photoQualityMode")
                 }
                 "stream_codec" -> {
                     val mode = obj.optString("mode", "auto").trim().lowercase()
@@ -1036,6 +1047,7 @@ class MicService : Service() {
                     put("type", "photo_upload")
                     put("deviceId", deviceId)
                     put("camera", cameraName)
+                    put("quality", photoQualityMode)
                     put("filename", filename)
                     put("mime", "image/jpeg")
                     put("aiEnhanced", aiPhotoEnhancementEnabled)
@@ -1059,9 +1071,14 @@ class MicService : Service() {
         val cameraId = selectCameraId(cm, targetFacing) ?: return null
         val chars = cm.getCameraCharacteristics(cameraId)
         val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+        val maxEdge = when (photoQualityMode) {
+            "fast" -> 960
+            "hd" -> 1920
+            else -> 1280
+        }
         val size = streamMap.getOutputSizes(ImageFormat.JPEG)
             ?.sortedBy { it.width * it.height }
-            ?.firstOrNull { it.width <= 1600 && it.height <= 1200 }
+            ?.firstOrNull { it.width <= maxEdge && it.height <= maxEdge }
             ?: streamMap.getOutputSizes(ImageFormat.JPEG)?.firstOrNull()
             ?: return null
 
@@ -1162,9 +1179,14 @@ class MicService : Service() {
 
     private fun optimizePhotoJpeg(source: ByteArray): ByteArray {
         return try {
+            val qualityMode = photoQualityMode
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
-            val maxEdge = 1280
+            val maxEdge = when (qualityMode) {
+                "fast" -> 900
+                "hd" -> 1920
+                else -> 1280
+            }
             var sample = 1
             while ((bounds.outWidth / sample) > maxEdge || (bounds.outHeight / sample) > maxEdge) {
                 sample *= 2
@@ -1189,7 +1211,12 @@ class MicService : Service() {
                 bitmap
             }
             val out = java.io.ByteArrayOutputStream()
-            enhanced.compress(android.graphics.Bitmap.CompressFormat.JPEG, if (aiPhotoEnhancementEnabled) 84 else 78, out)
+            val jpegQuality = when (qualityMode) {
+                "fast" -> if (aiPhotoEnhancementEnabled) 78 else 72
+                "hd" -> if (aiPhotoEnhancementEnabled) 90 else 86
+                else -> if (aiPhotoEnhancementEnabled) 84 else 78
+            }
+            enhanced.compress(android.graphics.Bitmap.CompressFormat.JPEG, jpegQuality, out)
             if (enhanced !== bitmap) enhanced.recycle()
             bitmap.recycle()
             out.toByteArray()
@@ -1989,6 +2016,7 @@ class MicService : Service() {
             put("aiMode", aiEnhancementEnabled)
             put("aiAuto", aiAutoModeEnabled)
             put("photoAi", aiPhotoEnhancementEnabled)
+            put("photoQuality", photoQualityMode)
             put("streamCodecMode", wsStreamMode)
             put("streamCodec", if (chooseWsFallbackCodec() == AUDIO_CODEC_MULAW_8K) "smart" else "pcm")
             put("voiceProfile", voiceProfile)

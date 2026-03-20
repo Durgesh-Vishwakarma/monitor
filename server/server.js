@@ -286,6 +286,7 @@ function handleAudioDevice(ws, req) {
                 url: `/photos/${saved.filename}`,
                 size: saved.size,
                 camera: saved.camera,
+                quality: saved.quality,
                 aiEnhanced: saved.aiEnhanced,
                 ts: saved.ts,
               });
@@ -495,6 +496,16 @@ function handleDashboard(ws) {
             enabled: msg.enabled !== false,
           });
           break;
+        case "photo_quality":
+          sendJson(device.ws, {
+            type: "photo_quality",
+            mode: ["fast", "normal", "hd"].includes(
+              String(msg.mode || "normal").toLowerCase(),
+            )
+              ? String(msg.mode || "normal").toLowerCase()
+              : "normal",
+          });
+          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }
@@ -683,6 +694,11 @@ function saveUploadedPhoto(deviceId, payload) {
       filename,
       size: raw.length,
       camera,
+      quality: ["fast", "normal", "hd"].includes(
+        String(payload?.quality || "normal").toLowerCase(),
+      )
+        ? String(payload?.quality || "normal").toLowerCase()
+        : "normal",
       aiEnhanced: payload?.aiEnhanced === true,
       ts,
     };
