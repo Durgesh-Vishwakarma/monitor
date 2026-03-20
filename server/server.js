@@ -322,6 +322,8 @@ function handleDashboard(ws) {
     });
   }
 
+
+
   // Send current device list on connect
   const deviceList = [];
   devices.forEach((dev, id) => {
@@ -334,6 +336,8 @@ function handleDashboard(ws) {
     });
   });
   ws.send(JSON.stringify({ type: "device_list", devices: deviceList }));
+
+  
 
   ws.on("message", (data) => {
     try {
