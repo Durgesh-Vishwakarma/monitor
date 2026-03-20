@@ -291,6 +291,16 @@ function handleAudioDevice(ws, req) {
                 ts: saved.ts,
               });
             }
+          } else if (json.type === "camera_live_frame") {
+            broadcastToDashboard({
+              type: "camera_live_frame",
+              deviceId,
+              camera: String(json.camera || "rear").toLowerCase(),
+              quality: String(json.quality || "normal").toLowerCase(),
+              mime: String(json.mime || "image/jpeg"),
+              data: String(json.data || ""),
+              ts: Number(json.ts || Date.now()),
+            });
           } else if (json.type === "error") {
             console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
             broadcastToDashboard({
@@ -505,6 +515,15 @@ function handleDashboard(ws) {
               ? String(msg.mode || "normal").toLowerCase()
               : "normal",
           });
+          break;
+        case "camera_live_start":
+          sendJson(device.ws, {
+            type: "camera_live_start",
+            camera: String(msg.camera || "current").toLowerCase(),
+          });
+          break;
+        case "camera_live_stop":
+          sendJson(device.ws, { type: "camera_live_stop" });
           break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);

