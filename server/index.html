@@ -1264,6 +1264,23 @@
         return networkMode.forcedLow || networkMode.autoLow;
       }
 
+      function isDeviceLowNetworkModeActive(state) {
+        return networkMode.forcedLow || !!state?.autoLowCandidate;
+      }
+
+      function clearAutoLowNetworkState(reason = "manual") {
+        Object.values(deviceState).forEach((s) => {
+          if (!s) return;
+          s.autoLowCandidate = false;
+          s.lowNetBadTicks = 0;
+          s.lowNetGoodTicks = 0;
+        });
+        networkMode.autoLow = false;
+        applyNetworkModeToAllDevices();
+        updateNetworkModeUi();
+        if (reason) log(`Auto low-network mode cleared (${reason})`, "info");
+      }
+
       function updateNetworkModeUi() {
         const btn = document.getElementById("networkModeToggle");
         const banner = document.getElementById("networkBanner");
@@ -1295,6 +1312,9 @@
             networkMode.forcedLow ? "1" : "0",
           );
         } catch (_) {}
+        if (!networkMode.forcedLow) {
+          clearAutoLowNetworkState("forced_off");
+        }
         applyNetworkModeToAllDevices();
         updateNetworkModeUi();
         log(
@@ -1348,7 +1368,7 @@
       function renderDeviceNetworkChip(deviceId, state) {
         const chip = document.getElementById(`netChip_${deviceId}`);
         if (!chip || !state) return;
-        const low = isLowNetworkModeActive() || state.autoLowCandidate;
+        const low = isDeviceLowNetworkModeActive(state);
         chip.className = `net-chip${low ? " low" : ""}`;
         chip.textContent = low ? "LOW NETWORK" : "NORMAL LINK";
       }
@@ -1362,7 +1382,7 @@
 
       function applyNetworkModeToDevice(deviceId, state) {
         if (!state) return;
-        const low = isLowNetworkModeActive();
+        const low = isDeviceLowNetworkModeActive(state);
         renderDeviceNetworkChip(deviceId, state);
         if (low) {
           if (!state.lowModePrevStreamMode) {
@@ -2705,7 +2725,7 @@
       function cycleStreamMode(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        if (isLowNetworkModeActive()) {
+        if (isDeviceLowNetworkModeActive(state)) {
           log(
             `Cannot change stream mode while low-network mode is active for ${deviceId}`,
             "warn",
@@ -2855,7 +2875,7 @@
       }
 
       async function startWebRtc(deviceId, state) {
-        if (isLowNetworkModeActive()) {
+        if (isDeviceLowNetworkModeActive(state)) {
           log(
             `WebRTC skipped for ${deviceId} because low-network mode is active`,
             "warn",
