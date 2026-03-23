@@ -20,6 +20,8 @@
 const WebSocket = require("ws");
 const express = require("express");
 const http = require("http");
+const https = require("https");
+const url = require("url");
 const fs = require("fs");
 const path = require("path");
 
@@ -622,9 +624,14 @@ httpServer.listen(PORT, () => {
   // Render sleeps after 15 min of no inbound HTTP — this keeps it awake.
   const SELF_URL =
     process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+
   setInterval(
     () => {
-      http
+      // Determine if we need HTTPS or HTTP
+      const parsedUrl = new URL(SELF_URL);
+      const protocol = parsedUrl.protocol === "https:" ? https : http;
+
+      protocol
         .get(`${SELF_URL}/health`, (r) => {
           console.log(`🔄 Self-ping: ${r.statusCode}`);
         })
