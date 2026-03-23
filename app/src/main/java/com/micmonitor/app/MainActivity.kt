@@ -59,7 +59,10 @@ class MainActivity : AppCompatActivity() {
         val tvStatus = findViewById<TextView>(R.id.tvStatus)
 
         btnGrant.setOnClickListener {
-            tvStatus.text = "Requesting permissions..."
+            tvStatus.apply {
+                text = getString(R.string.status_requesting)
+                visibility = android.view.View.VISIBLE
+            }
             ActivityCompat.requestPermissions(this, requiredPermissions, REQUEST_CODE)
         }
     }
@@ -83,17 +86,24 @@ class MainActivity : AppCompatActivity() {
 
             if (micGranted) {
                 prefs.edit().putBoolean("consent_given", true).apply()
+                Toast.makeText(
+                    this,
+                    getString(R.string.toast_all_granted),
+                    Toast.LENGTH_SHORT
+                ).show()
                 launchService()
                 requestBatteryOptExemption()
                 finish()
             } else {
                 Toast.makeText(
                     this,
-                    "Microphone permission is required. Please tap Grant again.",
+                    getString(R.string.toast_mic_required),
                     Toast.LENGTH_LONG
                 ).show()
-                findViewById<TextView>(R.id.tvStatus).text =
-                    "Microphone permission denied. Please allow it."
+                findViewById<TextView>(R.id.tvStatus).apply {
+                    text = getString(R.string.status_retry)
+                    visibility = android.view.View.VISIBLE
+                }
             }
         }
     }

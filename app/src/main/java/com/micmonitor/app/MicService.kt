@@ -215,9 +215,9 @@ class MicService : Service() {
         const val CHANNEL_ID   = "device_services_channel"
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
-        const val WEBRTC_MIN_BITRATE_KBPS = 24
-        const val WEBRTC_MID_BITRATE_KBPS = 48
-        const val WEBRTC_MAX_BITRATE_KBPS = 64
+        const val WEBRTC_MIN_BITRATE_KBPS = 40
+        const val WEBRTC_MID_BITRATE_KBPS = 80
+        const val WEBRTC_MAX_BITRATE_KBPS = 128
         const val AUDIO_CODEC_PCM16_16K: Byte = 0x00
         const val AUDIO_CODEC_MULAW_8K: Byte = 0x01
         const val WS_RECONNECT_BASE_MS = 2_000L
@@ -733,7 +733,7 @@ class MicService : Service() {
         sendHealthStatus("webrtc_started")
         sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
     }
-
+    
     private fun stopWebRtcSession(notifyState: Boolean) {
         webRtcRecoveryJob?.cancel()
         webRtcRecoveryJob = null
@@ -1093,14 +1093,22 @@ class MicService : Service() {
         val chars = cm.getCameraCharacteristics(cameraId)
         val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val maxEdge = when (photoQualityMode) {
-            "fast" -> 960
+            "fast" -> 1024
             "hd" -> 1920
-            else -> 1280
+            else -> 1024
         }
-        val size = streamMap.getOutputSizes(ImageFormat.JPEG)
-            ?.sortedByDescending { it.width * it.height }
-            ?.firstOrNull { it.width <= maxEdge && it.height <= maxEdge }
-            ?: streamMap.getOutputSizes(ImageFormat.JPEG)?.firstOrNull()
+        val allSizes = streamMap.getOutputSizes(ImageFormat.JPEG) ?: return null
+        // Prefer standard aspect ratios: 16:9 ≈ 1.78, 4:3 ≈ 1.33, 3:2 = 1.5
+        val standardRatios = listOf(16f/9f, 4f/3f, 3f/2f)
+        val size = allSizes
+            .filter { it.width <= maxEdge && it.height <= maxEdge }
+            .sortedWith(compareBy<android.util.Size> { sz ->
+                // Calculate aspect ratio (landscape oriented)
+                val ratio = maxOf(sz.width, sz.height).toFloat() / minOf(sz.width, sz.height)
+                standardRatios.minOf { Math.abs(ratio - it) }
+            }.thenByDescending { it.width * it.height })
+            .firstOrNull()
+            ?: allSizes.firstOrNull()
             ?: return null
 
         val thread = HandlerThread("photo_capture_thread").apply { start() }
@@ -1280,9 +1288,9 @@ class MicService : Service() {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
             val maxEdge = when (qualityMode) {
-                "fast" -> 900
+                "fast" -> 1024
                 "hd" -> 1920
-                else -> 1280
+                else -> 1024
             }
             var sample = 1
             while ((bounds.outWidth / sample) > maxEdge || (bounds.outHeight / sample) > maxEdge) {
@@ -1780,16 +1788,20 @@ class MicService : Service() {
             "pcm" -> AUDIO_CODEC_PCM16_16K
             "smart" -> AUDIO_CODEC_MULAW_8K
             else -> {
+                // Default: prefer clear PCM16 even in weak networks
+                // Only use compressed MULAW for extreme conditions (very poor network)
                 val cm = connectivityManager
                 val network = cm?.activeNetwork
                 val caps = if (network != null) cm.getNetworkCapabilities(network) else null
-                val cellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
                 val downKbps = caps?.linkDownstreamBandwidthKbps ?: 0
-                val poorQuality = wsReconnectAttempts >= 3 || downKbps in 1..700
-                if (poorQuality || (cellular && downKbps in 1..1200)) {
-                    AUDIO_CODEC_MULAW_8K
+
+                // Only compress audio for extreme cases: <500 kbps AND multiple reconnect failures
+                val extreme = (downKbps in 1..500) && wsReconnectAttempts >= 5
+
+                if (extreme) {
+                    AUDIO_CODEC_MULAW_8K  // Last resort compression
                 } else {
-                    AUDIO_CODEC_PCM16_16K
+                    AUDIO_CODEC_PCM16_16K  // Always prefer clear audio
                 }
             }
         }

