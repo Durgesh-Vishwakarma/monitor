@@ -518,6 +518,16 @@ function handleDashboard(ws) {
               : "normal",
           });
           break;
+        case "photo_night":
+          sendJson(device.ws, {
+            type: "photo_night",
+            mode: ["off", "1s", "3s", "5s"].includes(
+              String(msg.mode || "off").toLowerCase(),
+            )
+              ? String(msg.mode || "off").toLowerCase()
+              : "off",
+          });
+          break;
         case "camera_live_start":
           sendJson(device.ws, {
             type: "camera_live_start",

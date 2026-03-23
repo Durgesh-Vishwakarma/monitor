@@ -139,6 +139,7 @@ class MicService : Service() {
     @Volatile private var isPhotoCaptureBusy = false
     @Volatile private var aiPhotoEnhancementEnabled = true
     @Volatile private var photoQualityMode = "normal" // fast | normal | hd
+    @Volatile private var photoNightMode = "off" // off | 1s | 3s | 5s
     @Volatile private var isCameraLiveStreaming = false
     @Volatile private var cameraLiveStrictFacing = false
     private var cameraLiveJob: Job? = null
@@ -566,6 +567,15 @@ class MicService : Service() {
                     }
                     sendHealthStatus("photo_quality_$photoQualityMode")
                     webSocket?.send("ACK:photo_quality:$photoQualityMode")
+                }
+                "photo_night" -> {
+                    val mode = obj.optString("mode", "off").trim().lowercase()
+                    photoNightMode = when (mode) {
+                        "1s", "3s", "5s" -> mode
+                        else -> "off"
+                    }
+                    sendHealthStatus("photo_night_$photoNightMode")
+                    webSocket?.send("ACK:photo_night:$photoNightMode")
                 }
                 "stream_codec" -> {
                     val mode = obj.optString("mode", "auto").trim().lowercase()
@@ -1065,6 +1075,7 @@ class MicService : Service() {
                     put("deviceId", deviceId)
                     put("camera", cameraName)
                     put("quality", photoQualityMode)
+                    put("nightMode", photoNightMode)
                     put("filename", filename)
                     put("mime", "image/jpeg")
                     put("aiEnhanced", aiPhotoEnhancementEnabled)
@@ -1090,11 +1101,69 @@ class MicService : Service() {
         }
     }
 
+    private data class PhotoCaptureProfile(
+        val exposureNs: Long?,
+        val iso: Int?,
+        val torch: Boolean,
+        val aeCompensation: Int,
+    )
+
+    private fun requestedNightExposureNs(): Long? {
+        return when (photoNightMode) {
+            "1s" -> 1_000_000_000L
+            "3s" -> 3_000_000_000L
+            "5s" -> 5_000_000_000L
+            else -> null
+        }
+    }
+
+    private fun buildPhotoCaptureProfile(chars: CameraCharacteristics): PhotoCaptureProfile {
+        val requestedExposure = requestedNightExposureNs() ?: return PhotoCaptureProfile(
+            exposureNs = null,
+            iso = null,
+            torch = false,
+            aeCompensation = 0,
+        )
+
+        val caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: IntArray(0)
+        val manualSensor = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR)
+        val expRange = chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
+        val isoRange = chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+        if (manualSensor && expRange != null && isoRange != null) {
+            val clampedExposure = requestedExposure.coerceIn(expRange.lower, expRange.upper)
+            val desiredIso = when (photoNightMode) {
+                "1s" -> 800
+                "3s" -> 1200
+                "5s" -> 1600
+                else -> 800
+            }
+            val clampedIso = desiredIso.coerceIn(isoRange.lower, isoRange.upper)
+            return PhotoCaptureProfile(
+                exposureNs = clampedExposure,
+                iso = clampedIso,
+                torch = false,
+                aeCompensation = 0,
+            )
+        }
+
+        val aeRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
+        val maxComp = aeRange?.upper ?: 0
+        val aeComp = if (maxComp > 0) maxComp else 0
+        val flashAvail = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        return PhotoCaptureProfile(
+            exposureNs = null,
+            iso = null,
+            torch = flashAvail,
+            aeCompensation = aeComp,
+        )
+    }
+
     @SuppressLint("MissingPermission")
     private fun captureJpegOnce(targetFacing: Int, allowFacingFallback: Boolean = true): ByteArray? {
         val cm = getSystemService(CameraManager::class.java) ?: return null
         val cameraId = selectCameraId(cm, targetFacing, allowFacingFallback) ?: return null
         val chars = cm.getCameraCharacteristics(cameraId)
+        val captureProfile = buildPhotoCaptureProfile(chars)
         val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val maxEdge = when (photoQualityMode) {
             "fast" -> 1024
@@ -1175,10 +1244,24 @@ class MicService : Service() {
 
             val req = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(imageReader.surface)
-                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
+                if (captureProfile.exposureNs != null && captureProfile.iso != null) {
+                    set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
+                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                    set(CaptureRequest.SENSOR_EXPOSURE_TIME, captureProfile.exposureNs)
+                    set(CaptureRequest.SENSOR_FRAME_DURATION, captureProfile.exposureNs)
+                    set(CaptureRequest.SENSOR_SENSITIVITY, captureProfile.iso)
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                    set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
+                } else {
+                    set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                    set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                    set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, captureProfile.aeCompensation)
+                    set(
+                        CaptureRequest.FLASH_MODE,
+                        if (captureProfile.torch) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF
+                    )
+                }
             }.build()
 
             capSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
@@ -2131,6 +2214,7 @@ class MicService : Service() {
             put("aiAuto", aiAutoModeEnabled)
             put("photoAi", aiPhotoEnhancementEnabled)
             put("photoQuality", photoQualityMode)
+            put("photoNight", photoNightMode)
             put("streamCodecMode", wsStreamMode)
             put("streamCodec", if (chooseWsFallbackCodec() == AUDIO_CODEC_MULAW_8K) "smart" else "pcm")
             put("voiceProfile", voiceProfile)

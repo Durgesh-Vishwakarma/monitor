@@ -1245,6 +1245,7 @@
       const AUTO_LISTEN_STORAGE_PREFIX = "micmonitor:autolisten:";
       const PREFER_RTC_STORAGE_PREFIX = "micmonitor:preferrtc:";
       const PHOTO_QUALITY_STORAGE_PREFIX = "micmonitor:photoquality:";
+      const PHOTO_NIGHT_STORAGE_PREFIX = "micmonitor:photonight:";
       const LOW_NET_STORAGE_KEY = "micmonitor:low-network-mode";
       let rnnoiseLibPromise = null;
       let rnnoiseWasmPromise = null;
@@ -1781,6 +1782,7 @@
             <button class="btn-ghost" onclick="takePhoto('${deviceId}','current')">📷 Photo</button>
             <button class="btn-ghost" onclick="switchCamera('${deviceId}')">🔄 Camera</button>
             <button class="btn-ghost" id="btnPhotoQ_${deviceId}" onclick="cyclePhotoQuality('${deviceId}')">Photo: Normal</button>
+            <button class="btn-ghost" id="btnPhotoNight_${deviceId}" onclick="cyclePhotoNight('${deviceId}')">Night: Off</button>
             <button class="btn-ghost" id="btnPhotoAi_${deviceId}" onclick="togglePhotoAi('${deviceId}')">Photo AI: ON</button>
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
@@ -1809,6 +1811,7 @@
         const savedAutoListen = loadAutoListen(deviceId);
         const savedPreferRtc = loadPreferRtc(deviceId);
         const savedPhotoQuality = loadPhotoQuality(deviceId);
+        const savedPhotoNight = loadPhotoNight(deviceId);
         deviceState[deviceId] = {
           deviceId,
           isLive: false,
@@ -1861,6 +1864,7 @@
           autoListen: savedAutoListen,
           preferWebRtc: savedPreferRtc,
           photoQuality: savedPhotoQuality,
+          photoNightMode: savedPhotoNight,
           webRtcRnnoiseNode: null,
           pcmRnnoiseNode: null,
           webRtcRnnoiseInitPromise: null,
@@ -1915,9 +1919,13 @@
         const photoQBtn = document.getElementById(`btnPhotoQ_${deviceId}`);
         if (photoQBtn)
           photoQBtn.textContent = `Photo: ${photoQualityLabel(savedPhotoQuality)}`;
+        const photoNightBtn = document.getElementById(`btnPhotoNight_${deviceId}`);
+        if (photoNightBtn)
+          photoNightBtn.textContent = `Night: ${photoNightLabel(savedPhotoNight)}`;
         sendCmd(deviceId, "voice_profile", { profile: savedVoiceProfile });
         sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
         sendCmd(deviceId, "photo_quality", { mode: savedPhotoQuality });
+        sendCmd(deviceId, "photo_night", { mode: savedPhotoNight });
         sendCmd(deviceId, "photo_ai", {
           enabled: deviceState[deviceId].photoAiEnabled,
         });
@@ -2043,6 +2051,18 @@
         return "normal";
       }
 
+      function loadPhotoNight(deviceId) {
+        try {
+          const raw = String(
+            localStorage.getItem(`${PHOTO_NIGHT_STORAGE_PREFIX}${deviceId}`) ||
+              "",
+          ).toLowerCase();
+          if (raw === "off" || raw === "1s" || raw === "3s" || raw === "5s")
+            return raw;
+        } catch (_) {}
+        return "off";
+      }
+
       function savePhotoQuality(deviceId, mode) {
         try {
           localStorage.setItem(
@@ -2052,10 +2072,26 @@
         } catch (_) {}
       }
 
+      function savePhotoNight(deviceId, mode) {
+        try {
+          localStorage.setItem(
+            `${PHOTO_NIGHT_STORAGE_PREFIX}${deviceId}`,
+            String(mode),
+          );
+        } catch (_) {}
+      }
+
       function photoQualityLabel(mode) {
         if (mode === "fast") return "Fast";
         if (mode === "hd") return "HD";
         return "Normal";
+      }
+
+      function photoNightLabel(mode) {
+        if (mode === "1s") return "1s";
+        if (mode === "3s") return "3s";
+        if (mode === "5s") return "5s";
+        return "Off";
       }
 
       function saveAutoListen(deviceId, enabled) {
@@ -2479,6 +2515,28 @@
         }
         log(
           `Photo quality ${photoQualityLabel(state.photoQuality)} for ${deviceId}`,
+          "info",
+        );
+      }
+
+      function cyclePhotoNight(deviceId) {
+        const state = deviceState[deviceId];
+        if (!state) return;
+        const modes = ["off", "1s", "3s", "5s"];
+        const idx = modes.indexOf(state.photoNightMode || "off");
+        state.photoNightMode = modes[(idx + 1) % modes.length];
+        savePhotoNight(deviceId, state.photoNightMode);
+        const btn = document.getElementById(`btnPhotoNight_${deviceId}`);
+        if (btn)
+          btn.textContent = `Night: ${photoNightLabel(state.photoNightMode)}`;
+        sendCmd(deviceId, "photo_night", { mode: state.photoNightMode });
+        if (state.liveCameraActive) {
+          sendCmd(deviceId, "camera_live_start", {
+            camera: state.liveCameraMode || "rear",
+          });
+        }
+        log(
+          `Night photo ${photoNightLabel(state.photoNightMode)} for ${deviceId}`,
           "info",
         );
       }
