@@ -1419,7 +1419,16 @@
 
       function getRnnoiseLib() {
         if (!rnnoiseLibPromise) {
-          rnnoiseLibPromise = import("/vendor/web-noise-suppressor/index.js");
+          // Try to load RNNoise, but fail gracefully if vendor files not found
+          rnnoiseLibPromise = import("/vendor/web-noise-suppressor/index.js").catch(
+            (e) => {
+              log(
+                "⚠️  RNNoise not available (vendor files missing). Using built-in audio filters.",
+                "warn",
+              );
+              throw e;
+            },
+          );
         }
         return rnnoiseLibPromise;
       }
@@ -1441,6 +1450,7 @@
           typeof AudioWorkletNode === "undefined"
         )
           return null;
+
         const key = kind === "webrtc" ? "webRtcRnnoiseNode" : "pcmRnnoiseNode";
         const node = state[key];
         if (node) return node;
@@ -1453,6 +1463,12 @@
 
         state[initKey] = (async () => {
           try {
+            // Check if vendor files exist by trying to load
+            const response = await fetch("/vendor/web-noise-suppressor/index.js", { method: "HEAD" });
+            if (!response.ok) {
+              throw new Error("RNNoise vendor files not found (404)");
+            }
+
             const lib = await getRnnoiseLib();
             if (!rnnoiseWorkletLoadedContexts.has(ctx)) {
               await ctx.audioWorklet.addModule(
@@ -1468,10 +1484,14 @@
             state[key] = rn;
             return rn;
           } catch (e) {
+            // Disable RNNoise on any error
             state.rnnoiseEnabled = false;
             const btn = document.getElementById(`btnRn_${state.deviceId}`);
-            if (btn) btn.textContent = "RNNoise: OFF";
-            log(`RNNoise init failed: ${e.message}`, "warn");
+            if (btn) btn.textContent = "RNNoise: UNAVAILABLE";
+            log(
+              `⚠️  RNNoise unavailable: ${e.message}. Using built-in filters instead.`,
+              "warn",
+            );
             return null;
           } finally {
             state[initKey] = null;
@@ -1917,7 +1937,7 @@
           if (raw === "0") return false;
           if (raw === "1") return true;
         } catch (_) {}
-        return true;
+        return false;  // Default OFF — vendor files not available, prevents performance issues
       }
 
       function saveRnnoiseEnabled(deviceId, enabled) {
