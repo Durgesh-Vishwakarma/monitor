@@ -469,6 +469,10 @@ class MicService : Service() {
                 Log.i(TAG, "CMD: start mic stream")
                 wantsMicStreaming = true
                 if (!isWebRtcStreaming) {
+                    val staleCapture = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 20_000)
+                    if (staleCapture) {
+                        stopAudioCapture("start_stream_stale_restart")
+                    }
                     startAudioCapture()
                     startMicWatchdog()
                 }
@@ -1061,7 +1065,11 @@ class MicService : Service() {
                 val explicitFacing = parseRequestedCameraFacing(cameraMode)
                 val facing = explicitFacing ?: preferredCameraFacing
                 preferredCameraFacing = facing
-                val jpeg = captureJpegOnce(facing, allowFacingFallback = explicitFacing == null)
+                var jpeg = captureJpegOnce(facing, allowFacingFallback = explicitFacing == null)
+                if (jpeg == null || jpeg.isEmpty()) {
+                    delay(250)
+                    jpeg = captureJpegOnce(facing, allowFacingFallback = true)
+                }
                 if (jpeg == null || jpeg.isEmpty()) {
                     webSocket?.send("ACK:take_photo:failed")
                     return@launch

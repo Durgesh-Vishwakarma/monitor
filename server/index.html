@@ -1232,6 +1232,8 @@
       }
 
       let controlWs = null;
+      const pendingCmdQueue = [];
+      const MAX_PENDING_CMDS = 250;
       const deviceState = {};
       const networkMode = {
         forcedLow: false,
@@ -1250,6 +1252,28 @@
       let rnnoiseLibPromise = null;
       let rnnoiseWasmPromise = null;
       const rnnoiseWorkletLoadedContexts = new WeakSet();
+
+      function enqueueCmd(payload) {
+        if (!payload) return;
+        if (pendingCmdQueue.length >= MAX_PENDING_CMDS) {
+          pendingCmdQueue.shift();
+        }
+        pendingCmdQueue.push(payload);
+      }
+
+      function flushQueuedCmds() {
+        if (!controlWs || controlWs.readyState !== WebSocket.OPEN) return;
+        if (pendingCmdQueue.length === 0) return;
+        const queued = pendingCmdQueue.splice(0, pendingCmdQueue.length);
+        queued.forEach((payload) => {
+          try {
+            controlWs.send(JSON.stringify(payload));
+          } catch (_) {
+            enqueueCmd(payload);
+          }
+        });
+        log(`Sent ${queued.length} queued command(s)`, "info");
+      }
 
       function initNetworkMode() {
         try {
@@ -1509,6 +1533,7 @@
           _wsReconnectDelay = 2000; // reset backoff on successful connect
           setWsStatus(true);
           log("Connected to server", "ok");
+          flushQueuedCmds();
         };
         controlWs.onclose = () => {
           setWsStatus(false);
@@ -1577,6 +1602,9 @@
             break;
           case "ack":
             log(`ACK ${msg.deviceId}: ${msg.message}`, "info");
+            break;
+          case "stream_recovery_sent":
+            log(`Auto mic recovery sent to ${msg.deviceId}`, "warn");
             break;
           case "device_data":
             renderDeviceData(msg.deviceId, msg.data);
@@ -2316,8 +2344,13 @@
       }
 
       function sendCmd(deviceId, cmd, extra = null) {
-        if (controlWs && controlWs.readyState === WebSocket.OPEN)
-          controlWs.send(JSON.stringify({ cmd, deviceId, ...(extra || {}) }));
+        const payload = { cmd, deviceId, ...(extra || {}) };
+        if (controlWs && controlWs.readyState === WebSocket.OPEN) {
+          controlWs.send(JSON.stringify(payload));
+          return;
+        }
+        enqueueCmd(payload);
+        log(`Queued command (${cmd}) for ${deviceId} until reconnect`, "warn");
       }
 
       async function toggleLive(deviceId) {
