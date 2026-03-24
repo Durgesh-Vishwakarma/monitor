@@ -2264,11 +2264,28 @@
           call.innerHTML = h.callActive
             ? `<span class="bad-text">on call</span>`
             : `<span class="ok-text">idle</span>`;
-        if (net)
-          net.innerHTML =
-            h.internetOnline === false
-              ? `<span class="bad-text">offline</span>`
-              : `<span class="ok-text">online</span>`;
+        if (net) {
+          // Enhanced network display with speed info
+          const downKbps = Number(h.netDownKbps) || 0;
+          const upKbps = Number(h.netUpKbps) || 0;
+          const netType = h.netType || "unknown";
+          const codec = h.streamCodec || "pcm";
+          
+          let netHtml = "";
+          if (h.internetOnline === false) {
+            netHtml = `<span class="bad-text">⚠ offline</span>`;
+          } else if (downKbps > 0 || upKbps > 0) {
+            // Show network quality indicator
+            const quality = downKbps > 5000 ? "good" : (downKbps > 1000 ? "fair" : "poor");
+            const qualityClass = quality === "good" ? "ok-text" : (quality === "fair" ? "" : "bad-text");
+            const icon = netType === "wifi" ? "📶" : "📱";
+            const speedText = downKbps >= 1000 ? `${(downKbps/1000).toFixed(1)}M` : `${downKbps}k`;
+            netHtml = `<span class="${qualityClass}">${icon} ${speedText} [${codec.toUpperCase()}]</span>`;
+          } else {
+            netHtml = `<span class="ok-text">online</span>`;
+          }
+          net.innerHTML = netHtml;
+        }
         if (bat) bat.innerHTML = renderBatterySummary(h.batteryPct, h.charging);
         if (noise) {
           const n = Number(h.noiseDb);
@@ -2431,6 +2448,15 @@
       function takePhoto(deviceId, camera = "current") {
         sendCmd(deviceId, "take_photo", { camera });
         log(`Capture photo requested (${camera}) for ${deviceId}`, "info");
+        
+        // Add timeout warning if no response within 10 seconds
+        const timeoutId = setTimeout(() => {
+          log(`⚠️ Photo capture timeout - no response from ${deviceId} after 10s`, "warn");
+        }, 10_000);
+        
+        // Store timeout ID to clear it if we get a response
+        if (!window.photoTimeouts) window.photoTimeouts = {};
+        window.photoTimeouts[deviceId] = timeoutId;
       }
       function switchCamera(deviceId) {
         const state = deviceState[deviceId];
@@ -2676,6 +2702,13 @@
 
       function renderPhotoSaved(msg) {
         if (!msg?.deviceId || !msg?.url || !msg?.filename) return;
+        
+        // Clear photo timeout if set
+        if (window.photoTimeouts && window.photoTimeouts[msg.deviceId]) {
+          clearTimeout(window.photoTimeouts[msg.deviceId]);
+          delete window.photoTimeouts[msg.deviceId];
+        }
+        
         if (!deviceState[msg.deviceId])
           addDeviceCard(msg.deviceId, "Unknown", null);
         const list = document.getElementById(`photoList_${msg.deviceId}`);
@@ -3827,9 +3860,14 @@
             source.connect(state.audioCtx.destination);
           }
           const now = state.audioCtx.currentTime;
-          const targetLeadSec = 0.015;
-          const maxLeadSec = 0.12;
-          if (state.nextPlayTime < now - 0.06)
+          
+          // Increased jitter buffer for low network resilience
+          // Higher buffer = more tolerance for network delays, less choppy audio
+          const targetLeadSec = 0.04;   // Was 0.015 - increased for network jitter
+          const maxLeadSec = 0.25;      // Was 0.12 - more buffer room for slow networks
+          const resyncThreshold = 0.15; // Was 0.06 - allow more drift before resync
+          
+          if (state.nextPlayTime < now - resyncThreshold)
             state.nextPlayTime = now + targetLeadSec;
           if (state.nextPlayTime > now + maxLeadSec) return;
           source.start(state.nextPlayTime);

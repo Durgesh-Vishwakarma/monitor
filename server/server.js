@@ -163,7 +163,7 @@ wss.on("connection", (ws, req) => {
   }
 });
 
-// ── Heartbeat timer: ping all clients every 25 s, kill unresponsive ones ────
+// ── Heartbeat timer: ping all clients every 15 s, kill unresponsive ones ────
 // This catches "zombie" connections where TCP silently dropped (mobile sleep,
 // flaky Wi-Fi, server-side NAT timeout) without a WebSocket close frame.
 const heartbeatTimer = setInterval(() => {
@@ -179,7 +179,7 @@ const heartbeatTimer = setInterval(() => {
       ws.terminate();
     }
   });
-}, 25_000);
+}, 15_000);  // More frequent heartbeat (was 25s)
 wss.on("close", () => clearInterval(heartbeatTimer));
 
 // ════════════════════════════════════════════════════════════════════
@@ -545,10 +545,26 @@ function handleDashboard(ws) {
           });
           break;
         case "take_photo":
-          sendJsonToDevice(targetId, {
+          if (sendJsonToDevice(targetId, {
             type: "take_photo",
             camera: String(msg.camera || "current").toLowerCase(),
-          });
+          })) {
+            // Notify dashboard that command was sent
+            broadcastToDashboard({
+              type: "photo_request_sent",
+              deviceId: targetId,
+              camera: msg.camera || "current",
+              ts: Date.now()
+            });
+          } else {
+            // Device not connected - send error to dashboard
+            broadcastToDashboard({
+              type: "photo_request_failed",
+              deviceId: targetId,
+              reason: "device_not_connected",
+              ts: Date.now()
+            });
+          }
           break;
         case "switch_camera":
           sendJson(device.ws, { type: "switch_camera" });
