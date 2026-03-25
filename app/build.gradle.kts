@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Version management - increment versionCode for each release
+val appVersionCode = 2  // Increment this for each update
+val appVersionName = "1.1.0"  // Human-readable version
+
 android {
     namespace = "com.micmonitor.app"
     compileSdk = 35
@@ -11,17 +15,21 @@ android {
         applicationId = "com.device.services.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        
+        // Make version accessible in code
+        buildConfigField("int", "VERSION_CODE", "$appVersionCode")
+        buildConfigField("String", "VERSION_NAME", "\"$appVersionName\"")
     }
 
     signingConfigs {
         create("release") {
-            storeFile = file("release.keystore")
-            storePassword = "MicMon@2026"
+            storeFile = file("C:\\Users\\vishw\\micmonitor.jks")
+            storePassword = "Durgesh12##"
             keyAlias = "micmonitor"
-            keyPassword = "MicMon@2026"
+            keyPassword = "Durgesh12##"
         }
     }
 
@@ -52,6 +60,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true  // Enable BuildConfig generation
     }
 
     packaging {
