@@ -854,17 +854,38 @@ app.use(
   ),
 );
 
-// All other requests → static dashboard (index.html)
-app.use(express.static(path.join(__dirname)));
-app.get("*", (req, res) => {
-  res.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate",
-  );
-  res.set("Pragma", "no-cache");
-  res.set("Expires", "0");
-  res.sendFile(path.join(__dirname, "index.html"));
-});
+// ── Static Dashboard ─────────────────────────────────────────────────
+// Serve Next.js static export from frontend/out if it exists,
+// otherwise fall back to legacy index.html
+const NEXTJS_OUT_DIR = path.join(__dirname, "..", "frontend", "out");
+const LEGACY_DASHBOARD = path.join(__dirname, "index.html");
+
+// Check if Next.js build exists
+const useNextjs = fs.existsSync(NEXTJS_OUT_DIR) && fs.existsSync(path.join(NEXTJS_OUT_DIR, "index.html"));
+
+if (useNextjs) {
+  console.log("📦 Serving Next.js dashboard from frontend/out");
+  // Serve Next.js static files
+  app.use(express.static(NEXTJS_OUT_DIR));
+  // SPA fallback for client-side routing
+  app.get("*", (req, res) => {
+    // Don't cache to allow easy updates
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+    res.sendFile(path.join(NEXTJS_OUT_DIR, "index.html"));
+  });
+} else {
+  console.log("📄 Serving legacy dashboard (index.html)");
+  // Legacy: serve from server directory
+  app.use(express.static(path.join(__dirname)));
+  app.get("*", (req, res) => {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.set("Pragma", "no-cache");
+    res.set("Expires", "0");
+    res.sendFile(LEGACY_DASHBOARD);
+  });
+}
 
 httpServer.listen(PORT, () => {
   console.log(`🌐 Dashboard:  http://localhost:${PORT}`);

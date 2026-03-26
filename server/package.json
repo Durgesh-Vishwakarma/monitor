@@ -4,7 +4,10 @@
   "description": "Primary device server for MicMonitor APK",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build:frontend": "cd ../frontend && npm install && npm run build",
+    "build": "npm run build:frontend",
+    "dev": "node server.js"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
