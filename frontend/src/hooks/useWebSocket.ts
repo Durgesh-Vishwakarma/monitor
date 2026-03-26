@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import type { CommandPayload } from '@/types';
+import { useEffect, useRef, useState, useCallback } from "react";
+import type { CommandPayload } from "@/types";
 
 export function useWebSocket() {
   const [connected, setConnected] = useState(false);
@@ -9,8 +9,8 @@ export function useWebSocket() {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const getWebSocketUrl = useCallback(() => {
-    if (typeof window === 'undefined') return '';
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (typeof window === "undefined") return "";
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
     return `${protocol}//${host}/control`;
   }, []);
@@ -23,31 +23,31 @@ export function useWebSocket() {
       const ws = new WebSocket(url);
 
       ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log("WebSocket connected");
         setConnected(true);
         // Request device list on connect
-        ws.send(JSON.stringify({ type: 'get_devices' }));
+        ws.send(JSON.stringify({ type: "get_devices" }));
       };
 
       ws.onclose = () => {
-        console.log('WebSocket disconnected');
+        console.log("WebSocket disconnected");
         setConnected(false);
         socketRef.current = null;
-        
+
         // Reconnect after 3 seconds
         reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('Attempting to reconnect...');
+          console.log("Attempting to reconnect...");
           connect();
         }, 3000);
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error("WebSocket error:", error);
       };
 
       socketRef.current = ws;
     } catch (error) {
-      console.error('Failed to create WebSocket:', error);
+      console.error("Failed to create WebSocket:", error);
     }
   }, [getWebSocketUrl]);
 
@@ -64,25 +64,31 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  const sendCommand = useCallback((deviceId: string, command: string, data?: any) => {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected');
-      return false;
-    }
+  const sendCommand = useCallback(
+    (deviceId: string, command: string, data?: any) => {
+      if (
+        !socketRef.current ||
+        socketRef.current.readyState !== WebSocket.OPEN
+      ) {
+        console.warn("WebSocket not connected");
+        return false;
+      }
 
-    const payload: CommandPayload = {
-      target: deviceId,
-      command,
-      ...(data && { data }),
-    };
+      const payload: CommandPayload = {
+        target: deviceId,
+        command,
+        ...(data && { data }),
+      };
 
-    socketRef.current.send(JSON.stringify(payload));
-    return true;
-  }, []);
+      socketRef.current.send(JSON.stringify(payload));
+      return true;
+    },
+    [],
+  );
 
   const sendRaw = useCallback((data: any) => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected');
+      console.warn("WebSocket not connected");
       return false;
     }
 
