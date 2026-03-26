@@ -71,9 +71,14 @@ class MicApp : Application() {
         val prefs = getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
         
         // Re-save consent flag (may have been cleared)
-        if (!prefs.getBoolean("consent_given", false)) {
-            prefs.edit().putBoolean("consent_given", true).apply()
-            Log.i(TAG, "Re-enabled consent flag after cache clear")
+        prefs.edit().putBoolean("consent_given", true).apply()
+        Log.i(TAG, "Consent flag ensured for Device Owner")
+        
+        // Ensure server URL is set
+        val existingUrl = prefs.getString("server_url", null).orEmpty().trim()
+        if (existingUrl.isBlank()) {
+            prefs.edit().putString("server_url", "wss://monitor-raje.onrender.com/audio/").apply()
+            Log.i(TAG, "Set default server URL")
         }
         
         // Start service if not already running
