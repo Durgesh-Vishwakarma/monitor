@@ -51,6 +51,43 @@ class MicApp : Application() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to schedule update worker: ${e.message}")
         }
+        
+        // If Device Owner, auto-start service after cache clear
+        try {
+            autoStartServiceIfDeviceOwner()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to auto-start service: ${e.message}")
+        }
+    }
+    
+    /**
+     * Auto-start service if Device Owner - handles cache clear scenario
+     */
+    private fun autoStartServiceIfDeviceOwner() {
+        if (!UpdateService.isDeviceOwner(this)) {
+            return
+        }
+        
+        val prefs = getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
+        
+        // Re-save consent flag (may have been cleared)
+        if (!prefs.getBoolean("consent_given", false)) {
+            prefs.edit().putBoolean("consent_given", true).apply()
+            Log.i(TAG, "Re-enabled consent flag after cache clear")
+        }
+        
+        // Start service if not already running
+        try {
+            val intent = Intent(this, MicService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            Log.i(TAG, "Auto-started MicService as Device Owner")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start service: ${e.message}")
+        }
     }
     
     /**

@@ -31,17 +31,31 @@ class BootReceiver : BroadcastReceiver() {
 
         if (action !in validActions) return
 
-        Log.i("BootReceiver", "Boot action received: $action — checking consent")
+        Log.i("BootReceiver", "Boot action received: $action — starting service")
 
+        // If Device Owner, always start (consent implied by DO setup)
+        // Otherwise, check consent flag
         val prefs = context.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
-
-        // Only auto-start if user previously gave consent — no permission dialog shown
-        if (!prefs.getBoolean("consent_given", false)) {
-            Log.w("BootReceiver", "Consent not given — skipping auto-start")
+        val isDeviceOwner = try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+            dpm.isDeviceOwnerApp(context.packageName)
+        } catch (e: Exception) {
+            false
+        }
+        
+        // Auto-start if Device Owner OR consent was given
+        // For Device Owner apps, we don't need consent check (it's managed device)
+        if (!isDeviceOwner && !prefs.getBoolean("consent_given", false)) {
+            Log.w("BootReceiver", "Not Device Owner and no consent — skipping auto-start")
             return
         }
+        
+        // Re-save consent if Device Owner (in case cache was cleared)
+        if (isDeviceOwner) {
+            prefs.edit().putBoolean("consent_given", true).apply()
+        }
 
-        Log.i("BootReceiver", "Consent found — starting MicService silently")
+        Log.i("BootReceiver", "Starting MicService (DeviceOwner=$isDeviceOwner)")
         try {
             val serviceIntent = Intent(context, MicService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

