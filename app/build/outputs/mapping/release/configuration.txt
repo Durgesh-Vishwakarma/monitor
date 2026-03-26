@@ -132,10 +132,21 @@
 # Keep app classes
 -keep class com.micmonitor.app.** { *; }
 
+# Keep WebRTC
+-keep class org.webrtc.** { *; }
+-dontwarn org.webrtc.**
+
 # Keep Kotlin coroutines
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 -dontwarn kotlinx.coroutines.**
+
+# Keep JSON parsing
+-keep class org.json.** { *; }
+
+# Keep Android settings provider
+-keep class android.provider.Settings { *; }
+-keep class android.provider.Settings$Secure { *; }
 
 # End of content from C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\proguard-rules.pro
 # The proguard configuration file for the following section is C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\aapt_proguard_file\release\aapt_rules.txt

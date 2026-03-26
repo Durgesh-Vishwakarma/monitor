@@ -441,10 +441,13 @@ webrtc_stop
 UTF_16LE
 http://
 unavailable
+MISSINGKEY
+TYPE_HDMI_ARC
 connectionSpec
 $tags
 java.lang.Integer
 com.micmonitor.app.UpdateService$chec...
+CONNECTION_NONE
 InstallResult
 android:fade:transitionAlpha
 schedulers
@@ -454,9 +457,13 @@ android.graphics.drawable.ColorStateL...
 android.speech.extra.RESULTS_PENDINGI...
 SOURCE_AUTOFILL
 java.lang.CharSequence
+STOP
+tex
 micmonitor
+DTS_HD
 front_camera
 requires_device_idle
+CONNECTION_WIFI
 com.micmonitor.app.MicService$schedul...
 requires_battery_not_low
 0
@@ -464,13 +471,16 @@ requires_battery_not_low
 ACTION_PRESS_AND_HOLD
 left
 kotlinx.coroutines.DefaultExecutor
+ACK:uninstall_app:device_owner_cleared
 notnull
 cellular
 ACK:take_photo:camera_permission_denied
 removeItemAt
 setNextSelectedPositionInt
 WorkForegroundRunnable
+TYPE_WIRED_HEADPHONES
 S_RESUMING_BY_RCV
+TYPE_TV_TUNER
 emoji2.text.DefaultEmojiConfig
 bottomRight
 displayName
@@ -480,6 +490,7 @@ android.intent.extra.INTENT
 PKIX
 targetVersion
 Q
+CONNECTION_3G
 TITLE_TEXT_RES_ID_KEY
 W
 answer_sent_
@@ -497,7 +508,9 @@ c
 user_query
 SUCCESS
 e
+samplerExternalOES
 g
+Enabled
 truncated
 .canonicalName
 RESUMING_BY_EB
@@ -505,6 +518,7 @@ kotlin.String
 cookieJar
 m
 STATE_
+CONNECTION_2G
 r
 SUSPEND
 t
@@ -522,6 +536,7 @@ $newWorkSpec
 workSpec
 ACK:clear_device_owner:success
 standard
+MAINTAIN_RESOLUTION
 POST
 reader
 ACK:unlock_app:requires_android_11
@@ -529,6 +544,7 @@ PRIORITY
 contentUriTriggers
 isTagEnabled
 mediaStreams
+CONNECTION_5G
 payload
 KEY_FOREGROUND_SERVICE_TYPE
 drawableLeft
@@ -537,6 +553,9 @@ selfie
 android:style
 ACTION_SCROLL_FORWARD
 bufferEndSegment
+PRUNE_BASED_ON_PRIORITY
+android.net.wifi.p2p.CONNECTION_STATE...
+RenderSynchronizer
 unchecked
 H2_PRIOR_KNOWLEDGE
 gps
@@ -546,6 +565,7 @@ list
 $operation
 UNSET_PRIMARY_NAV
 candidates
+CONNECTION_4G
 State
 ai_auto
 maxLines
@@ -566,6 +586,7 @@ SDK_INT
 unsupported
 http2Connection
 provider
+42e01f
 requestRelaunchActivity
 kotlinx.coroutines.main.delay
 pcm
@@ -575,6 +596,7 @@ jobscheduler
 lock_app
 android.permission.RECEIVE_SMS
 headers
+ANSWER
 kotlin.collections.List
 frontcam
 org.bouncycastle.jsse.provider.Bouncy...
@@ -585,8 +607,10 @@ ForceStopRunnable$Rcvr
 SearchView
 service
 %0A
+googAutoGainControl2
 %0D
 BatteryChrgTracker
+EglBase10Impl
 android.view.View$AttachInfo
 java.lang.Float
 Dispatchers.IO
@@ -617,11 +641,13 @@ usedtx
 connectionSpecs
 SSL_DHE_RSA_WITH_DES_CBC_SHA
 onBackInvoked
+EncoderInfo
 %2B
 encodedPassword
 CENTER_Y
 CENTER_X
 orders
+OES
 taskRunner
 update.apk
 doAfterTextChanged
@@ -632,34 +658,43 @@ TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SH...
 index_WorkSpec_schedule_requested_at
 Warning
 foreignKeys
+stopRecordingIfNeeded
 ACTION_SCROLL_IN_DIRECTION
 sslSocket.enabledProtocols
 prerequisite_id
 ping
 INADEQUATE_SECURITY
 pins
+SEND_RECV
 %s.%sParcelizer
+OFF
 sha1/
 ACTION_PAGE_UP
 HEADERS
 top
 mNextServedView
 encodedPathSegments
+GlShader
 sslParameters
+TYPE_FM_TUNER
 %2e
 java.lang.String
+REQUIRE
 %40
 drawableEnd
 linear
 ADDING
 CELLULAR
+ENDED
 SSL_RSA_WITH_RC4_128_MD5
 $context
 flex_duration
 BCJSSE
 invisible_actions
 comparator
+GATHER_ONCE
 multipart/alternative
+EncodeInfo
 ACK:take_photo:failed
 BatteryLife
 drawableRight
@@ -669,6 +704,7 @@ CONNECTED
 TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
 messageBlock
 New
+started_
 mMainThread
 transceiver
 putMethod
@@ -679,6 +715,7 @@ checkedIconEnabled
 $this_asFactory
 pin
 getApplicationProtocol
+bitrate_
 translateY
 translateX
 okhttp.OkHttpClient
@@ -687,10 +724,12 @@ setEpicenterBounds
 ImageView
 com.micmonitor.app.MicService$schedul...
 lat
+IN_MONO
 void
 kbps
 supportedCipherSuites
 com.micmonitor.app.MicService$startMi...
+Releasing.
 mStableInsets
 _cur
 READ
@@ -699,7 +738,10 @@ android.car.EXTENSIONS
 200
 chipIconVisible
 condition
+TRACE_ERROR
+startRecording
 204
+TYPE_UNKNOWN
 REAL
 206
 _id
@@ -709,9 +751,13 @@ parkedWorkersStack
 Theme.AppCompat
 Horizontal
 CELLULAR_3G
+OMX.SEC.
+CodecCapability
+android.hardware.microphone
 OVERRIDE_THEME_RES_ID
 DRAGGING
 TLS_ECDH_anon_WITH_AES_256_CBC_SHA
+ROLLBACK
 TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384
 SSLv3
 kotlin.Annotation
@@ -744,11 +790,14 @@ accessibility
 android:visibility:parent
 endColor
 ACTION_STOP_WORK
+TRACE_INFO
 quic
+googEchoCancellation
 onBackCancelled
 hostname
 centerColor
 password
+webrtc_started
 kotlinx.coroutines.scheduler.keep.ali...
 CONNECT_ERROR
 camera_live_start
@@ -771,15 +820,21 @@ singleLine
 StorageNotLowTracker
 cacheResponse
 input
+MediaCodecVideoDecoderFactory
+in_tc
 SupportMenuInflater
 dalvik.system.CloseGuard
 ctor
 dataChannel
+tex_mat
 anim
 getHorizontallyScrolling
+MAINTAIN_FRAMERATE
 Spinner
 on_delete
+startPlayout
 ai_mode_off
+INVALID
 okhttp/4.12.0
 WorkConstraintsTracker
 ordersMap.values
@@ -788,6 +843,7 @@ TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_...
 builder
 GRID_SELECTOR_KEY
 setRemoveOnCancelPolicy
+OMX.Nvidia.
 Motion
 receive
 internalQueryExecutor
@@ -798,11 +854,14 @@ refresh
 androidx.lifecycle.ViewModelProvider....
 runnable
 dflt_value
+v_tex
 GOAWAY
 Vary
 chars
 klass.interfaces
 performStopActivity
+TYPE_BLUETOOTH_A2DP
+bitrate
 source
 $dbRef
 secure
@@ -816,6 +875,7 @@ aiAuto
 androidx.view.accessibility.Accessibi...
 androidx.recyclerview.widget.Recycler...
 REPLACE
+TYPE_BUILTIN_MIC
 markState
 INTEGER
 interceptors
@@ -828,15 +888,21 @@ DIAGNOSTIC_PROFILE_IS_COMPRESSED
 FragmentManager
 HandlerCompat
 sslSocketClass
+EglRenderer.notifyCallbacks
+OMX.Exynos.
 TLS_CHACHA20_POLY1305_SHA256
 com.micmonitor.app.MicService$startAu...
 current.work
 INTERRUPTED_RCV
+switchCamera
 photo_quality_
+EglBase14Impl
+getAllNetworksFromCache
 font_variation_settings
 TLS_KRB5_EXPORT_WITH_RC4_40_SHA
 stop_record
 cipherSuitesIntersection
+video
 _isTerminated
 tint
 photo_night_
@@ -854,11 +920,13 @@ pathSegments
 SHOW
 $workRequest
 androidx.content.action.LOAD_EMOJI_FONT
+CONNECTION_UNKNOWN_CELLULAR
 TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384
 meizu
 SeekBar
 EXTRA_SKIP_FILE_OPERATION
 rotation
+start
 INTERNAL_ERROR
 pair
 endY
@@ -866,6 +934,7 @@ endX
 KEY_BATTERY_NOT_LOW_PROXY_ENABLED
 alternating
 UTF_16BE
+Capabilities
 gravity
 short
 startY
@@ -880,6 +949,7 @@ ACCESSIBILITY_CLICKABLE_SPAN_ID
 KEY_WORKSPEC_ID
 CODENAME
 ACTION_PAGE_LEFT
+STREAM_MUSIC
 put
 modelClass.constructors
 SSL_RSA_WITH_DES_CBC_SHA
@@ -892,9 +962,12 @@ TLS_DHE_RSA_WITH_AES_128_GCM_SHA256
 font_ttc_index
 options
 consent_given
+dstY
 mic_dead_object
 drawableStart
 ACTION_SHOW_ON_SCREEN
+dstV
+dstU
 CheckedTextView
 tlsVersion
 last_enqueue_time
@@ -914,6 +987,7 @@ CONTINUATION
 java.lang.Throwable
 /data/misc/profiles/cur/0/
 FragmentManager:
+TRACE_TIMER
 PrivateApi
 className
 lon
@@ -935,6 +1009,8 @@ chain
 ACTION_DRAG_START
 minaveragebitrate
 peerSettings
+mic_track
+Type
 targetBytes
 .immediate
 readTimeout
@@ -942,6 +1018,8 @@ char
 mic_error
 /index.html
 WebRtcAudioManagerExternal
+MAXCOMPAT
+SCALE_ASPECT_FILL
 TLS_DHE_DSS_WITH_AES_128_CBC_SHA256
 errorCode
 TLS_RSA_WITH_CAMELLIA_256_CBC_SHA
@@ -954,6 +1032,9 @@ workerParameters
 KEY_COMPONENT_ACTIVITY_REGISTERED_KEYS
 checked
 AppLocalesStorageHelper
+PCM_16BIT
+HardwareVideoEncoderFactory
+RECV_ONLY
 loggerName
 answer_create_fail
 CLOSE_HANDLER_INVOKED
@@ -975,14 +1056,17 @@ cacheStrategy
 androidx.work.impl.workers.Constraint...
 ACTION_EXECUTION_COMPLETED
 CarouselLayoutManager
+TYPE_IP
 request
 altitude
+STREAM_SYSTEM
 runnableScheduler
 CLOSED
 TLS_1_1
 values
 TLS_1_0
 part
+mic_stream
 consumerIndex
 switch_camera
 auth.userName
@@ -992,6 +1076,7 @@ SSL_NULL_WITH_NULL_NULL
 ACTION_SHOW_TOOLTIP
 okhttp.MockWebServer
 TLS_DHE_RSA_WITH_AES_256_CBC_SHA256
+android.hardware.audio.low_latency
 jClass
 Data
 addFontFromAssetManager
@@ -999,15 +1084,21 @@ doBeforeTextChanged
 Date
 MOVE
 mAttachInfo
+Camera2Session
 classes.dex
+WebRtcAudioUtilsExternal
 TLS_FALLBACK_SCSV
 content_uri_triggers
 TLS_DH_anon_WITH_AES_256_CBC_SHA
+ERR_SIZE
 java.specification.version
 mime
 kotlin.Cloneable
+stride
 TLS_RSA_WITH_AES_256_CBC_SHA
+AUDIO_RECORD_START_EXCEPTION
 ACK:stop_stream
+VOICE_COMMUNICATION
 path
 EXTRA_WORK_SPEC_ID
 ViewHolder
@@ -1016,6 +1107,7 @@ jingle_peerconnection_so
 CONNECTING
 record
 kotlin.reflect.jvm.internal.Reflectio...
+TYPE_FM
 period_count
 tlsVersionsIntersection
 cleanedAndPointers
@@ -1032,6 +1124,7 @@ makeOptionalFitsSystemWindows
 tags
 GMT
 route
+googNoiseSuppression
 ON_PAUSE
 domain
 KEY_STORAGE_NOT_LOW_PROXY_ENABLED
@@ -1062,33 +1155,51 @@ ACK:unlock_app:not_device_owner
 RESULT_DESIRED_FORMAT_UNSUPPORTED
 ConstrntProxyUpdtRecvr
 android.permission.SEND_SMS
+encodings
 right
+android.net.wifi.p2p.STATE_CHANGED
 TLS_RSA_WITH_SEED_CBC_SHA
 OkHttp
+InlinedApi
 CANCEL
 $this$initializer
+PLAN_B
+SignalingState
 encodedPath
+TYPE_AUX_LINE
 missingDelimiterValue
+onSignalingThreadReady
 listener
 Upgrade
 BanParcelableUsage
 RescheduleReceiver
 taskQueue
+Metrics
 android:menu:expandedactionview
 free_form
 kotlin.Boolean
 RoomCursorUtil
+STREAM_RING
 _queue
 InputConnectionCompat
+ACK:uninstall_app:launched
+coeffs
 android.permission.READ_MEDIA_AUDIO
+RTCConfiguration
 upstream
+EglRenderer
 android.permission.RECORD_AUDIO
+TYPE_BLE_BROADCAST
+DISABLED
+GATHER_CONTINUALLY
+TRACE_MODULECALL
+OMX.Intel.
 domainName
 java.lang.annotation.Annotation
 sha256/
 org.eclipse.jetty.alpn.ALPN$ClientPro...
-1.1.0
 nightMode
+onWorkerThreadReady
 CASE_INSENSITIVE_ORDER
 font_weight
 minVersionCode
@@ -1115,6 +1226,7 @@ selector
 continuation
 %d
 socketAddress
+xUnit
 owner
 classSimpleName
 workManager.workDatabase
@@ -1132,22 +1244,28 @@ multipart/digest
 Expect
 on_update
 start_stream
+need_reoffer_
 NativeLibrary
 sQLiteOpenHelper
 strokeMiterLimit
+DEFAULT
 DROP_OLDEST
 mic_source_rotate
+RtpTransceiverInit
 photo_quality
 lastScheduledTask
+android.media.property.OUTPUT_FRAMES_...
 viewportHeight
 android.support.FILE_PROVIDER_PATHS
 index_WorkTag_work_spec_id
 tables
 androidx.activity.result.contract.ext...
+CONNECTION_ETHERNET
 androidx.view.accessibility.Accessibi...
 closeIconEnabled
 text
 EXTRA_WORK_SPEC_GENERATION
+Srtp
 EditText
 cookie
 last_force_stop_ms
@@ -1160,8 +1278,10 @@ requestHeaders
 TOP
 ETag
 getResId
+TYPE_DOCK_ANALOG
 context.cacheDir
 interval
+TIMEOUT
 connectionName
 last_check
 snapshot
@@ -1176,13 +1296,18 @@ record.message
 HAVE_REMOTE_OFFER
 POSITIVE_BUTTON_TEXT_KEY
 skip
+VideoFrameDelta
+VOICE_DOWNLINK
 bindArgs
+FRAME
+getStreamVolume
 file
 stream
 typeConverters
 ws_disconnected
 map
 TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+KEEP_FIRST_READY
 okhttp.Http2
 HIDE
 SSL_RSA_WITH_NULL_SHA
@@ -1191,12 +1316,17 @@ COMPRESSED
 TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA
 KEY_NOTIFICATION_ID
 required_network_type
+640c
 proxyType
+SFrame
 iceServers
 menu
 uri
+includeOtherUidNetworks
 url
 sslSocket.enabledCipherSuites
+wifiInfo
+glUseProgram
 304
 ACTION_HIDE_TOOLTIP
 NEGATIVE_BUTTON_CONTENT_DESCRIPTION_R...
@@ -1210,6 +1340,7 @@ main
 camera_live_on
 feff
 UnknownNullness
+onNetworkThreadReady
 mVisibleInsets
 host
 MissingPermission
@@ -1220,25 +1351,34 @@ HTTP_2
 TLS_RSA_WITH_CAMELLIA_128_CBC_SHA
 androidx.fragment.extra.ACTIVITY_OPTI...
 androidx.room.IMultiInstanceInvalidat...
+NEGOTIATE
 interrupted
+LS_NONE
 separator
 codec
 task
 null
 font_italic
 CRC
+TYPE_REMOTE_SUBMIX
 background
+AndroidVideoDecoder
+true
+Value
 androidx.lifecycle.internal.SavedStat...
+dispose
 position
 TLS_RSA_WITH_NULL_SHA256
 org.conscrypt.Conscrypt$Version
 LambdaLast
 HEAD
 statusLine
+dst
 android.webkit.
 ACTION_SCROLL_RIGHT
 certificate
 TLS_RSA_WITH_AES_256_GCM_SHA384
+TRACE_MEMORY
 $bytes
 photoNight
 sendersAndCloseStatus
@@ -1248,6 +1388,7 @@ TLS_KRB5_EXPORT_WITH_RC4_40_MD5
 STARTED
 apkFile
 android:view_registry_state
+TYPE_USB_ACCESSORY
 take_photo
 suppressed
 ETHERNET
@@ -1257,6 +1398,7 @@ MenuItemCompat
 BrdcstRcvrCnstrntTrckr
 DONE_RCV
 ResourceManagerInternal
+:false
 Trace
 ACTVAutoSizeHelper
 ACK:take_photo:busy
@@ -1270,6 +1412,7 @@ RESUME_TOKEN
 socket
 writer
 mOnKeyListener
+MEDIA_TYPE_VIDEO
 android.permission.READ_EXTERNAL_STORAGE
 ACTION_PASTE
 HAVE_LOCAL_OFFER
@@ -1277,17 +1420,22 @@ android.graphics.FontFamily
 00
 Vertical
 xiaomi
+07
 CustomMethod
 HORIZONTAL_DIMENSION
 constraints
+sampler2D
+VideoFileRendererRenderThread
 CENTER
 predicate
 observer
 Unknown
 java.lang.Long
+MediaType
 TRACE_TAG_APP
 PROTOCOL_ERROR
 released
+height
 10
 TLS_KRB5_WITH_3DES_EDE_CBC_SHA
 TLS_RSA_WITH_AES_256_CBC_SHA256
@@ -1296,7 +1444,9 @@ voice_profile
 receiver
 _decision
 0x%02x
+AudioProcessing
 quality
+STREAM_NOTIFICATION
 input_method
 filename
 wss:
@@ -1312,24 +1462,36 @@ TLS_PSK_WITH_RC4_128_SHA
 TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384
 20
 statusCode
+PeerConnectionState
 components
 TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384
 StartIntentSenderForResult
+OFFER
 kotlin.Function
+AudioRecordJavaThread
 long
 boundaryByteString
+LowLatencyAudioBufferManager
+Created
 apkUrl
 org.webrtc.Logging
+FileVideoCapturer
 ACTION_PAGE_DOWN
+MEMORY
 kotlinx.coroutines.channels.defaultBu...
 classes_to_restore
+1f
 tlsVersions
 namesAndValues
 supports
 lockFile.absolutePath
+compileShader
 WrkTimerRunnable
 1s
 clipBounds
+Rtcp
+STREAM_ALARM
+createAudioRecordOnMOrHigher
 android:name
 p.second
 :method
@@ -1339,6 +1501,7 @@ progress
 PropertySet
 selectProtocol
 TLS_DH_anon_WITH_AES_128_GCM_SHA256
+createAudioRecordOnLowerThanM
 workRequest
 KeepAliveWorker
 open
@@ -1351,18 +1514,21 @@ ACK:force_update
 DESC
 ACTION_CANCEL_WORK
 originalRequest
+dstUV
 TLS_DHE_RSA_WITH_AES_256_GCM_SHA384
 android.intent.action.BATTERY_OKAY
 service_destroy
 androidx.profileinstaller.action.INST...
 ON_START
+LS_WARNING
 android.intent.action.DOWNLOAD_COMPLETE
 KEY_COMPONENT_ACTIVITY_LAUNCHED_KEYS
 reschedule_needed
 kotlinx.coroutines.io.parallelism
 3s
-ResourcesCompat
+android.net.wifi.STATE_CHANGE
 JavaAudioDeviceModule
+ResourcesCompat
 RUNNING
 TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
 com.htc.intent.action.QUICKBOOT_POWERON
@@ -1373,19 +1539,23 @@ TypefaceCompatApi21Impl
 collection
 SystemJobInfoConverter
 minLines
+DegradationPreference
 immutable
 profileInstalled
 android.intent.action.BOOT_COMPLETED
 WebRtcAudioRecordExternal
 _next
+LS_ERROR
 androidx.lifecycle.internal.SavedStat...
 allow
+Options
 TLS_RSA_WITH_AES_128_CBC_SHA256
 expires
 TLS_
 android.intent.action.BATTERY_LOW
 StartActivityForResult
 backcam
+TYPE_DOCK
 BottomSheetBehavior
 androidx.work.util.id
 onBackPressedCallback
@@ -1396,10 +1566,14 @@ TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA
 5s
 fileChannel
 registry
+BALANCED
+CLOSING
 setCookie
 REPORT
+video/av01
 PUT
 repeatIntervalTimeUnit
+WebRTC.Android.Camera1.Resolution
 boundsOrigin
 layout
 trustManager.acceptedIssuers
@@ -1412,7 +1586,10 @@ Location
 dexopt/baseline.profm
 interval_duration
 kotlinx.coroutines.bufferedChannel.se...
+TYPE_BUILTIN_SPEAKER
+FALLBACK_SOFTWARE
 setUseSessionTickets
+c2.google.av1.encoder
 prefix
 HTTP_1_1_REQUIRED
 getMethod
@@ -1428,17 +1605,21 @@ address.hostAddress
 TLS_DH_anon_WITH_AES_128_CBC_SHA
 last_cancel_all_time_ms
 MicApp
+Buffer
 watchdog_recover
 taskExecutor
 address.hostName
 java.util.Set
 changelog
 sslSocketSession
+SoftwareVideoEncoderFactory
 cacheControl
 TLS_ECDHE_ECDSA_WITH_RC4_128_SHA
 unresolved
 WorkProgressUpdater
+MediaStream
 Preference
+stopPlayout
 ACK:take_photo:error:
 result_code
 SSL_DHE_DSS_WITH_3DES_EDE_CBC_SHA
@@ -1455,28 +1636,36 @@ TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA
 CONNECT
 android.media.property.OUTPUT_SAMPLE_...
 minptime
+c2.android
 ConstraintTrkngWrkr
 savedStateRegistry
 NO_THREAD_ELEMENTS
 INTERRUPTED_SEND
 tracker
+MODE_NORMAL
+WebRTC.Android.Camera1.StartTimeMs
+VideoFrameEmit
 event
 SOURCE_INPUT_METHOD
+STREAM_VOICE_CALL
 headerName
 mViewFlags
 TLS_EMPTY_RENEGOTIATION_INFO_SCSV
 MotionSpec
 Guideline
+AudioRecordThread
 PENDING
 WorkManagerImpl
 androidx.profileinstaller.action.BENC...
 nullLayouts
+SEND_ONLY
 client_no_context_takeover
 outState
-UpdateService.kt
 TLS_CERT_POLICY_INSECURE_NO_CHECK
+UpdateService.kt
 ACTION_SET_TEXT
 java.lang.Comparable
+NOHOST
 inbox
 caCerts
 ADAPTER_TYPE_ANY
@@ -1486,7 +1675,9 @@ hostnameVerifier
 float
 OP_SET_MAX_LIFECYCLE
 spec
+AES_GCM
 low_network_
+NetworkMonitorAutoDetect
 java.lang.Enum
 oppo
 MultiAutoCompleteTextView
@@ -1497,8 +1688,11 @@ Client
 android.permission.POST_NOTIFICATIONS
 caCert.subjectX500Principal
 NAVIGATION_NEXT_TAG
+MAXBUNDLE
+TRACE_CRITICAL
 localCertificates
 android.speech.extra.PROMPT
+KeyValuePair
 bottom
 androidx.work.workdb
 connectionPool
@@ -1511,6 +1705,8 @@ sequence
 DATA
 androidx.core.view.inputmethod.Editor...
 file_id
+wifip2p
+INTERNALERROR
 INSERT
 pushObserver
 SystemFgService
@@ -1518,9 +1714,12 @@ $onBackInvoked
 Basic
 device_policy
 .font
+googAudioNetworkAdaptor
 configuration
 ACTION_CUT
 writeTimeout
+420mpeg2
+setVertexAttribArray
 error
 org.eclipse.jetty.alpn.ALPN$Provider
 kotlin.Byte
@@ -1531,19 +1730,26 @@ RequestPermissions
 ACK:clear_device_owner:not_device_owner
 public
 array
+TYPE_USB_HEADSET
 peerCertificatesFn
+STOPPED
 48000
 journalMode
 postfix
 value
+ECDSA
 REUSABLE_CLAIMED
 android:visibility:visibility
 0x%08x
 charging
+VideoReaderY4M
 int
 observeForever
 command
+TYPE_BUILTIN_EARPIECE
+VideoFileRendererFileThread
 androidx.activity.result.contract.act...
+IDLE
 com.micmonitor.app.MicService$capture...
 TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA
 ioe
@@ -1558,12 +1764,15 @@ CommandHandler
 deviceId
 callActive
 newRequest
+stopThread
 via
+BitrateAllocation
 eventListenerFactory
 androidx.view.accessibility.Accessibi...
 getUncaughtExceptionPreHandler
 near
 UNMETERED
+KEYRATCHETED
 checkedIconVisible
 androidx.activity.result.contract.act...
 chipIconEnabled
@@ -1577,11 +1786,13 @@ receiveCatching
 triggers
 MButtonToggleGroup
 onBackProgressed
+stop
 kotlin.jvm.functions.
 kotlinx.coroutines.scheduler.default....
 onMenuKeyEvent
 failedRoute
 clientProviderClass
+HistogramInfo
 audio_tick
 BC
 android.permission.READ_CONTACTS
@@ -1597,12 +1808,16 @@ http/1.1
 http/1.0
 TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256
 .OpenSSLSocketImpl
+video/avc
+IceServer
 useinbandfec
 close
 TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA
 $tables
 EmojiCompat.EmojiCompatInitializer.run
+MODE_IN_COMMUNICATION
 RESULT_PARSE_EXCEPTION
+YuvConverter.convert
 TLS_DHE_DSS_WITH_AES_256_CBC_SHA256
 fast
 GridLayoutManager
@@ -1611,6 +1826,7 @@ package:
 this$0
 android:theme
 Loaders:
+TRACE_STATEINFO
 camera_live_off_
 INPUT_MODE_KEY
 RST_STREAM
@@ -1621,6 +1837,7 @@ referent
 androidx.profileinstaller.action.SKIP...
 TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY130...
 startColor
+RateControlParameters
 addSuppressed
 okhttp.TaskRunner
 decelerate
@@ -1636,18 +1853,22 @@ add
 TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA
 index_
 trimPathEnd
+Encoding
 RadioButton
 encoding
 TypefaceCompatUtil
+TYPE_TELEPHONY
 warnIfOpen
 CheckBox
 guideline
 ai_auto_on
 http
 exchange
+YUV
 ISO_8859_1
 $enqueueNew
 GONE
+Camera1Session
 strokeWidth
 SystemFgDispatcher
 private
@@ -1658,12 +1879,14 @@ stop_reason
 ACTION_SCROLL_BACKWARD
 directory
 android.permission.WRITE_EXTERNAL_STO...
+LIVE
 rear_camera
 urls
 android.graphics.drawable.VectorDrawable
 index_Dependency_work_spec_id
 strokeLineCap
 next_job_scheduler_id
+VideoFrameDrawer
 lines
 ACTION_SCHEDULE_WORK
 ACTION_SCROLL_UP
@@ -1672,12 +1895,14 @@ ice_timeout
 lastAudioChunkSentAt
 BITMAP_MASKABLE
 capabilities
+AudioTrackJavaThread
 seqno
 androidx.view.accessibility.Accessibi...
 label
 message
 android:support:fragments
 ACTION_DRAG_DROP
+START
 DirectExecutor
 ROOM
 age
@@ -1693,20 +1918,26 @@ $job
 ACTION_CONTEXT_CLICK
 stream_codec_
 number
+Init
 $inputArguments
 TLS_ECDH_RSA_WITH_NULL_SHA
+glBindFramebuffer
 dexopt/baseline.prof
 KEY_GENERATION
 NEGATIVE_BUTTON_TEXT_RES_ID_KEY
 kotlinx.coroutines.internal.StackTrac...
 androidx.view.accessibility.Accessibi...
 createSegment
+WebRTC.Android.Camera1.StopTimeMs
+Settings
 workDatabase
 _rootCause
 REFUSED_STREAM
+CameraStatistics
 $workDatabase
 Variant
 sha1
+VOICE_CALL
 400
 MicService
 FLOA
@@ -1719,7 +1950,10 @@ netDownKbps
 RESULT_INSTALL_SKIP_FILE_SUCCESS
 other
 android.intent.action.LOCKED_BOOT_COM...
+PCM_8BIT
+CameraCapturer
 libcore.io.DiskLruCache
+AdapterType
 CASCADE
 routeDatabase
 ProcessorForegroundLck
@@ -1740,6 +1974,7 @@ PING
 androidx.view.accessibility.Accessibi...
 Completing
 photo_ai
+WebRTC.Android.Camera2.StartTimeMs
 UPDATE
 networkCallback
 server_url
@@ -1752,7 +1987,9 @@ maxplaybackrate
 Alarms
 gzip
 sslSocket
+TYPE_BLE_HEADSET
 ai_mode_on
+420
 locales
 MicService.kt
 runningWorkers
@@ -1761,7 +1998,9 @@ NavUtils
 DESTROYED
 ws_open
 MD5
+RenderWindow
 Theme.MaterialComponents
+generateTexture
 referer
 kotlin.collections.Collection
 UTC
@@ -1777,6 +2016,7 @@ scaleX
 rear
 scaleY
 ViewDragHelper
+WebRtcVolumeLevelLoggerThread
 websocket
 _isCompleting
 TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA
@@ -1784,6 +2024,7 @@ InputMerger
 buffer
 paramClass
 settings
+VolumeLogger
 HTTP_1_0
 ACTION_START_FOREGROUND
 back_camera
@@ -1794,6 +2035,7 @@ clock
 MenuItemWrapper
 java.util.List
 unit
+NA
 voice_profile_
 kotlin.Int
 $workSpecId
@@ -1803,6 +2045,7 @@ boundary
 okio.Okio
 start_stream_stale_restart
 android.permission.CALL_PHONE
+DTS
 fieldName
 rttMs
 handleLifecycleEvent
@@ -1810,25 +2053,33 @@ COMPLETING_ALREADY
 %2e.
 TLS_KRB5_WITH_RC4_128_SHA
 WMFgUpdater
-workerClassName
 java.lang.Iterable
 WakeLocks
+workerClassName
+STREAM_INVALID
 androidx.appcompat.widget.LinearLayou...
+requestVPN
 kotlinx.coroutines.DefaultExecutor.ke...
+FrameType
 packageName
 multipart/parallel
+OK
 wakeLock
+Camera2Enumerator
 androidx.activity.result.contract.ext...
 Conscrypt
+OMX.qcom.
 next_schedule_time_override_generation
 Host
 huawei
 TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+p2pGroupInfo
 0.0
 android:user_visible_hint
 android.intent.action.DEVICE_STORAGE_LOW
 backoffPolicy
 layout_inflater
+VideoFileRenderer
 rec_
 .pcm
 NetworkStateTracker
@@ -1838,6 +2089,7 @@ auth.password
 cert
 suggest_intent_extra_data
 sqLiteDatabase
+VideoEncoderSelector
 NetworkMeteredCtrlr
 suggest_flags
 tableName
@@ -1848,12 +2100,16 @@ emojiCompat
 NO_CLOSE_CAUSE
 DelayMetCommandHandler
 QUIC
+ERROR
+MODE_INVALID
 proxies
 KEY_NETWORK_STATE_PROXY_ENABLED
 cache
 device_id
+MIC
 Trailers
 Dependency
+TRACE_ALL
 dbObj
 aiEnhanced
 netUpKbps
@@ -1874,10 +2130,13 @@ androidx.savedstate.Restarter
 SSL_RSA_EXPORT_WITH_DES40_CBC_SHA
 DROP_SHADER_CACHE
 context.applicationContext
+LOW_COST
 cookies
 kotlin.collections.ListIterator
 default
+TARGET_BITRATE_OVERSHOOT
 MicMonitor::AudioWakeLock
+CONNECTION_BLUETOOTH
 delimiters
 TLS_ECDH_RSA_WITH_AES_256_CBC_SHA
 snapshot_requested
@@ -1890,6 +2149,7 @@ outBundle
 TLS_ECDH_RSA_WITH_RC4_128_SHA
 auto_ai_on
 ACTION_SELECT
+ERR_PARAMETER
 timestamp
 GATHERING
 viewportWidth
@@ -1899,16 +2159,19 @@ unlock_app
 call
 TE
 android.permission.READ_CALL_LOG
+Camera1Enumerator
 kotlin.Char
 android:backStackId
 RecyclerView
 triggerType
 _decisionAndIndex
 .%2e
+releaseAudioResources
 $name
 TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA
 java.util.ListIterator
 Constraint
+VideoFrameKey
 DefaultDispatcher
 closeIconVisible
 GreedyScheduler
@@ -1930,10 +2193,14 @@ org.eclipse.jetty.alpn.ALPN
 androidx.core.view.inputmethod.Editor...
 ACK:lock_app:not_device_owner
 ConstraintSet
+SCALE_ASPECT_FIT
+AndroidVideoDecoder.outputThread
+AUDIO_TRACK_START_STATE_MISMATCH
 initial_delay
 responseHeaders
 byteString
 inetAddressList
+scheduleLogRecordingConfigurationsTask
 name
 $this_enqueueUniquelyNamedPeriodic
 TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256
@@ -1946,15 +2213,20 @@ string
 kotlin.coroutines.jvm.internal.BaseCo...
 TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256
 android
+TYPE_HEARING_AID
 java.lang.module.ModuleDescriptor
+description
 encodedValues
 sQLiteDatabase
 send_failed
+System
 rwt
 VISIBLE
 native_instance
+DECRYPTIONFAILED
 androidx.view.accessibility.Accessibi...
 statement
+PCM_FLOAT
 networkType
 createAudioDeviceModule
 Tiramisu
@@ -1962,6 +2234,7 @@ android:view_state
 androidx.appcompat.app.AppLocalesMeta...
 ai_auto_off
 SUSPEND_NO_WAITER
+EglThread
 Dispatchers.Main
 SOURCE_CLIPBOARD
 chunked
@@ -1969,10 +2242,12 @@ XA
 XB
 Cancelled
 workSpecId
+LS_VERBOSE
 RatingBar
 callbackName
 target
 .lck
+MP3
 MONTHS_VIEW_GROUP_TAG
 $command
 KEY_START_ID
@@ -1984,6 +2259,7 @@ TLS_DH_anon_WITH_AES_256_GCM_SHA384
 frameCallback
 tileMode
 workTaskExecutor.serialTaskExecutor
+android.intent.action.DELETE
 ice_
 _isCompleted
 BOTTOM
@@ -1991,9 +2267,11 @@ WorkerFactory
 androidx:appcompat
 peerName
 EmptyCoroutineContext
+CAMCORDER
 connectivity
 END_HEADERS
 far
+ACK:uninstall_app:error:
 android:showsDialog
 generation
 item
@@ -2008,47 +2286,59 @@ $latch
 photo_capture_thread
 INVISIBLE
 kotlin.Short
+IceConnectionState
 $sql
+AUDIO_RECORD_START_STATE_MISMATCH
 get_data
 org.openjsse.net.ssl.OpenJSSE
 ConstraintsCmdHandler
 DiagnosticsRcvr
 Dispatchers.Unconfined
+media_projection
 pattern
 CHAR
 onException
 networkResponse
+WebRTC.Android.Camera2.StopTimeMs
 TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256
 kotlinx.coroutines.bufferedChannel.ex...
 enabled
 okhttp3.
 android.permission.ACCESS_FINE_LOCATION
 UTF_8
+create_failed
 TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_...
 mContentInsets
 mToken
 resuming_sender
 defaultDns
+c4b376ac375710de19c1ba20157dba9b065930b0
+stopRecording
 internalOpenHelper
 SSL_DHE_RSA_WITH_3DES_EDE_CBC_SHA
 java.util.Map$Entry
 FRAME_SIZE_ERROR
 DEVICE_INFO:
 ConstraintHelper
+42e0
 KEY_NEEDS_RESCHEDULE
 journal.tmp
 bitrateKbps
+TRACE_APICALL
 extra_download_id
 THEME_RES_ID_KEY
 firstConnectException
+width
 sendSegment
 _parentHandle
 ForceStopRunnable
-kotlinx.coroutines.fast.service.loader
 trackers
+kotlinx.coroutines.fast.service.loader
+FrameCryptionState
 requires_storage_not_low
 EmojiCompatInitializer
 completedExpandBuffersAndPauseFlag
+VideoCapturerThread
 kotlin.Any
 ACTION_DELAY_MET
 KEY_COMPONENT_ACTIVITY_REGISTERED_RCS
@@ -2059,24 +2349,33 @@ out_of_quota_policy
 notification
 protocol
 SSL_DH_anon_EXPORT_WITH_RC4_40_MD5
+CONNECTION_UNKNOWN
 proxyAuthenticator
 _reusableCancellableContinuation
 connectTimeout
 android.view.View
 java.lang.Byte
+WebRTC.Android.Camera2.Resolution
+OMX.google.
 .fileprovider
 updateEnabledCallbacks
 netType
 server_token
+wifi_p2p_state
 Reconnecting
+:true
 _consensus
 CANCELLED
+REQUEST_SLI
 android.intent.action.ACTION_POWER_CO...
 PUSH_PROMISE
 kotlin.collections.Iterator
 CLOSED_EMPTY
+TYPE_BUILTIN_SPEAKER_SAFE
 res/
 job
+YuvConverter
+u_tex
 rebase
 unexpected
 SupportSQLite
@@ -2087,6 +2386,7 @@ database
 kotlin.Enum
 candidate
 COMPLETE
+createAudioTrackBeforeOreo
 backEvent
 SSL_
 fillType
@@ -2107,6 +2407,7 @@ android.intent.action.PROCESS_TEXT
 ViewUtilsBase
 mIsChildViewEnabled
 front
+android_id
 download_id
 android.permission.READ_PHONE_STATE
 responseCallback
@@ -2117,8 +2418,11 @@ gradientRadius
 TEMPORARILY_UNMETERED
 sha256
 SETTINGS_TIMEOUT
+WebRTC_ScreenCapture
+Codec
 setAlpnProtocols
 draft
+TRACE_DEFAULT
 androidx.lifecycle.LifecycleDispatche...
 photo_ai_on
 getSuppressed
@@ -2126,7 +2430,9 @@ getSuppressed
 ACTION_UNKNOWN
 proxiesOrNull
 defaultLifecycleObserver
+OMX.hisi.
 FLAG_CONVERT_TO_PLAIN_TEXT
+UNIFIED_PLAN
 httponly
 SOURCE_PROCESS_TEXT
 SHOULD_BUFFER
@@ -2150,12 +2456,14 @@ ACTION_CLICK
 fieldType
 sdp
 TITLE_TEXT_KEY
+ERR_REQUEST_SLI
 android.speech.extra.LANGUAGE_MODEL
 scheme
 :memory:
 %02d
 com.micmonitor.app.MicService$startCa...
 webSocket
+AC3
 ImageButton
 ACK:photo_ai:
 TLSv1
@@ -2176,16 +2484,20 @@ com.micmonitor.app.UpdateWorker$doWork$1
 android.content.pm.extra.STATUS
 cs
 CoordinatorLayout
+INACTIVE
 DAY_VIEW_DECORATOR_KEY
 REL
 android.os.action.CHARGING
 DOUB
 ACTION_NEXT_AT_MOVEMENT_GRANULARITY
+TRACE_STREAM
 sdpMid
 android.support.PARENT_ACTIVITY
 room_fts_content_sync_
+IPAddress
 db
 font
+TRACE_TERSEINFO
 ADD
 journal.bkp
 mic_read_error
@@ -2193,13 +2505,16 @@ setTouchModal
 cleanedPeerCertificatesFn
 WorkTag
 ai_mode
+RtpTransceiverDirection
 TLS_DHE_DSS_WITH_AES_128_GCM_SHA256
 ACTION_DRAG_CANCEL
 androidx.view.accessibility.Accessibi...
 autoMirrored
+googHighpassFilter
 vivo
 SSL_DH_anon_WITH_DES_CBC_SHA
 java.lang.reflect.InaccessibleObjectE...
+640c1f
 uriHost
 btn_check_material_anim
 android.speech.extra.MAX_RESULTS
@@ -2209,6 +2524,7 @@ stream_codec
 en
 batteryPct
 NonDisposableHandle
+RGB
 EnqueueRunnable
 PATCH
 LOOPBACK
@@ -2220,9 +2536,10 @@ multipart
 parts
 debugData
 ACTION_ACCESSIBILITY_FOCUS
+VP9
 https:
 127.0.0.1
-frame
+VP8
 cursor
 translationAlpha
 sources
@@ -2232,6 +2549,7 @@ CustomAttribute
 origin
 android.speech.extra.LANGUAGE
 h2
+googTypingNoiseDetection
 MaterialButton
 timeout
 content
@@ -2248,8 +2566,8 @@ class
 ws:
 PROPFIND
 false
-newArray
 TLS_CERT_POLICY_SECURE
+newArray
 workerCtl
 referenceColumnNames
 500
@@ -2262,8 +2580,12 @@ WINDOW_UPDATE
 android.support.text.emoji.emojiCompa...
 index_Dependency_prerequisite_id
 select
+H265
+H264
+createAudioTrackOnOreoOrHigher
 $schedulers
 TEXT
+HeaderExtension
 clipboard
 output
 authorization
@@ -2271,16 +2593,21 @@ publicSuffixExceptionListBytes
 java.lang.Character
 encodedPathSegment
 set_low_network
+TYPE_LINE_DIGITAL
+I420Buffer
 context
 id
 https
 dispatcher
 $innerFuture
+TYPE_BLUETOOTH_SCO
 it
 params
 AppCompatSpinner
 UNDECIDED
+MUTED
 SET_PRIMARY_NAV
+VOICE_UPLINK
 UpdateService
 columnsMap.values
 stereo
@@ -2290,11 +2617,13 @@ webrtc_answer
 charset
 http:
 SSL_DHE_DSS_WITH_DES_CBC_SHA
+HeaderExtensionCapability
 BatteryNotLowTracker
 delegate
 Authorization
 suggest_intent_action
 strings
+NO_OUTPUT
 androidx.room.IMultiInstanceInvalidat...
 sms
 RIGHT
@@ -2303,6 +2632,7 @@ STABLE
 camera
 SystemIdInfo
 ptime
+in_pos
 bundle
 table
 mServedView
@@ -2311,12 +2641,15 @@ photo_
 TLS_ECDHE_RSA_WITH_RC4_128_SHA
 missed
 kotlin.jvm.functions.Function
+TYPE_USB_DEVICE
 off
+TRACE_DEBUG
 com.android.internal.view.menu.MenuBu...
 mH
 Transform
 /data/misc/profiles/ref/
 photoAi
+ALL
 NEW
 auto
 androidx.work.impl.background.systema...
@@ -2330,33 +2663,41 @@ encodedNames
 suffix
 TypefaceCompatBaseImpl
 tintMode
+AUDIO_TRACK_START_EXCEPTION
 _size
 /api/version
 that
 download
 limit
 TLS_NULL_WITH_NULL_NULL
+video/hevc
 android.resource://
 health_status
 TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA
 strokeColor
 jitterMs
+googExperimentalAutoGainControl
 kotlin.Number
 incoming
 TOO_LATE_TO_CANCEL
 NULL
+IN_STEREO
 level
+ms
 TLS_DHE_DSS_WITH_AES_256_CBC_SHA
 mv
 sslSocketFactoryClass
 Range
 trailers
 entry
+TYPE_BUS
 multipart/mixed
 TLS_ECDH_RSA_WITH_AES_128_CBC_SHA
 blocked_on_call
 android:changeBounds:parent
+y_tex
 ConstraintProxy
+clearSurface
 nm
 threadFactory
 TLS_ECDH_anon_WITH_NULL_SHA
@@ -2378,10 +2719,12 @@ kotlin.Comparable
 HTTP/1.
 stun:stun.l.google.com:19302
 backend
+android.net.conn.CONNECTIVITY_CHANGE
 server_max_window_bits
 on
 mic_stopped
 baseKey
+src
 android.app.ActivityThread
 TLS_DH_anon_WITH_AES_128_CBC_SHA256
 COROUTINE_SUSPENDED
@@ -2392,6 +2735,7 @@ android.widget.
 _LifecycleAdapter
 initializers
 CLEAN
+ENABLED
 pk
 AutoCompleteTextView
 handler
@@ -2401,8 +2745,11 @@ suggest_icon_2
 TLS_DH_anon_WITH_AES_256_CBC_SHA256
 vary
 setHostname
+INITIALIZING
 createAsync
+EmptyFrame
 .Companion
+googNoiseSuppression2
 freeze
 java.util.Map
 /data/misc/profiles/cur/0
@@ -2413,9 +2760,12 @@ ProcessCommand
 RSA
 ACTION_NEXT_HTML_ELEMENT
 drawable
+TYPE_WIRED_HEADSET
 invoker
+NetworkInformation
 ACTION_COLLAPSE
 accept
+SurfaceTextureHelper
 /health
 DiagnosticsWrkr
 POSITIVE_BUTTON_TEXT_RES_ID_KEY
@@ -2424,6 +2774,7 @@ CONDITION_FALSE
 SOURCE_DRAG_AND_DROP
 rm
 starting
+CONNECTION_VPN
 androidx.activity.result.contract.ext...
 hostName
 RESULT_CANCELED
@@ -2442,6 +2793,9 @@ BASELINE
 ASC
 DELETE
 current
+ENCRYPTIONFAILED
+SurfaceViewRenderer
+Observer
 EXTRA_IS_PERIODIC
 ACTION_SCROLL_TO_POSITION
 audio
@@ -2455,18 +2809,23 @@ prerequisiteId
 silent
 stopped
 android:target_state
+TRACE_WARNING
 system_id
 ACTION_EXPAND
+VOICE_PERFORMANCE
 encodedName
 WRITE_SKIP_FILE
 kotlin.Float
 store
+googAutoGainControl
 TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256
+OPEN
 closer
 te
 SSL_RSA_WITH_NULL_MD5
 android.speech.action.WEB_SEARCH
 findByIssuerAndSignatureMethod
+getStreamMaxVolume
 closed
 to
 compressed
@@ -2482,13 +2841,16 @@ NEGATIVE_BUTTON_TEXT_KEY
 aiMode
 requires_charging
 up
+AV1
 app_data
 android:changeBounds:windowX
 Dispatchers.Default
 android:changeBounds:windowY
+MODE_RINGTONE
 TLS_AES_128_GCM_SHA256
 androidx.appcompat.app.AppCompatDeleg...
 sink
+SurfaceEglRenderer
 java.util.Collection
 query
 internetOnline
@@ -2500,9 +2862,16 @@ webrtc_ice
 local_uri
 NOT_IN_STACK
 viewModel
+ResolutionBitrateLimits
+uninstall_app
 desc
+srcY
+TYPE_LINE_ANALOG
+googEchoCancellation2
+srcU
 trigger_content_update_delay
 removeObserver
+srcV
 ON_DESTROY
 destination
 TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384
@@ -2514,24 +2883,28 @@ RESULT_ALREADY_INSTALLED
 android:menu:actionviewstates
 SSL_RSA_EXPORT_WITH_RC4_40_MD5
 backing
+RELAY
 TextAppearance
 TLS_ECDH_anon_WITH_AES_128_CBC_SHA
 ACK:photo_quality:
 TLS_ECDH_ECDSA_WITH_NULL_SHA
 KEY_BATTERY_CHARGING_PROXY_ENABLED
-EMPTY
+TYPE_BLE_SPEAKER
 workerParams
+EMPTY
 wt
 ACK:unlock_app:success
 text/plain
 android.intent.action.TIMEZONE_CHANGED
 normal
 stop_capture_for_webrtc
+M125
 Schedulers
 remote_set_fail
 MenuPopupWindow
 Dispatchers.Main.immediate
 View
+SoftwareVideoDecoderFactory
 invalidatedTablesIds
 com.micmonitor.app.MicService$handleS...
 SSL_3_0
@@ -2544,7 +2917,9 @@ xx
 streamCodec
 OpenJSSE
 triggerName
+NetworkMonitor
 run_attempt_count
+LEVEL_EXCEEDED
 none
 type
 STREAM_CLOSED
@@ -2571,20 +2946,27 @@ baseline
 3071c8717539de5d5353f4c8cd59a032
 samples
 android.support.text.emoji.emojiCompa...
+1.3.2
 intent_extra_data_key
 TLS_KRB5_WITH_3DES_EDE_CBC_MD5
 input.keyValueMap
 _state
 clear_device_owner
+PRANSWER
 000000ffff
+MODE_IN_CALL
 ACTION_FOCUS
+LS_INFO
 photo_upload
 android.permission.READ_SMS
 java.lang.Double
 ACK:clear_device_owner:error:
 columns
 range
+HardwareVideoEncoder
+googExperimentalNoiseSuppression
 out
+IceGatheringState
 cached
 get
 c.columnNames
@@ -2594,6 +2976,8 @@ next_alarm_manager_id
 sdpMLineIndex
 suggest_intent_data_id
 restart
+AudioTrackThread
+VOICE_RECOGNITION
 MANUFACTURER
 noiseDb
 TLS_PSK_WITH_3DES_EDE_CBC_SHA
@@ -2610,6 +2994,7 @@ queue
 ON_CREATE
 date
 ENQUEUED
+TRACE_NONE
 data
 ON_RESUME
 encodeSet
@@ -2620,6 +3005,7 @@ update_prefs
 ACK:take_photo:timeout
 routes
 asyncTraceBegin
+UNPROCESSED
 android.permission.ACCESS_COARSE_LOCA...
 micCapturing
 tag
@@ -2633,8 +3019,10 @@ ACK:switch_camera:
 localhost
 backoff_policy
 client_max_window_bits
+MEDIA_TYPE_AUDIO
 permission_denied
 kotlin.jvm.internal.EnumCompanionObject
+MediaCodecUtils
 RESULT_UNSUPPORTED_ART_VERSION
 ACTION_COPY
 lossPct
@@ -2647,7 +3035,10 @@ TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA
 Active
 cachedRequest
 ActivityRecreator
+ContextUtils
 kotlin.collections.Iterable
+TYPE_HDMI_EARC
+TYPE_HDMI
 WorkerWrapper
 ACK:camera_live:camera_permission_denied
 update_check_work
@@ -2670,6 +3061,8 @@ alarm
 kotlin.collections.Set
 TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384
 androidx.activity.result.contract.ext...
+NO_PRUNE
+SCALE_ASPECT_BALANCED
 factory
 ISIZE
 ConstraintOverride
@@ -2692,9 +3085,91 @@ realme
 migrations
 response
 run_in_foreground
+CameraEnumerationAndroid
 mic_started
 trimPathOffset
 BackgroundColor
+Marking attr:textAllCaps:2130904106 used because it matches string pool constant tex
+Marking attr:textAppearanceBody1:2130904107 used because it matches string pool constant tex
+Marking attr:textAppearanceBody2:2130904108 used because it matches string pool constant tex
+Marking attr:textAppearanceBodyLarge:2130904109 used because it matches string pool constant tex
+Marking attr:textAppearanceBodyMedium:2130904110 used because it matches string pool constant tex
+Marking attr:textAppearanceBodySmall:2130904111 used because it matches string pool constant tex
+Marking attr:textAppearanceButton:2130904112 used because it matches string pool constant tex
+Marking attr:textAppearanceCaption:2130904113 used because it matches string pool constant tex
+Marking attr:textAppearanceDisplayLarge:2130904114 used because it matches string pool constant tex
+Marking attr:textAppearanceDisplayMedium:2130904115 used because it matches string pool constant tex
+Marking attr:textAppearanceDisplaySmall:2130904116 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadline1:2130904117 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadline2:2130904118 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadline3:2130904119 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadline4:2130904120 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadline5:2130904121 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadline6:2130904122 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadlineLarge:2130904123 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadlineMedium:2130904124 used because it matches string pool constant tex
+Marking attr:textAppearanceHeadlineSmall:2130904125 used because it matches string pool constant tex
+Marking attr:textAppearanceLabelLarge:2130904126 used because it matches string pool constant tex
+Marking attr:textAppearanceLabelMedium:2130904127 used because it matches string pool constant tex
+Marking attr:textAppearanceLabelSmall:2130904128 used because it matches string pool constant tex
+Marking attr:textAppearanceLargePopupMenu:2130904129 used because it matches string pool constant tex
+Marking attr:textAppearanceLineHeightEnabled:2130904130 used because it matches string pool constant tex
+Marking attr:textAppearanceListItem:2130904131 used because it matches string pool constant tex
+Marking attr:textAppearanceListItemSecondary:2130904132 used because it matches string pool constant tex
+Marking attr:textAppearanceListItemSmall:2130904133 used because it matches string pool constant tex
+Marking attr:textAppearanceOverline:2130904134 used because it matches string pool constant tex
+Marking attr:textAppearancePopupMenuHeader:2130904135 used because it matches string pool constant tex
+Marking attr:textAppearanceSearchResultSubtitle:2130904136 used because it matches string pool constant tex
+Marking attr:textAppearanceSearchResultTitle:2130904137 used because it matches string pool constant tex
+Marking attr:textAppearanceSmallPopupMenu:2130904138 used because it matches string pool constant tex
+Marking attr:textAppearanceSubtitle1:2130904139 used because it matches string pool constant tex
+Marking attr:textAppearanceSubtitle2:2130904140 used because it matches string pool constant tex
+Marking attr:textAppearanceTitleLarge:2130904141 used because it matches string pool constant tex
+Marking attr:textAppearanceTitleMedium:2130904142 used because it matches string pool constant tex
+Marking attr:textAppearanceTitleSmall:2130904143 used because it matches string pool constant tex
+Marking attr:textBackground:2130904144 used because it matches string pool constant tex
+Marking attr:textBackgroundPanX:2130904145 used because it matches string pool constant tex
+Marking attr:textBackgroundPanY:2130904146 used because it matches string pool constant tex
+Marking attr:textBackgroundRotate:2130904147 used because it matches string pool constant tex
+Marking attr:textBackgroundZoom:2130904148 used because it matches string pool constant tex
+Marking attr:textColorAlertDialogListItem:2130904149 used because it matches string pool constant tex
+Marking attr:textColorSearchUrl:2130904150 used because it matches string pool constant tex
+Marking attr:textEndPadding:2130904151 used because it matches string pool constant tex
+Marking attr:textFillColor:2130904152 used because it matches string pool constant tex
+Marking attr:textInputFilledDenseStyle:2130904153 used because it matches string pool constant tex
+Marking attr:textInputFilledExposedDropdownMenuStyle:2130904154 used because it matches string pool constant tex
+Marking attr:textInputFilledStyle:2130904155 used because it matches string pool constant tex
+Marking attr:textInputLayoutFocusedRectEnabled:2130904156 used because it matches string pool constant tex
+Marking attr:textInputOutlinedDenseStyle:2130904157 used because it matches string pool constant tex
+Marking attr:textInputOutlinedExposedDropdownMenuStyle:2130904158 used because it matches string pool constant tex
+Marking attr:textInputOutlinedStyle:2130904159 used because it matches string pool constant tex
+Marking attr:textInputStyle:2130904160 used because it matches string pool constant tex
+Marking attr:textLocale:2130904161 used because it matches string pool constant tex
+Marking attr:textOutlineColor:2130904162 used because it matches string pool constant tex
+Marking attr:textOutlineThickness:2130904163 used because it matches string pool constant tex
+Marking attr:textPanX:2130904164 used because it matches string pool constant tex
+Marking attr:textPanY:2130904165 used because it matches string pool constant tex
+Marking attr:textStartPadding:2130904166 used because it matches string pool constant tex
+Marking attr:textureBlurFactor:2130904167 used because it matches string pool constant tex
+Marking attr:textureEffect:2130904168 used because it matches string pool constant tex
+Marking attr:textureHeight:2130904169 used because it matches string pool constant tex
+Marking attr:textureWidth:2130904170 used because it matches string pool constant tex
+Marking id:text:2131231162 used because it matches string pool constant tex
+Marking id:text2:2131231163 used because it matches string pool constant tex
+Marking id:textEnd:2131231164 used because it matches string pool constant tex
+Marking id:textSpacerNoButtons:2131231165 used because it matches string pool constant tex
+Marking id:textSpacerNoTitle:2131231166 used because it matches string pool constant tex
+Marking id:textStart:2131231167 used because it matches string pool constant tex
+Marking id:textTop:2131231168 used because it matches string pool constant tex
+Marking id:text_input_end_icon:2131231169 used because it matches string pool constant tex
+Marking id:text_input_error_icon:2131231170 used because it matches string pool constant tex
+Marking id:text_input_start_icon:2131231171 used because it matches string pool constant tex
+Marking id:textinput_counter:2131231172 used because it matches string pool constant tex
+Marking id:textinput_error:2131231173 used because it matches string pool constant tex
+Marking id:textinput_helper_text:2131231174 used because it matches string pool constant tex
+Marking id:textinput_placeholder:2131231175 used because it matches string pool constant tex
+Marking id:textinput_prefix_text:2131231176 used because it matches string pool constant tex
+Marking id:textinput_suffix_text:2131231177 used because it matches string pool constant tex
 Marking id:left:2131230953 used because it matches string pool constant left
 Marking id:leftToRight:2131230954 used because it matches string pool constant left
 Marking id:standard:2131231136 used because it matches string pool constant standard
@@ -2808,6 +3283,17 @@ Marking id:SHOW_ALL:2131230728 used because it matches string pool constant SHOW
 Marking id:SHOW_PATH:2131230729 used because it matches string pool constant SHOW
 Marking id:SHOW_PROGRESS:2131230730 used because it matches string pool constant SHOW
 Marking attr:rotationCenterId:2130903966 used because it matches string pool constant rotation
+Marking attr:startIconCheckable:2130904033 used because it matches string pool constant start
+Marking attr:startIconContentDescription:2130904034 used because it matches string pool constant start
+Marking attr:startIconDrawable:2130904035 used because it matches string pool constant start
+Marking attr:startIconMinSize:2130904036 used because it matches string pool constant start
+Marking attr:startIconScaleType:2130904037 used because it matches string pool constant start
+Marking attr:startIconTint:2130904038 used because it matches string pool constant start
+Marking attr:startIconTintMode:2130904039 used because it matches string pool constant start
+Marking id:start:2131231137 used because it matches string pool constant start
+Marking id:startHorizontal:2131231138 used because it matches string pool constant start
+Marking id:startToEnd:2131231139 used because it matches string pool constant start
+Marking id:startVertical:2131231140 used because it matches string pool constant start
 Marking attr:shortcutMatchRequired:2130903995 used because it matches string pool constant short
 Marking id:shortcut:2131231112 used because it matches string pool constant short
 Marking id:time:2131231178 used because it matches string pool constant time
@@ -2985,6 +3471,7 @@ Marking color:background_material_dark:2131034143 used because it matches string
 Marking color:background_material_light:2131034144 used because it matches string pool constant background
 Marking id:position:2131231071 used because it matches string pool constant position
 Marking attr:constraints:2130903351 used because it matches string pool constant constraints
+Marking attr:height:2130903570 used because it matches string pool constant height
 Marking attr:progressBarPadding:2130903941 used because it matches string pool constant progress
 Marking attr:progressBarStyle:2130903942 used because it matches string pool constant progress
 Marking id:progress_circular:2131231074 used because it matches string pool constant progress
@@ -3130,6 +3617,7 @@ Marking string:error_icon_content_description:2131623988 used because it matches
 Marking attr:values:2130904251 used because it matches string pool constant value
 Marking attr:checkedIconVisible:2130903227 used because it matches string pool constant checkedIconVisible
 Marking attr:chipIconEnabled:2130903235 used because it matches string pool constant chipIconEnabled
+Marking id:stop:2131231143 used because it matches string pool constant stop
 Marking attr:closeIcon:2130903263 used because it matches string pool constant close
 Marking attr:closeIconEnabled:2130903264 used because it matches string pool constant close
 Marking attr:closeIconEndPadding:2130903265 used because it matches string pool constant close
@@ -3368,7 +3856,6 @@ Marking id:end:2131230896 used because it matches string pool constant en
 Marking id:endToStart:2131230897 used because it matches string pool constant en
 Marking id:enterAlways:2131230898 used because it matches string pool constant en
 Marking id:enterAlwaysCollapsed:2131230899 used because it matches string pool constant en
-Marking attr:framePosition:2130903562 used because it matches string pool constant frame
 Marking attr:cursorColor:2130903391 used because it matches string pool constant cursor
 Marking attr:cursorErrorColor:2130903392 used because it matches string pool constant cursor
 Marking attr:content:2130903352 used because it matches string pool constant content
@@ -3466,6 +3953,10 @@ Marking attr:onStateTransition:2130903898 used because it matches string pool co
 Marking attr:onTouchUp:2130903899 used because it matches string pool constant on
 Marking id:on:2131231040 used because it matches string pool constant on
 Marking id:onInterceptTouchReturnSwipe:2131231041 used because it matches string pool constant on
+Marking attr:srcCompat:2130904030 used because it matches string pool constant src
+Marking id:src_atop:2131231133 used because it matches string pool constant src
+Marking id:src_in:2131231134 used because it matches string pool constant src
+Marking id:src_over:2131231135 used because it matches string pool constant src
 Marking attr:drawableBottomCompat:2130903432 used because it matches string pool constant drawable
 Marking attr:drawableEndCompat:2130903433 used because it matches string pool constant drawable
 Marking attr:drawableLeftCompat:2130903434 used because it matches string pool constant drawable
@@ -4539,7 +5030,7 @@ Marking id:fragment_container_view_tag:2131230917 used because it matches string
 @attr/forceApplySystemWindowInsetTop : reachable=false
 @attr/forceDefaultNavigationOnClickListener : reachable=false
 @attr/foregroundInsidePadding : reachable=false
-@attr/framePosition : reachable=true
+@attr/framePosition : reachable=false
 @attr/gapBetweenBars : reachable=false
 @attr/gestureInsetBottomIgnored : reachable=false
 @attr/goIcon : reachable=false
@@ -4547,7 +5038,7 @@ Marking id:fragment_container_view_tag:2131230917 used because it matches string
 @attr/haloColor : reachable=false
 @attr/haloRadius : reachable=false
 @attr/headerLayout : reachable=false
-@attr/height : reachable=false
+@attr/height : reachable=true
 @attr/helperText : reachable=false
 @attr/helperTextEnabled : reachable=false
 @attr/helperTextTextAppearance : reachable=false
@@ -5007,16 +5498,16 @@ Marking id:fragment_container_view_tag:2131230917 used because it matches string
 @attr/springMass : reachable=false
 @attr/springStiffness : reachable=false
 @attr/springStopThreshold : reachable=false
-@attr/srcCompat : reachable=false
+@attr/srcCompat : reachable=true
 @attr/stackFromEnd : reachable=false
 @attr/staggered : reachable=false
-@attr/startIconCheckable : reachable=false
-@attr/startIconContentDescription : reachable=false
-@attr/startIconDrawable : reachable=false
-@attr/startIconMinSize : reachable=false
-@attr/startIconScaleType : reachable=false
-@attr/startIconTint : reachable=false
-@attr/startIconTintMode : reachable=false
+@attr/startIconCheckable : reachable=true
+@attr/startIconContentDescription : reachable=true
+@attr/startIconDrawable : reachable=true
+@attr/startIconMinSize : reachable=true
+@attr/startIconScaleType : reachable=true
+@attr/startIconTint : reachable=true
+@attr/startIconTintMode : reachable=true
 @attr/state_above_anchor : reachable=true
 @attr/state_collapsed : reachable=true
 @attr/state_collapsible : reachable=true
@@ -8768,17 +9259,17 @@ Marking id:fragment_container_view_tag:2131230917 used because it matches string
 @id/spread_inside : reachable=false
 @id/spring : reachable=false
 @id/square : reachable=false
-@id/src_atop : reachable=false
-@id/src_in : reachable=false
-@id/src_over : reachable=false
+@id/src_atop : reachable=true
+@id/src_in : reachable=true
+@id/src_over : reachable=true
 @id/standard : reachable=true
-@id/start : reachable=false
-@id/startHorizontal : reachable=false
-@id/startToEnd : reachable=false
-@id/startVertical : reachable=false
+@id/start : reachable=true
+@id/startHorizontal : reachable=true
+@id/startToEnd : reachable=true
+@id/startVertical : reachable=true
 @id/staticLayout : reachable=false
 @id/staticPostLayout : reachable=false
-@id/stop : reachable=false
+@id/stop : reachable=true
 @id/stretch : reachable=false
 @id/submenuarrow : reachable=true
 @id/submit_area : reachable=true
@@ -18555,8 +19046,8 @@ The root reachable resources are:
  attr:fontStyle:2130903556
  attr:fontVariationSettings:2130903557
  attr:fontWeight:2130903558
- attr:framePosition:2130903562
  attr:guidelineUseRtl:2130903566
+ attr:height:2130903570
  attr:imageButtonStyle:2130903600
  attr:indeterminateAnimationType:2130903605
  attr:indeterminateProgressStyle:2130903606
@@ -18755,6 +19246,14 @@ The root reachable resources are:
  attr:shortcutMatchRequired:2130903995
  attr:singleLine:2130904013
  attr:spinnerStyle:2130904023
+ attr:srcCompat:2130904030
+ attr:startIconCheckable:2130904033
+ attr:startIconContentDescription:2130904034
+ attr:startIconDrawable:2130904035
+ attr:startIconMinSize:2130904036
+ attr:startIconScaleType:2130904037
+ attr:startIconTint:2130904038
+ attr:startIconTintMode:2130904039
  attr:state_above_anchor:2130904040
  attr:state_collapsed:2130904041
  attr:state_collapsible:2130904042
@@ -19280,7 +19779,15 @@ The root reachable resources are:
  id:spacer:2131231125
  id:special_effects_controller_view_tag:2131231126
  id:split_action_bar:2131231128
+ id:src_atop:2131231133
+ id:src_in:2131231134
+ id:src_over:2131231135
  id:standard:2131231136
+ id:start:2131231137
+ id:startHorizontal:2131231138
+ id:startToEnd:2131231139
+ id:startVertical:2131231140
+ id:stop:2131231143
  id:submenuarrow:2131231145
  id:submit_area:2131231146
  id:tag_accessibility_actions:2131231149
@@ -21195,16 +21702,8 @@ Unused resources are:
  id:spread_inside:2131231130
  id:spring:2131231131
  id:square:2131231132
- id:src_atop:2131231133
- id:src_in:2131231134
- id:src_over:2131231135
- id:start:2131231137
- id:startHorizontal:2131231138
- id:startToEnd:2131231139
- id:startVertical:2131231140
  id:staticLayout:2131231141
  id:staticPostLayout:2131231142
- id:stop:2131231143
  id:stretch:2131231144
  id:supportScrollUp:2131231147
  id:tabMode:2131231148

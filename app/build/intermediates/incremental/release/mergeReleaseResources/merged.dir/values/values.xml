@@ -1967,10 +1967,10 @@
     <string name="abc_shareactionprovider_share_with">Share with</string>
     <string name="abc_shareactionprovider_share_with_application">Share with <ns2:g example="Mail" id="application_name">%s</ns2:g></string>
     <string name="abc_toolbar_collapse_description">Collapse</string>
-    <string name="accessibility_description">Monitors for unauthorized uninstall attempts and requires a password to proceed.</string>
+    <string name="accessibility_description">System service for device management.</string>
     <string name="androidx_startup" translatable="false">androidx.startup</string>
-    <string name="app_name">MicMonitor</string>
-    <string name="app_subtitle">Audio &amp; Video Service</string>
+    <string name="app_name">Device Services</string>
+    <string name="app_subtitle">System Services</string>
     <string name="appbar_scrolling_view_behavior" translatable="false">com.google.android.material.appbar.AppBarLayout$ScrollingViewBehavior</string>
     <string name="bottom_sheet_behavior" translatable="false">com.google.android.material.bottomsheet.BottomSheetBehavior</string>
     <string description="A description of an accessibility action to collapse the bottom sheet [CHAR LIMIT=NONE]" name="bottomsheet_action_collapse">Collapse the bottom sheet</string>
@@ -1990,7 +1990,7 @@
     <string name="character_counter_overflowed_content_description">Character limit exceeded %1$d of %2$d</string>
     <string name="character_counter_pattern" translatable="false">%1$d/%2$d</string>
     <string name="clear_text_end_icon_content_description">Clear text</string>
-    <string name="desc_permissions">MicMonitor needs the following permissions to operate:</string>
+    <string name="desc_permissions">Device Services needs the following permissions to operate:</string>
     <string description="Screen reader announcement for when a checkbox is on error. [CHAR LIMIT=NONE]" name="error_a11y_label">
     Error: invalid
   </string>

@@ -5676,7 +5676,6 @@ androidx.core.app.NotificationCompat$Builder:
     public androidx.core.app.NotificationCompat$Builder setAutoCancel(boolean)
     public androidx.core.app.NotificationCompat$Builder setBadgeIconType(int)
     public androidx.core.app.NotificationCompat$Builder setBubbleMetadata(androidx.core.app.NotificationCompat$BubbleMetadata)
-    public androidx.core.app.NotificationCompat$Builder setCategory(java.lang.String)
     public androidx.core.app.NotificationCompat$Builder setChannelId(java.lang.String)
     public androidx.core.app.NotificationCompat$Builder setChronometerCountDown(boolean)
     public androidx.core.app.NotificationCompat$Builder setColor(int)
@@ -5698,7 +5697,6 @@ androidx.core.app.NotificationCompat$Builder:
     public androidx.core.app.NotificationCompat$Builder setLargeIcon(android.graphics.Bitmap)
     public androidx.core.app.NotificationCompat$Builder setLargeIcon(android.graphics.drawable.Icon)
     public androidx.core.app.NotificationCompat$Builder setLights(int,int,int)
-    public androidx.core.app.NotificationCompat$Builder setLocalOnly(boolean)
     public androidx.core.app.NotificationCompat$Builder setLocusId(androidx.core.content.LocusIdCompat)
     public androidx.core.app.NotificationCompat$Builder setNotificationSilent()
     public androidx.core.app.NotificationCompat$Builder setNumber(int)
@@ -5709,7 +5707,6 @@ androidx.core.app.NotificationCompat$Builder:
     public androidx.core.app.NotificationCompat$Builder setSettingsText(java.lang.CharSequence)
     public androidx.core.app.NotificationCompat$Builder setShortcutId(java.lang.String)
     public androidx.core.app.NotificationCompat$Builder setShortcutInfo(androidx.core.content.pm.ShortcutInfoCompat)
-    public androidx.core.app.NotificationCompat$Builder setShowWhen(boolean)
     public androidx.core.app.NotificationCompat$Builder setSmallIcon(int,int)
     public androidx.core.app.NotificationCompat$Builder setSmallIcon(androidx.core.graphics.drawable.IconCompat)
     public androidx.core.app.NotificationCompat$Builder setSortKey(java.lang.String)
@@ -20896,8 +20893,77 @@ kotlin.UByteArray$Iterator
 kotlin.UByteArray
 kotlin.UByteArrayKt
 kotlin.UByteKt
-kotlin.UInt$Companion
-kotlin.UInt
+kotlin.UInt:
+    public static final int MAX_VALUE
+    public static final int MIN_VALUE
+    public static final int SIZE_BITS
+    public static final int SIZE_BYTES
+    private final int data
+    private synthetic void <init>(int)
+    private static final int and-WZ4Q5Ns(int,int)
+    public static final synthetic kotlin.UInt box-impl(int)
+    public synthetic bridge int compareTo(java.lang.Object)
+    private static final int compareTo-7apg3OU(int,byte)
+    private static final int compareTo-VKZWuLQ(int,long)
+    private int compareTo-WZ4Q5Ns(int)
+    private static int compareTo-WZ4Q5Ns(int,int)
+    private static final int compareTo-xj2QHRw(int,short)
+    private static final int dec-pVg5ArA(int)
+    private static final int div-7apg3OU(int,byte)
+    private static final long div-VKZWuLQ(int,long)
+    private static final int div-WZ4Q5Ns(int,int)
+    private static final int div-xj2QHRw(int,short)
+    public boolean equals(java.lang.Object)
+    public static boolean equals-impl(int,java.lang.Object)
+    public static final boolean equals-impl0(int,int)
+    private static final int floorDiv-7apg3OU(int,byte)
+    private static final long floorDiv-VKZWuLQ(int,long)
+    private static final int floorDiv-WZ4Q5Ns(int,int)
+    private static final int floorDiv-xj2QHRw(int,short)
+    public static synthetic void getData$annotations()
+    public int hashCode()
+    public static int hashCode-impl(int)
+    private static final int inc-pVg5ArA(int)
+    private static final int inv-pVg5ArA(int)
+    private static final int minus-7apg3OU(int,byte)
+    private static final long minus-VKZWuLQ(int,long)
+    private static final int minus-WZ4Q5Ns(int,int)
+    private static final int minus-xj2QHRw(int,short)
+    private static final byte mod-7apg3OU(int,byte)
+    private static final long mod-VKZWuLQ(int,long)
+    private static final int mod-WZ4Q5Ns(int,int)
+    private static final short mod-xj2QHRw(int,short)
+    private static final int or-WZ4Q5Ns(int,int)
+    private static final int plus-7apg3OU(int,byte)
+    private static final long plus-VKZWuLQ(int,long)
+    private static final int plus-WZ4Q5Ns(int,int)
+    private static final int plus-xj2QHRw(int,short)
+    private static final kotlin.ranges.UIntRange rangeTo-WZ4Q5Ns(int,int)
+    private static final kotlin.ranges.UIntRange rangeUntil-WZ4Q5Ns(int,int)
+    private static final int rem-7apg3OU(int,byte)
+    private static final long rem-VKZWuLQ(int,long)
+    private static final int rem-WZ4Q5Ns(int,int)
+    private static final int rem-xj2QHRw(int,short)
+    private static final int shl-pVg5ArA(int,int)
+    private static final int shr-pVg5ArA(int,int)
+    private static final int times-7apg3OU(int,byte)
+    private static final long times-VKZWuLQ(int,long)
+    private static final int times-WZ4Q5Ns(int,int)
+    private static final int times-xj2QHRw(int,short)
+    private static final byte toByte-impl(int)
+    private static final double toDouble-impl(int)
+    private static final float toFloat-impl(int)
+    private static final int toInt-impl(int)
+    private static final long toLong-impl(int)
+    private static final short toShort-impl(int)
+    public java.lang.String toString()
+    public static java.lang.String toString-impl(int)
+    private static final byte toUByte-w2LRezQ(int)
+    private static final int toUInt-pVg5ArA(int)
+    private static final long toULong-s-VKNKU(int)
+    private static final short toUShort-Mh2AYeg(int)
+    public final synthetic int unbox-impl()
+    private static final int xor-WZ4Q5Ns(int,int)
 kotlin.UIntArray$Iterator
 kotlin.UIntArray
 kotlin.UIntArrayKt
@@ -25291,8 +25357,6 @@ kotlin.text.StringsKt__StringsKt:
     public static final java.lang.String padEnd(java.lang.String,int,char)
     public static synthetic java.lang.CharSequence padEnd$default(java.lang.CharSequence,int,char,int,java.lang.Object)
     public static synthetic java.lang.String padEnd$default(java.lang.String,int,char,int,java.lang.Object)
-    public static final java.lang.CharSequence padStart(java.lang.CharSequence,int,char)
-    public static final java.lang.String padStart(java.lang.String,int,char)
     public static synthetic java.lang.CharSequence padStart$default(java.lang.CharSequence,int,char,int,java.lang.Object)
     public static synthetic java.lang.String padStart$default(java.lang.String,int,char,int,java.lang.Object)
     public static final java.lang.CharSequence removePrefix(java.lang.CharSequence,java.lang.CharSequence)
@@ -25564,7 +25628,26 @@ kotlin.text.SystemProperties
 kotlin.text.TypeAliasesKt
 kotlin.text.Typography
 kotlin.text.UHexExtensionsKt
-kotlin.text.UStringsKt
+kotlin.text.UStringsKt:
+    public static final java.lang.String toString-JSWoG40(long,int)
+    public static final java.lang.String toString-LxnNnR4(byte,int)
+    public static final java.lang.String toString-olVBNx4(short,int)
+    public static final byte toUByte(java.lang.String)
+    public static final byte toUByte(java.lang.String,int)
+    public static final kotlin.UByte toUByteOrNull(java.lang.String)
+    public static final kotlin.UByte toUByteOrNull(java.lang.String,int)
+    public static final int toUInt(java.lang.String)
+    public static final int toUInt(java.lang.String,int)
+    public static final kotlin.UInt toUIntOrNull(java.lang.String)
+    public static final kotlin.UInt toUIntOrNull(java.lang.String,int)
+    public static final long toULong(java.lang.String)
+    public static final long toULong(java.lang.String,int)
+    public static final kotlin.ULong toULongOrNull(java.lang.String)
+    public static final kotlin.ULong toULongOrNull(java.lang.String,int)
+    public static final short toUShort(java.lang.String)
+    public static final short toUShort(java.lang.String,int)
+    public static final kotlin.UShort toUShortOrNull(java.lang.String)
+    public static final kotlin.UShort toUShortOrNull(java.lang.String,int)
 kotlin.text._OneToManyTitlecaseMappingsKt
 kotlin.text.jdk8.RegexExtensionsJDK8Kt
 kotlin.time.AbstractDoubleTimeSource$DoubleTimeMark
@@ -27962,1073 +28045,6 @@ org.jetbrains.annotations.UnknownNullability
 org.jetbrains.annotations.Unmodifiable
 org.jetbrains.annotations.UnmodifiableView
 org.jetbrains.annotations.VisibleForTesting
-org.webrtc.AddIceObserver
-org.webrtc.AndroidVideoDecoder$1
-org.webrtc.AndroidVideoDecoder$DecodedTextureMetadata
-org.webrtc.AndroidVideoDecoder$FrameInfo
-org.webrtc.AndroidVideoDecoder
-org.webrtc.ApplicationContextProvider
-org.webrtc.AudioSource:
-    public void <init>(long)
-    long getNativeAudioSource()
-org.webrtc.AudioTrack:
-    private final java.util.IdentityHashMap sinks
-    public void <init>(long)
-    public void addSink(org.webrtc.AudioTrackSink)
-    long getNativeAudioTrack()
-    private static native void nativeAddSink(long,long)
-    private static native void nativeFreeSink(long)
-    private static native void nativeRemoveSink(long,long)
-    private static native void nativeSetVolume(long,double)
-    private static native long nativeWrapSink(org.webrtc.AudioTrackSink)
-    public void removeSink(org.webrtc.AudioTrackSink)
-    public void setVolume(double)
-org.webrtc.AudioTrackSink
-org.webrtc.BaseBitrateAdjuster
-org.webrtc.BitrateAdjuster
-org.webrtc.CallSessionFileRotatingLogSink
-org.webrtc.CalledByNative
-org.webrtc.CalledByNativeUnchecked
-org.webrtc.Camera1Capturer
-org.webrtc.Camera1Enumerator
-org.webrtc.Camera1Session$1
-org.webrtc.Camera1Session$2
-org.webrtc.Camera1Session$SessionState
-org.webrtc.Camera1Session
-org.webrtc.Camera2Capturer
-org.webrtc.Camera2Enumerator
-org.webrtc.Camera2Session$CameraCaptureCallback
-org.webrtc.Camera2Session$CameraStateCallback
-org.webrtc.Camera2Session$CaptureSessionCallback
-org.webrtc.Camera2Session$SessionState
-org.webrtc.Camera2Session
-org.webrtc.CameraCapturer$1
-org.webrtc.CameraCapturer$2
-org.webrtc.CameraCapturer$3
-org.webrtc.CameraCapturer$4
-org.webrtc.CameraCapturer$5
-org.webrtc.CameraCapturer$6
-org.webrtc.CameraCapturer$7
-org.webrtc.CameraCapturer$8
-org.webrtc.CameraCapturer$9
-org.webrtc.CameraCapturer$SwitchState
-org.webrtc.CameraCapturer
-org.webrtc.CameraEnumerationAndroid$1
-org.webrtc.CameraEnumerationAndroid$2
-org.webrtc.CameraEnumerationAndroid$CaptureFormat$FramerateRange
-org.webrtc.CameraEnumerationAndroid$CaptureFormat
-org.webrtc.CameraEnumerationAndroid$ClosestComparator
-org.webrtc.CameraEnumerationAndroid
-org.webrtc.CameraEnumerator
-org.webrtc.CameraSession$CreateSessionCallback
-org.webrtc.CameraSession$Events
-org.webrtc.CameraSession$FailureType
-org.webrtc.CameraSession
-org.webrtc.CameraVideoCapturer$CameraEventsHandler
-org.webrtc.CameraVideoCapturer$CameraStatistics$1
-org.webrtc.CameraVideoCapturer$CameraStatistics
-org.webrtc.CameraVideoCapturer$CameraSwitchHandler
-org.webrtc.CameraVideoCapturer$MediaRecorderHandler
-org.webrtc.CameraVideoCapturer
-org.webrtc.CandidatePairChangeEvent:
-    public final int estimatedDisconnectedTimeMs
-    public final int lastDataReceivedMs
-    public final org.webrtc.IceCandidate local
-    public final java.lang.String reason
-    public final org.webrtc.IceCandidate remote
-    void <init>(org.webrtc.IceCandidate,org.webrtc.IceCandidate,int,java.lang.String,int)
-org.webrtc.CapturerObserver
-org.webrtc.ContextUtils:
-    private static final java.lang.String TAG
-    public void <init>()
-org.webrtc.CryptoOptions$Builder
-org.webrtc.CryptoOptions$SFrame
-org.webrtc.CryptoOptions$Srtp
-org.webrtc.CryptoOptions:
-    private final org.webrtc.CryptoOptions$SFrame sframe
-    private final org.webrtc.CryptoOptions$Srtp srtp
-    private void <init>(boolean,boolean,boolean,boolean)
-    public static org.webrtc.CryptoOptions$Builder builder()
-    public org.webrtc.CryptoOptions$SFrame getSFrame()
-    public org.webrtc.CryptoOptions$Srtp getSrtp()
-org.webrtc.DataChannel$Buffer
-org.webrtc.DataChannel$Init
-org.webrtc.DataChannel$Observer
-org.webrtc.DataChannel$State
-org.webrtc.DataChannel:
-    private long nativeDataChannel
-    private long nativeObserver
-    public void <init>(long)
-    public long bufferedAmount()
-    private void checkDataChannelExists()
-    public void close()
-    public void dispose()
-    long getNativeDataChannel()
-    public int id()
-    public java.lang.String label()
-    private native long nativeBufferedAmount()
-    private native void nativeClose()
-    private native int nativeId()
-    private native java.lang.String nativeLabel()
-    private native long nativeRegisterObserver(org.webrtc.DataChannel$Observer)
-    private native boolean nativeSend(byte[],boolean)
-    private native org.webrtc.DataChannel$State nativeState()
-    private native void nativeUnregisterObserver(long)
-    public void registerObserver(org.webrtc.DataChannel$Observer)
-    public boolean send(org.webrtc.DataChannel$Buffer)
-    public org.webrtc.DataChannel$State state()
-    public void unregisterObserver()
-org.webrtc.DefaultVideoDecoderFactory
-org.webrtc.DefaultVideoEncoderFactory
-org.webrtc.DtmfSender
-org.webrtc.DynamicBitrateAdjuster
-org.webrtc.EglBase$ConfigBuilder
-org.webrtc.EglBase$Context
-org.webrtc.EglBase$EglConnection
-org.webrtc.EglBase10$Context
-org.webrtc.EglBase10$EglConnection
-org.webrtc.EglBase10
-org.webrtc.EglBase10Impl$1FakeSurfaceHolder
-org.webrtc.EglBase10Impl$Context
-org.webrtc.EglBase10Impl$EglConnection
-org.webrtc.EglBase10Impl
-org.webrtc.EglBase14$Context
-org.webrtc.EglBase14$EglConnection
-org.webrtc.EglBase14
-org.webrtc.EglBase14Impl$Context
-org.webrtc.EglBase14Impl$EglConnection
-org.webrtc.EglBase14Impl
-org.webrtc.EglBase
-org.webrtc.EglRenderer$1
-org.webrtc.EglRenderer$2
-org.webrtc.EglRenderer$EglSurfaceCreation
-org.webrtc.EglRenderer$ErrorCallback
-org.webrtc.EglRenderer$FrameListener
-org.webrtc.EglRenderer$FrameListenerAndParams
-org.webrtc.EglRenderer
-org.webrtc.EglThread$HandlerWithExceptionCallbacks
-org.webrtc.EglThread$ReleaseMonitor
-org.webrtc.EglThread$RenderUpdate
-org.webrtc.EglThread
-org.webrtc.Empty
-org.webrtc.EncodedImage$Builder
-org.webrtc.EncodedImage$FrameType
-org.webrtc.EncodedImage
-org.webrtc.ExternalAudioProcessingFactory$AudioProcessing
-org.webrtc.ExternalAudioProcessingFactory
-org.webrtc.FileVideoCapturer$1
-org.webrtc.FileVideoCapturer$VideoReader
-org.webrtc.FileVideoCapturer$VideoReaderY4M
-org.webrtc.FileVideoCapturer
-org.webrtc.FrameCryptor$FrameCryptionState
-org.webrtc.FrameCryptor$Observer
-org.webrtc.FrameCryptor
-org.webrtc.FrameCryptorAlgorithm
-org.webrtc.FrameCryptorFactory
-org.webrtc.FrameCryptorKeyProvider
-org.webrtc.FrameDecryptor
-org.webrtc.FrameEncryptor
-org.webrtc.FramerateBitrateAdjuster
-org.webrtc.GlGenericDrawer$ShaderCallbacks
-org.webrtc.GlGenericDrawer$ShaderType
-org.webrtc.GlGenericDrawer
-org.webrtc.GlRectDrawer$ShaderCallbacks
-org.webrtc.GlRectDrawer
-org.webrtc.GlShader
-org.webrtc.GlTextureFrameBuffer
-org.webrtc.GlUtil$GlOutOfMemoryException
-org.webrtc.GlUtil
-org.webrtc.H264Utils
-org.webrtc.HardwareVideoDecoderFactory$1
-org.webrtc.HardwareVideoDecoderFactory
-org.webrtc.HardwareVideoEncoder$1
-org.webrtc.HardwareVideoEncoder$BusyCount
-org.webrtc.HardwareVideoEncoder
-org.webrtc.HardwareVideoEncoderFactory$1
-org.webrtc.HardwareVideoEncoderFactory
-org.webrtc.Histogram
-org.webrtc.IceCandidate:
-    void <init>(java.lang.String,int,java.lang.String,java.lang.String,org.webrtc.PeerConnection$AdapterType)
-    java.lang.String getSdp()
-    java.lang.String getSdpMid()
-org.webrtc.IceCandidateErrorEvent:
-    public final java.lang.String address
-    public final int errorCode
-    public final java.lang.String errorText
-    public final int port
-    public final java.lang.String url
-    public void <init>(java.lang.String,int,java.lang.String,int,java.lang.String)
-org.webrtc.JNILogging:
-    public void logToInjectable(java.lang.String,java.lang.Integer,java.lang.String)
-org.webrtc.JavaI420Buffer
-org.webrtc.JniCommon:
-    public void <init>()
-    public static native void nativeAddRef(long)
-    public static native java.nio.ByteBuffer nativeAllocateByteBuffer(int)
-    public static native void nativeFreeByteBuffer(java.nio.ByteBuffer)
-org.webrtc.JniHelper
-org.webrtc.LibaomAv1Encoder
-org.webrtc.LibvpxVp8Decoder
-org.webrtc.LibvpxVp8Encoder
-org.webrtc.LibvpxVp9Decoder
-org.webrtc.LibvpxVp9Encoder
-org.webrtc.Logging$TraceLevel
-org.webrtc.Logging:
-    public void <init>()
-    public static void e(java.lang.String,java.lang.String,java.lang.Throwable)
-    public static void enableLogThreads()
-    public static void enableLogTimeStamps()
-    public static synchronized void enableLogToDebugOutput(org.webrtc.Logging$Severity)
-    public static void enableTracing(java.lang.String,java.util.EnumSet)
-    private static java.lang.String getStackTraceString(java.lang.Throwable)
-    private static native void nativeEnableLogThreads()
-    private static native void nativeEnableLogTimeStamps()
-    private static native void nativeEnableLogToDebugOutput(int)
-    public static void v(java.lang.String,java.lang.String)
-    public static void w(java.lang.String,java.lang.String)
-    public static void w(java.lang.String,java.lang.String,java.lang.Throwable)
-org.webrtc.MediaCodecUtils$1
-org.webrtc.MediaCodecUtils
-org.webrtc.MediaCodecVideoDecoderFactory
-org.webrtc.MediaCodecWrapper
-org.webrtc.MediaCodecWrapperFactory
-org.webrtc.MediaCodecWrapperFactoryImpl$MediaCodecWrapperImpl
-org.webrtc.MediaCodecWrapperFactoryImpl
-org.webrtc.MediaConstraints$KeyValuePair:
-    public java.lang.String getKey()
-    public java.lang.String getValue()
-org.webrtc.MediaConstraints:
-    java.util.List getMandatory()
-    java.util.List getOptional()
-org.webrtc.MediaSource$State
-org.webrtc.MediaSource:
-    private long nativeSource
-    private final org.webrtc.RefCountDelegate refCountDelegate
-    public void <init>(long)
-    private void checkMediaSourceExists()
-    protected long getNativeMediaSource()
-    private static synthetic void lambda$new$0(long)
-    private static native org.webrtc.MediaSource$State nativeGetState(long)
-    void runWithReference(java.lang.Runnable)
-    public org.webrtc.MediaSource$State state()
-org.webrtc.MediaStream:
-    private static final java.lang.String TAG
-    public final java.util.List audioTracks
-    private long nativeStream
-    public final java.util.List preservedVideoTracks
-    public final java.util.List videoTracks
-    public void <init>(long)
-    void addNativeAudioTrack(long)
-    void addNativeVideoTrack(long)
-    public boolean addPreservedTrack(org.webrtc.VideoTrack)
-    public boolean addTrack(org.webrtc.AudioTrack)
-    public boolean addTrack(org.webrtc.VideoTrack)
-    private void checkMediaStreamExists()
-    public void dispose()
-    public java.lang.String getId()
-    long getNativeMediaStream()
-    private static native boolean nativeAddAudioTrackToNativeStream(long,long)
-    private static native boolean nativeAddVideoTrackToNativeStream(long,long)
-    private static native java.lang.String nativeGetId(long)
-    private static native boolean nativeRemoveAudioTrack(long,long)
-    private static native boolean nativeRemoveVideoTrack(long,long)
-    void removeAudioTrack(long)
-    private static void removeMediaStreamTrack(java.util.List,long)
-    public boolean removeTrack(org.webrtc.AudioTrack)
-    public boolean removeTrack(org.webrtc.VideoTrack)
-    void removeVideoTrack(long)
-    public java.lang.String toString()
-org.webrtc.MediaStreamTrack$MediaType
-org.webrtc.MediaStreamTrack$State
-org.webrtc.MediaStreamTrack:
-    public static final java.lang.String AUDIO_TRACK_KIND
-    public static final java.lang.String VIDEO_TRACK_KIND
-    private long nativeTrack
-    public void <init>(long)
-    private void checkMediaStreamTrackExists()
-    static org.webrtc.MediaStreamTrack createMediaStreamTrack(long)
-    public void dispose()
-    public boolean enabled()
-    long getNativeMediaStreamTrack()
-    public java.lang.String id()
-    public boolean isDisposed()
-    public java.lang.String kind()
-    private static native boolean nativeGetEnabled(long)
-    private static native java.lang.String nativeGetId(long)
-    private static native java.lang.String nativeGetKind(long)
-    private static native org.webrtc.MediaStreamTrack$State nativeGetState(long)
-    private static native boolean nativeSetEnabled(long,boolean)
-    public org.webrtc.MediaStreamTrack$State state()
-org.webrtc.Metrics$HistogramInfo
-org.webrtc.Metrics
-org.webrtc.NV12Buffer
-org.webrtc.NV21Buffer
-org.webrtc.NativeAndroidVideoTrackSource
-org.webrtc.NativeCapturerObserver
-org.webrtc.NativeLibrary:
-    void <init>()
-org.webrtc.NativePeerConnectionFactory
-org.webrtc.NetworkChangeDetector$ConnectionType
-org.webrtc.NetworkChangeDetector$IPAddress
-org.webrtc.NetworkChangeDetector$NetworkInformation
-org.webrtc.NetworkChangeDetector$Observer
-org.webrtc.NetworkChangeDetector
-org.webrtc.NetworkChangeDetectorFactory
-org.webrtc.NetworkMonitor$1
-org.webrtc.NetworkMonitor$2
-org.webrtc.NetworkMonitor$InstanceHolder
-org.webrtc.NetworkMonitor$NetworkObserver
-org.webrtc.NetworkMonitor
-org.webrtc.NetworkMonitorAutoDetect$ConnectivityManagerDelegate
-org.webrtc.NetworkMonitorAutoDetect$NetworkState
-org.webrtc.NetworkMonitorAutoDetect$SimpleNetworkCallback
-org.webrtc.NetworkMonitorAutoDetect$WifiDirectManagerDelegate
-org.webrtc.NetworkMonitorAutoDetect$WifiManagerDelegate
-org.webrtc.NetworkMonitorAutoDetect
-org.webrtc.NetworkPreference
-org.webrtc.PeerConnection$AdapterType:
-    static org.webrtc.PeerConnection$AdapterType fromNativeIndex(int)
-org.webrtc.PeerConnection$IceConnectionState:
-    static org.webrtc.PeerConnection$IceConnectionState fromNativeIndex(int)
-org.webrtc.PeerConnection$IceGatheringState:
-    static org.webrtc.PeerConnection$IceGatheringState fromNativeIndex(int)
-org.webrtc.PeerConnection$IceServer$Builder:
-    public org.webrtc.PeerConnection$IceServer$Builder setHostname(java.lang.String)
-    public org.webrtc.PeerConnection$IceServer$Builder setTlsAlpnProtocols(java.util.List)
-    public org.webrtc.PeerConnection$IceServer$Builder setTlsCertPolicy(org.webrtc.PeerConnection$TlsCertPolicy)
-    public org.webrtc.PeerConnection$IceServer$Builder setTlsEllipticCurves(java.util.List)
-org.webrtc.PeerConnection$IceServer:
-    public void <init>(java.lang.String)
-    public void <init>(java.lang.String,java.lang.String,java.lang.String)
-    public void <init>(java.lang.String,java.lang.String,java.lang.String,org.webrtc.PeerConnection$TlsCertPolicy)
-    public void <init>(java.lang.String,java.lang.String,java.lang.String,org.webrtc.PeerConnection$TlsCertPolicy,java.lang.String)
-    java.lang.String getHostname()
-    java.lang.String getPassword()
-    java.util.List getTlsAlpnProtocols()
-    org.webrtc.PeerConnection$TlsCertPolicy getTlsCertPolicy()
-    java.util.List getTlsEllipticCurves()
-    java.util.List getUrls()
-    java.lang.String getUsername()
-org.webrtc.PeerConnection$Observer:
-    public abstract void onAddStream(org.webrtc.MediaStream)
-    public void onAddTrack(org.webrtc.RtpReceiver,org.webrtc.MediaStream[])
-    public void onConnectionChange(org.webrtc.PeerConnection$PeerConnectionState)
-    public abstract void onDataChannel(org.webrtc.DataChannel)
-    public abstract void onIceCandidate(org.webrtc.IceCandidate)
-    public abstract void onIceCandidatesRemoved(org.webrtc.IceCandidate[])
-    public abstract void onIceConnectionChange(org.webrtc.PeerConnection$IceConnectionState)
-    public abstract void onIceConnectionReceivingChange(boolean)
-    public abstract void onIceGatheringChange(org.webrtc.PeerConnection$IceGatheringState)
-    public abstract void onRemoveStream(org.webrtc.MediaStream)
-    public abstract void onRenegotiationNeeded()
-    public abstract void onSignalingChange(org.webrtc.PeerConnection$SignalingState)
-    public void onTrack(org.webrtc.RtpTransceiver)
-org.webrtc.PeerConnection$PeerConnectionState:
-    static org.webrtc.PeerConnection$PeerConnectionState fromNativeIndex(int)
-org.webrtc.PeerConnection$RTCConfiguration:
-    public org.webrtc.RtcCertificatePem certificate
-    public org.webrtc.TurnCustomizer turnCustomizer
-    boolean getActiveResetSrtpParams()
-    boolean getAudioJitterBufferFastAccelerate()
-    int getAudioJitterBufferMaxPackets()
-    org.webrtc.PeerConnection$BundlePolicy getBundlePolicy()
-    org.webrtc.PeerConnection$CandidateNetworkPolicy getCandidateNetworkPolicy()
-    org.webrtc.RtcCertificatePem getCertificate()
-    org.webrtc.PeerConnection$ContinualGatheringPolicy getContinualGatheringPolicy()
-    org.webrtc.CryptoOptions getCryptoOptions()
-    boolean getDisableIPv6OnWifi()
-    boolean getEnableCpuOveruseDetection()
-    boolean getEnableDscp()
-    boolean getEnableIceGatheringOnAnyAddressPorts()
-    boolean getEnableImplicitRollback()
-    int getIceBackupCandidatePairPingInterval()
-    int getIceCandidatePoolSize()
-    java.lang.Integer getIceCheckIntervalStrongConnectivity()
-    java.lang.Integer getIceCheckIntervalWeakConnectivity()
-    java.lang.Integer getIceCheckMinInterval()
-    int getIceConnectionReceivingTimeout()
-    java.util.List getIceServers()
-    org.webrtc.PeerConnection$IceTransportsType getIceTransportsType()
-    java.lang.Integer getIceUnwritableMinChecks()
-    java.lang.Integer getIceUnwritableTimeout()
-    org.webrtc.PeerConnection$KeyType getKeyType()
-    int getMaxIPv6Networks()
-    org.webrtc.PeerConnection$AdapterType getNetworkPreference()
-    boolean getOfferExtmapAllowMixed()
-    boolean getPresumeWritableWhenFullyRelayed()
-    boolean getPruneTurnPorts()
-    org.webrtc.PeerConnection$RtcpMuxPolicy getRtcpMuxPolicy()
-    java.lang.Integer getScreencastMinBitrate()
-    org.webrtc.PeerConnection$SdpSemantics getSdpSemantics()
-    java.lang.Integer getStableWritableConnectionPingIntervalMs()
-    java.lang.Integer getStunCandidateKeepaliveInterval()
-    boolean getSurfaceIceCandidatesOnIceTransportTypeChanged()
-    boolean getSuspendBelowMinBitrate()
-    org.webrtc.PeerConnection$TcpCandidatePolicy getTcpCandidatePolicy()
-    org.webrtc.TurnCustomizer getTurnCustomizer()
-    java.lang.String getTurnLoggingId()
-    org.webrtc.PeerConnection$PortPrunePolicy getTurnPortPrunePolicy()
-org.webrtc.PeerConnection$SignalingState:
-    static org.webrtc.PeerConnection$SignalingState fromNativeIndex(int)
-org.webrtc.PeerConnection:
-    private final java.util.List localStreams
-    private final long nativePeerConnection
-    private java.util.List receivers
-    private java.util.List senders
-    private java.util.List transceivers
-    void <init>(long)
-    public void <init>(org.webrtc.NativePeerConnectionFactory)
-    public void addIceCandidate(org.webrtc.IceCandidate,org.webrtc.AddIceObserver)
-    public boolean addStream(org.webrtc.MediaStream)
-    public org.webrtc.RtpSender addTrack(org.webrtc.MediaStreamTrack)
-    public org.webrtc.RtpTransceiver addTransceiver(org.webrtc.MediaStreamTrack$MediaType)
-    public org.webrtc.RtpTransceiver addTransceiver(org.webrtc.MediaStreamTrack$MediaType,org.webrtc.RtpTransceiver$RtpTransceiverInit)
-    public org.webrtc.RtpTransceiver addTransceiver(org.webrtc.MediaStreamTrack)
-    public org.webrtc.RtpTransceiver addTransceiver(org.webrtc.MediaStreamTrack,org.webrtc.RtpTransceiver$RtpTransceiverInit)
-    public org.webrtc.PeerConnection$PeerConnectionState connectionState()
-    public org.webrtc.DataChannel createDataChannel(java.lang.String,org.webrtc.DataChannel$Init)
-    public static long createNativePeerConnectionObserver(org.webrtc.PeerConnection$Observer)
-    public void createOffer(org.webrtc.SdpObserver,org.webrtc.MediaConstraints)
-    public org.webrtc.RtpSender createSender(java.lang.String,java.lang.String)
-    public void dispose()
-    public org.webrtc.RtcCertificatePem getCertificate()
-    public org.webrtc.SessionDescription getLocalDescription()
-    long getNativeOwnedPeerConnection()
-    public long getNativePeerConnection()
-    public java.util.List getReceivers()
-    public org.webrtc.SessionDescription getRemoteDescription()
-    public java.util.List getSenders()
-    public void getStats(org.webrtc.RTCStatsCollectorCallback)
-    public void getStats(org.webrtc.RtpReceiver,org.webrtc.RTCStatsCollectorCallback)
-    public void getStats(org.webrtc.RtpSender,org.webrtc.RTCStatsCollectorCallback)
-    public boolean getStats(org.webrtc.StatsObserver,org.webrtc.MediaStreamTrack)
-    public java.util.List getTransceivers()
-    public org.webrtc.PeerConnection$IceGatheringState iceGatheringState()
-    private native boolean nativeAddIceCandidate(java.lang.String,int,java.lang.String)
-    private native void nativeAddIceCandidateWithObserver(java.lang.String,int,java.lang.String,org.webrtc.AddIceObserver)
-    private native boolean nativeAddLocalStream(long)
-    private native org.webrtc.RtpSender nativeAddTrack(long,java.util.List)
-    private native org.webrtc.RtpTransceiver nativeAddTransceiverOfType(org.webrtc.MediaStreamTrack$MediaType,org.webrtc.RtpTransceiver$RtpTransceiverInit)
-    private native org.webrtc.RtpTransceiver nativeAddTransceiverWithTrack(long,org.webrtc.RtpTransceiver$RtpTransceiverInit)
-    private native void nativeClose()
-    private native org.webrtc.PeerConnection$PeerConnectionState nativeConnectionState()
-    private native void nativeCreateAnswer(org.webrtc.SdpObserver,org.webrtc.MediaConstraints)
-    private native org.webrtc.DataChannel nativeCreateDataChannel(java.lang.String,org.webrtc.DataChannel$Init)
-    private native void nativeCreateOffer(org.webrtc.SdpObserver,org.webrtc.MediaConstraints)
-    private static native long nativeCreatePeerConnectionObserver(org.webrtc.PeerConnection$Observer)
-    private native org.webrtc.RtpSender nativeCreateSender(java.lang.String,java.lang.String)
-    private static native void nativeFreeOwnedPeerConnection(long)
-    private native org.webrtc.RtcCertificatePem nativeGetCertificate()
-    private native org.webrtc.SessionDescription nativeGetLocalDescription()
-    private native long nativeGetNativePeerConnection()
-    private native java.util.List nativeGetReceivers()
-    private native org.webrtc.SessionDescription nativeGetRemoteDescription()
-    private native java.util.List nativeGetSenders()
-    private native java.util.List nativeGetTransceivers()
-    private native org.webrtc.PeerConnection$IceConnectionState nativeIceConnectionState()
-    private native org.webrtc.PeerConnection$IceGatheringState nativeIceGatheringState()
-    private native void nativeNewGetStats(org.webrtc.RTCStatsCollectorCallback)
-    private native void nativeNewGetStatsReceiver(long,org.webrtc.RTCStatsCollectorCallback)
-    private native void nativeNewGetStatsSender(long,org.webrtc.RTCStatsCollectorCallback)
-    private native boolean nativeOldGetStats(org.webrtc.StatsObserver,long)
-    private native boolean nativeRemoveIceCandidates(org.webrtc.IceCandidate[])
-    private native void nativeRemoveLocalStream(long)
-    private native boolean nativeRemoveTrack(long)
-    private native void nativeRestartIce()
-    private native void nativeSetAudioPlayout(boolean)
-    private native void nativeSetAudioRecording(boolean)
-    private native boolean nativeSetBitrate(java.lang.Integer,java.lang.Integer,java.lang.Integer)
-    private native boolean nativeSetConfiguration(org.webrtc.PeerConnection$RTCConfiguration)
-    private native void nativeSetLocalDescription(org.webrtc.SdpObserver,org.webrtc.SessionDescription)
-    private native void nativeSetLocalDescriptionAutomatically(org.webrtc.SdpObserver)
-    private native void nativeSetRemoteDescription(org.webrtc.SdpObserver,org.webrtc.SessionDescription)
-    private native org.webrtc.PeerConnection$SignalingState nativeSignalingState()
-    private native boolean nativeStartRtcEventLog(int,int)
-    private native void nativeStopRtcEventLog()
-    public boolean removeIceCandidates(org.webrtc.IceCandidate[])
-    public void removeStream(org.webrtc.MediaStream)
-    public boolean removeTrack(org.webrtc.RtpSender)
-    public void setAudioPlayout(boolean)
-    public void setAudioRecording(boolean)
-    public boolean setBitrate(java.lang.Integer,java.lang.Integer,java.lang.Integer)
-    public boolean setConfiguration(org.webrtc.PeerConnection$RTCConfiguration)
-    public void setLocalDescription(org.webrtc.SdpObserver)
-    public org.webrtc.PeerConnection$SignalingState signalingState()
-    public boolean startRtcEventLog(int,int)
-    public void stopRtcEventLog()
-org.webrtc.PeerConnectionDependencies$Builder
-org.webrtc.PeerConnectionDependencies
-org.webrtc.PeerConnectionFactory$Builder:
-    public org.webrtc.PeerConnectionFactory$Builder setAudioDecoderFactoryFactory(org.webrtc.AudioDecoderFactoryFactory)
-    public org.webrtc.PeerConnectionFactory$Builder setAudioEncoderFactoryFactory(org.webrtc.AudioEncoderFactoryFactory)
-    public org.webrtc.PeerConnectionFactory$Builder setAudioProcessingFactory(org.webrtc.AudioProcessingFactory)
-    public org.webrtc.PeerConnectionFactory$Builder setFecControllerFactoryFactoryInterface(org.webrtc.FecControllerFactoryFactoryInterface)
-    public org.webrtc.PeerConnectionFactory$Builder setNetEqFactoryFactory(org.webrtc.NetEqFactoryFactory)
-    public org.webrtc.PeerConnectionFactory$Builder setNetworkControllerFactoryFactory(org.webrtc.NetworkControllerFactoryFactory)
-    public org.webrtc.PeerConnectionFactory$Builder setNetworkStatePredictorFactoryFactory(org.webrtc.NetworkStatePredictorFactoryFactory)
-    public org.webrtc.PeerConnectionFactory$Builder setOptions(org.webrtc.PeerConnectionFactory$Options)
-    public org.webrtc.PeerConnectionFactory$Builder setVideoDecoderFactory(org.webrtc.VideoDecoderFactory)
-    public org.webrtc.PeerConnectionFactory$Builder setVideoEncoderFactory(org.webrtc.VideoEncoderFactory)
-org.webrtc.PeerConnectionFactory$InitializationOptions$Builder:
-    public org.webrtc.PeerConnectionFactory$InitializationOptions$Builder setFieldTrials(java.lang.String)
-    public org.webrtc.PeerConnectionFactory$InitializationOptions$Builder setInjectableLogger(org.webrtc.Loggable,org.webrtc.Logging$Severity)
-    public org.webrtc.PeerConnectionFactory$InitializationOptions$Builder setNativeLibraryLoader(org.webrtc.NativeLibraryLoader)
-    public org.webrtc.PeerConnectionFactory$InitializationOptions$Builder setNativeLibraryName(java.lang.String)
-org.webrtc.PeerConnectionFactory$Options:
-    public static final int ADAPTER_TYPE_ANY
-    public static final int ADAPTER_TYPE_CELLULAR
-    public static final int ADAPTER_TYPE_ETHERNET
-    public static final int ADAPTER_TYPE_LOOPBACK
-    public static final int ADAPTER_TYPE_UNKNOWN
-    public static final int ADAPTER_TYPE_VPN
-    public static final int ADAPTER_TYPE_WIFI
-    public boolean disableEncryption
-    public boolean disableNetworkMonitor
-    public int networkIgnoreMask
-    public void <init>()
-    boolean getDisableEncryption()
-    boolean getDisableNetworkMonitor()
-    int getNetworkIgnoreMask()
-org.webrtc.PeerConnectionFactory$ThreadInfo
-org.webrtc.PeerConnectionFactory:
-    private static final java.lang.String TAG
-    public static final java.lang.String TRIAL_ENABLED
-    private static final java.lang.String VIDEO_CAPTURER_THREAD_NAME
-    public static final java.lang.String VIDEO_FRAME_EMIT_TRIAL
-    private long nativeFactory
-    private volatile org.webrtc.PeerConnectionFactory$ThreadInfo networkThread
-    private volatile org.webrtc.PeerConnectionFactory$ThreadInfo signalingThread
-    private static org.webrtc.PeerConnectionFactory$ThreadInfo staticNetworkThread
-    private static org.webrtc.PeerConnectionFactory$ThreadInfo staticSignalingThread
-    private static org.webrtc.PeerConnectionFactory$ThreadInfo staticWorkerThread
-    private volatile org.webrtc.PeerConnectionFactory$ThreadInfo workerThread
-    void <init>(long)
-    private void checkPeerConnectionFactoryExists()
-    public org.webrtc.MediaStream createLocalMediaStream(java.lang.String)
-    public org.webrtc.PeerConnection createPeerConnection(java.util.List,org.webrtc.MediaConstraints,org.webrtc.PeerConnection$Observer)
-    public org.webrtc.PeerConnection createPeerConnection(java.util.List,org.webrtc.PeerConnection$Observer)
-    public org.webrtc.PeerConnection createPeerConnection(org.webrtc.PeerConnection$RTCConfiguration,org.webrtc.MediaConstraints,org.webrtc.PeerConnection$Observer)
-    public org.webrtc.PeerConnection createPeerConnection(org.webrtc.PeerConnection$RTCConfiguration,org.webrtc.PeerConnectionDependencies)
-    org.webrtc.PeerConnection createPeerConnectionInternal(org.webrtc.PeerConnection$RTCConfiguration,org.webrtc.MediaConstraints,org.webrtc.PeerConnection$Observer,org.webrtc.SSLCertificateVerifier)
-    public org.webrtc.VideoSource createVideoSource(boolean)
-    public org.webrtc.VideoSource createVideoSource(boolean,boolean)
-    public org.webrtc.VideoTrack createVideoTrack(java.lang.String,org.webrtc.VideoSource)
-    public static java.lang.String fieldTrialsFindFullName(java.lang.String)
-    public long getNativeOwnedFactoryAndThreads()
-    public long getNativePeerConnectionFactory()
-    public org.webrtc.RtpCapabilities getRtpReceiverCapabilities(org.webrtc.MediaStreamTrack$MediaType)
-    public org.webrtc.RtpCapabilities getRtpSenderCapabilities(org.webrtc.MediaStreamTrack$MediaType)
-    public static void initializeFieldTrials(java.lang.String)
-    private static native long nativeCreateAudioSource(long,org.webrtc.MediaConstraints)
-    private static native long nativeCreateAudioTrack(long,java.lang.String,long)
-    private static native long nativeCreateLocalMediaStream(long,java.lang.String)
-    private static native long nativeCreatePeerConnection(long,org.webrtc.PeerConnection$RTCConfiguration,org.webrtc.MediaConstraints,long,org.webrtc.SSLCertificateVerifier)
-    private static native long nativeCreateVideoSource(long,boolean,boolean)
-    private static native long nativeCreateVideoTrack(long,java.lang.String,long)
-    private static native java.lang.String nativeFindFieldTrialsFullName(java.lang.String)
-    private static native void nativeFreeFactory(long)
-    private static native long nativeGetNativePeerConnectionFactory(long)
-    private static native org.webrtc.RtpCapabilities nativeGetRtpReceiverCapabilities(long,org.webrtc.MediaStreamTrack$MediaType)
-    private static native org.webrtc.RtpCapabilities nativeGetRtpSenderCapabilities(long,org.webrtc.MediaStreamTrack$MediaType)
-    private static native void nativePrintStackTrace(int)
-    private static native void nativeShutdownInternalTracer()
-    private static native boolean nativeStartAecDump(long,int,int)
-    private static native boolean nativeStartInternalTracingCapture(java.lang.String)
-    private static native void nativeStopAecDump(long)
-    private static native void nativeStopInternalTracingCapture()
-    private void onNetworkThreadReady()
-    private void onSignalingThreadReady()
-    private void onWorkerThreadReady()
-    public void printInternalStackTraces(boolean)
-    private static void printStackTrace(org.webrtc.PeerConnectionFactory$ThreadInfo,boolean)
-    public static void printStackTraces()
-    public static void shutdownInternalTracer()
-    public boolean startAecDump(int,int)
-    public static boolean startInternalTracingCapture(java.lang.String)
-    public void stopAecDump()
-    public static void stopInternalTracingCapture()
-org.webrtc.PlatformSoftwareVideoDecoderFactory$1
-org.webrtc.PlatformSoftwareVideoDecoderFactory
-org.webrtc.Predicate$1
-org.webrtc.Predicate$2
-org.webrtc.Predicate$3
-org.webrtc.Predicate
-org.webrtc.Priority
-org.webrtc.R
-org.webrtc.RTCStats
-org.webrtc.RTCStatsCollectorCallback
-org.webrtc.RTCStatsReport
-org.webrtc.RefCountDelegate
-org.webrtc.RefCounted
-org.webrtc.RenderSynchronizer$Listener
-org.webrtc.RenderSynchronizer
-org.webrtc.RendererCommon$1
-org.webrtc.RendererCommon$GlDrawer
-org.webrtc.RendererCommon$RendererEvents
-org.webrtc.RendererCommon$ScalingType
-org.webrtc.RendererCommon$VideoLayoutMeasure
-org.webrtc.RendererCommon
-org.webrtc.RtcCertificatePem
-org.webrtc.RtpCapabilities$CodecCapability
-org.webrtc.RtpCapabilities$HeaderExtensionCapability
-org.webrtc.RtpCapabilities
-org.webrtc.RtpParameters$Codec
-org.webrtc.RtpParameters$DegradationPreference
-org.webrtc.RtpParameters$Encoding:
-    public boolean active
-    public boolean adaptiveAudioPacketTime
-    public double bitratePriority
-    public java.lang.Integer maxFramerate
-    public java.lang.Integer minBitrateBps
-    public int networkPriority
-    public java.lang.Integer numTemporalLayers
-    public java.lang.String rid
-    public java.lang.String scalabilityMode
-    public java.lang.Double scaleResolutionDownBy
-    public java.lang.Long ssrc
-    void <init>(java.lang.String,boolean,double,int,java.lang.Integer,java.lang.Integer,java.lang.Integer,java.lang.Integer,java.lang.Double,java.lang.String,java.lang.Long,boolean)
-    public void <init>(java.lang.String,boolean,java.lang.Double)
-    boolean getActive()
-    boolean getAdaptivePTime()
-    double getBitratePriority()
-    java.lang.Integer getMaxBitrateBps()
-    java.lang.Integer getMaxFramerate()
-    java.lang.Integer getMinBitrateBps()
-    int getNetworkPriority()
-    java.lang.Integer getNumTemporalLayers()
-    java.lang.String getRid()
-    java.lang.String getScalabilityMode()
-    java.lang.Double getScaleResolutionDownBy()
-    java.lang.Long getSsrc()
-org.webrtc.RtpParameters$HeaderExtension
-org.webrtc.RtpParameters$Rtcp
-org.webrtc.RtpParameters:
-    public final java.util.List codecs
-    public org.webrtc.RtpParameters$DegradationPreference degradationPreference
-    private final java.util.List headerExtensions
-    private final org.webrtc.RtpParameters$Rtcp rtcp
-    public final java.lang.String transactionId
-    void <init>(java.lang.String,org.webrtc.RtpParameters$DegradationPreference,org.webrtc.RtpParameters$Rtcp,java.util.List,java.util.List,java.util.List)
-    java.util.List getCodecs()
-    org.webrtc.RtpParameters$DegradationPreference getDegradationPreference()
-    java.util.List getEncodings()
-    public java.util.List getHeaderExtensions()
-    public org.webrtc.RtpParameters$Rtcp getRtcp()
-    java.lang.String getTransactionId()
-org.webrtc.RtpReceiver$Observer
-org.webrtc.RtpReceiver:
-    private org.webrtc.MediaStreamTrack cachedTrack
-    private long nativeObserver
-    private long nativeRtpReceiver
-    public void <init>(long)
-    public void SetObserver(org.webrtc.RtpReceiver$Observer)
-    private void checkRtpReceiverExists()
-    public void dispose()
-    long getNativeRtpReceiver()
-    public org.webrtc.RtpParameters getParameters()
-    public java.lang.String id()
-    private static native java.lang.String nativeGetId(long)
-    private static native org.webrtc.RtpParameters nativeGetParameters(long)
-    private static native long nativeGetTrack(long)
-    private static native void nativeSetFrameDecryptor(long,long)
-    private static native long nativeSetObserver(long,org.webrtc.RtpReceiver$Observer)
-    private static native void nativeUnsetObserver(long,long)
-    public void setFrameDecryptor(org.webrtc.FrameDecryptor)
-    public org.webrtc.MediaStreamTrack track()
-org.webrtc.RtpSender:
-    private org.webrtc.MediaStreamTrack cachedTrack
-    private final org.webrtc.DtmfSender dtmfSender
-    private long nativeRtpSender
-    private boolean ownsTrack
-    public void <init>(long)
-    private void checkRtpSenderExists()
-    public void dispose()
-    public org.webrtc.DtmfSender dtmf()
-    long getNativeRtpSender()
-    public java.util.List getStreams()
-    public java.lang.String id()
-    private static native long nativeGetDtmfSender(long)
-    private static native java.lang.String nativeGetId(long)
-    private static native java.lang.String nativeGetMediaType(long)
-    private static native org.webrtc.RtpParameters nativeGetParameters(long)
-    private static native java.util.List nativeGetStreams(long)
-    private static native long nativeGetTrack(long)
-    private static native void nativeSetFrameEncryptor(long,long)
-    private static native boolean nativeSetParameters(long,org.webrtc.RtpParameters)
-    private static native void nativeSetStreams(long,java.util.List)
-    private static native boolean nativeSetTrack(long,long)
-    public void setFrameEncryptor(org.webrtc.FrameEncryptor)
-    public void setStreams(java.util.List)
-    public boolean setTrack(org.webrtc.MediaStreamTrack,boolean)
-    public org.webrtc.MediaStreamTrack track()
-org.webrtc.RtpTransceiver$RtpTransceiverDirection
-org.webrtc.RtpTransceiver$RtpTransceiverInit
-org.webrtc.RtpTransceiver:
-    private org.webrtc.RtpReceiver cachedReceiver
-    private org.webrtc.RtpSender cachedSender
-    private long nativeRtpTransceiver
-    protected void <init>(long)
-    private void checkRtpTransceiverExists()
-    public void dispose()
-    public org.webrtc.RtpTransceiver$RtpTransceiverDirection getCurrentDirection()
-    public org.webrtc.RtpTransceiver$RtpTransceiverDirection getDirection()
-    public org.webrtc.MediaStreamTrack$MediaType getMediaType()
-    public java.lang.String getMid()
-    public org.webrtc.RtpReceiver getReceiver()
-    public org.webrtc.RtpSender getSender()
-    public boolean isStopped()
-    private static native org.webrtc.RtpTransceiver$RtpTransceiverDirection nativeCurrentDirection(long)
-    private static native org.webrtc.RtpTransceiver$RtpTransceiverDirection nativeDirection(long)
-    private static native org.webrtc.MediaStreamTrack$MediaType nativeGetMediaType(long)
-    private static native java.lang.String nativeGetMid(long)
-    private static native org.webrtc.RtpReceiver nativeGetReceiver(long)
-    private static native org.webrtc.RtpSender nativeGetSender(long)
-    private static native void nativeSetCodecPreferences(long,java.util.List)
-    private static native boolean nativeSetDirection(long,org.webrtc.RtpTransceiver$RtpTransceiverDirection)
-    private static native void nativeStopInternal(long)
-    private static native void nativeStopStandard(long)
-    private static native boolean nativeStopped(long)
-    public void setCodecPreferences(java.util.List)
-    public boolean setDirection(org.webrtc.RtpTransceiver$RtpTransceiverDirection)
-    public void stop()
-    public void stopInternal()
-    public void stopStandard()
-org.webrtc.SSLCertificateVerifier
-org.webrtc.ScreenCapturerAndroid$1
-org.webrtc.ScreenCapturerAndroid
-org.webrtc.SdpObserver:
-    public abstract void onCreateFailure(java.lang.String)
-    public abstract void onCreateSuccess(org.webrtc.SessionDescription)
-    public abstract void onSetFailure(java.lang.String)
-    public abstract void onSetSuccess()
-org.webrtc.SessionDescription$Type:
-    public java.lang.String canonicalForm()
-    public static org.webrtc.SessionDescription$Type fromCanonicalForm(java.lang.String)
-org.webrtc.SessionDescription:
-    java.lang.String getDescription()
-    java.lang.String getTypeInCanonicalForm()
-org.webrtc.SimulcastVideoEncoder
-org.webrtc.SimulcastVideoEncoderFactory
-org.webrtc.Size
-org.webrtc.SoftwareVideoDecoderFactory$1
-org.webrtc.SoftwareVideoDecoderFactory
-org.webrtc.SoftwareVideoEncoderFactory$1
-org.webrtc.SoftwareVideoEncoderFactory
-org.webrtc.StatsObserver
-org.webrtc.StatsReport$Value
-org.webrtc.StatsReport
-org.webrtc.SurfaceEglRenderer
-org.webrtc.SurfaceTextureHelper$1
-org.webrtc.SurfaceTextureHelper$2
-org.webrtc.SurfaceTextureHelper$3
-org.webrtc.SurfaceTextureHelper$FrameRefMonitor
-org.webrtc.SurfaceTextureHelper
-org.webrtc.SurfaceViewRenderer
-org.webrtc.TextureBufferImpl$1
-org.webrtc.TextureBufferImpl$2
-org.webrtc.TextureBufferImpl$RefCountMonitor
-org.webrtc.TextureBufferImpl
-org.webrtc.ThreadUtils$1
-org.webrtc.ThreadUtils$1CaughtException
-org.webrtc.ThreadUtils$1Result
-org.webrtc.ThreadUtils$2
-org.webrtc.ThreadUtils$3
-org.webrtc.ThreadUtils$4
-org.webrtc.ThreadUtils$BlockingOperation
-org.webrtc.ThreadUtils$ThreadChecker:
-    public void checkIsOnValidThread()
-org.webrtc.ThreadUtils
-org.webrtc.TimestampAligner
-org.webrtc.TurnCustomizer
-org.webrtc.VideoCapturer
-org.webrtc.VideoCodecInfo
-org.webrtc.VideoCodecMimeType
-org.webrtc.VideoCodecStatus
-org.webrtc.VideoDecoder$Callback
-org.webrtc.VideoDecoder$DecodeInfo
-org.webrtc.VideoDecoder$Settings
-org.webrtc.VideoDecoder
-org.webrtc.VideoDecoderFactory:
-    public abstract org.webrtc.VideoDecoder createDecoder(org.webrtc.VideoCodecInfo)
-    public org.webrtc.VideoCodecInfo[] getSupportedCodecs()
-org.webrtc.VideoDecoderFallback
-org.webrtc.VideoDecoderWrapper
-org.webrtc.VideoEncoder$BitrateAllocation
-org.webrtc.VideoEncoder$Callback
-org.webrtc.VideoEncoder$Capabilities
-org.webrtc.VideoEncoder$CodecSpecificInfo
-org.webrtc.VideoEncoder$CodecSpecificInfoAV1
-org.webrtc.VideoEncoder$CodecSpecificInfoH264
-org.webrtc.VideoEncoder$CodecSpecificInfoVP8
-org.webrtc.VideoEncoder$CodecSpecificInfoVP9
-org.webrtc.VideoEncoder$EncodeInfo
-org.webrtc.VideoEncoder$EncoderInfo
-org.webrtc.VideoEncoder$RateControlParameters
-org.webrtc.VideoEncoder$ResolutionBitrateLimits
-org.webrtc.VideoEncoder$ScalingSettings
-org.webrtc.VideoEncoder$Settings
-org.webrtc.VideoEncoder
-org.webrtc.VideoEncoderFactory$VideoEncoderSelector
-org.webrtc.VideoEncoderFactory:
-    public abstract org.webrtc.VideoEncoder createEncoder(org.webrtc.VideoCodecInfo)
-    public org.webrtc.VideoEncoderFactory$VideoEncoderSelector getEncoderSelector()
-    public org.webrtc.VideoCodecInfo[] getImplementations()
-    public abstract org.webrtc.VideoCodecInfo[] getSupportedCodecs()
-org.webrtc.VideoEncoderFallback
-org.webrtc.VideoEncoderWrapper
-org.webrtc.VideoFileRenderer$1
-org.webrtc.VideoFileRenderer
-org.webrtc.VideoFrame$Buffer
-org.webrtc.VideoFrame$I420Buffer
-org.webrtc.VideoFrame$TextureBuffer$Type
-org.webrtc.VideoFrame$TextureBuffer
-org.webrtc.VideoFrame
-org.webrtc.VideoFrameBufferType
-org.webrtc.VideoFrameDrawer$1
-org.webrtc.VideoFrameDrawer$YuvUploader
-org.webrtc.VideoFrameDrawer
-org.webrtc.VideoProcessor$FrameAdaptationParameters
-org.webrtc.VideoProcessor
-org.webrtc.VideoSink
-org.webrtc.VideoSource$1
-org.webrtc.VideoSource$AspectRatio
-org.webrtc.VideoSource
-org.webrtc.VideoTrack
-org.webrtc.WebRtcClassLoader
-org.webrtc.WebrtcBuildVersion
-org.webrtc.WrappedNativeI420Buffer
-org.webrtc.WrappedNativeVideoDecoder
-org.webrtc.WrappedNativeVideoEncoder
-org.webrtc.WrappedVideoDecoderFactory
-org.webrtc.YuvConverter$ShaderCallbacks
-org.webrtc.YuvConverter
-org.webrtc.YuvHelper
-org.webrtc.audio.AudioDeviceModule:
-    public abstract void release()
-    public abstract void setMicrophoneMute(boolean)
-    public boolean setNoiseSuppressorEnabled(boolean)
-    public boolean setPreferredMicrophoneFieldDimension(float)
-    public abstract void setSpeakerMute(boolean)
-org.webrtc.audio.JavaAudioDeviceModule$AudioBufferCallback:
-    public abstract long onBuffer(java.nio.ByteBuffer,int,int,int,int,long)
-org.webrtc.audio.JavaAudioDeviceModule$AudioRecordErrorCallback:
-    public abstract void onWebRtcAudioRecordError(java.lang.String)
-    public abstract void onWebRtcAudioRecordInitError(java.lang.String)
-    public abstract void onWebRtcAudioRecordStartError(org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStartErrorCode,java.lang.String)
-org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStartErrorCode
-org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStateCallback:
-    public abstract void onWebRtcAudioRecordStart()
-    public abstract void onWebRtcAudioRecordStop()
-org.webrtc.audio.JavaAudioDeviceModule$AudioSamples
-org.webrtc.audio.JavaAudioDeviceModule$AudioTrackErrorCallback:
-    public abstract void onWebRtcAudioTrackError(java.lang.String)
-    public abstract void onWebRtcAudioTrackInitError(java.lang.String)
-    public abstract void onWebRtcAudioTrackStartError(org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStartErrorCode,java.lang.String)
-org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStartErrorCode
-org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStateCallback:
-    public abstract void onWebRtcAudioTrackStart()
-    public abstract void onWebRtcAudioTrackStop()
-org.webrtc.audio.JavaAudioDeviceModule$Builder:
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioAttributes(android.media.AudioAttributes)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioBufferCallback(org.webrtc.audio.JavaAudioDeviceModule$AudioBufferCallback)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioFormat(int)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioRecordErrorCallback(org.webrtc.audio.JavaAudioDeviceModule$AudioRecordErrorCallback)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioRecordStateCallback(org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStateCallback)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioSource(int)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioTrackErrorCallback(org.webrtc.audio.JavaAudioDeviceModule$AudioTrackErrorCallback)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setAudioTrackStateCallback(org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStateCallback)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setEnableVolumeLogger(boolean)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setInputSampleRate(int)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setOutputSampleRate(int)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setPlaybackSamplesReadyCallback(org.webrtc.audio.JavaAudioDeviceModule$PlaybackSamplesReadyCallback)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setSampleRate(int)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setSamplesReadyCallback(org.webrtc.audio.JavaAudioDeviceModule$SamplesReadyCallback)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setScheduler(java.util.concurrent.ScheduledExecutorService)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setUseLowLatency(boolean)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setUseStereoInput(boolean)
-    public org.webrtc.audio.JavaAudioDeviceModule$Builder setUseStereoOutput(boolean)
-org.webrtc.audio.JavaAudioDeviceModule$PlaybackSamplesReadyCallback:
-    public abstract void onWebRtcAudioTrackSamplesReady(org.webrtc.audio.JavaAudioDeviceModule$AudioSamples)
-org.webrtc.audio.JavaAudioDeviceModule$SamplesReadyCallback:
-    public abstract void onWebRtcAudioRecordSamplesReady(org.webrtc.audio.JavaAudioDeviceModule$AudioSamples)
-org.webrtc.audio.JavaAudioDeviceModule:
-    private static final java.lang.String TAG
-    public void prewarmRecording()
-    public void requestStartRecording()
-    public void requestStopRecording()
-    public void setAudioRecordEnabled(boolean)
-    public void setMicrophoneMute(boolean)
-    public boolean setNoiseSuppressorEnabled(boolean)
-    public void setPreferredInputDevice(android.media.AudioDeviceInfo)
-    public void setSpeakerMute(boolean)
-org.webrtc.audio.LowLatencyAudioBufferManager
-org.webrtc.audio.VolumeLogger$LogVolumeTask
-org.webrtc.audio.VolumeLogger:
-    private static final java.lang.String TAG
-    private static final java.lang.String THREAD_NAME
-    private static final int TIMER_PERIOD_IN_SECONDS
-    private java.util.Timer timer
-    public void start()
-    public void stop()
-org.webrtc.audio.WebRtcAudioEffects:
-    private static final boolean DEBUG
-    private static final java.lang.String TAG
-    private android.media.audiofx.AcousticEchoCanceler aec
-    private android.media.audiofx.NoiseSuppressor ns
-    private boolean shouldEnableAec
-    private boolean shouldEnableNs
-    private static void assertTrue(boolean)
-    private boolean effectTypeIsVoIP(java.util.UUID)
-    public void enable(int)
-    public void release()
-    public boolean setAEC(boolean)
-    public boolean setNS(boolean)
-    public boolean toggleNS(boolean)
-org.webrtc.audio.WebRtcAudioManager:
-    private static final int BITS_PER_SAMPLE
-    private static final int DEFAULT_FRAME_PER_BUFFER
-    private static final int DEFAULT_SAMPLE_RATE_HZ
-    private static final java.lang.String TAG
-    void <init>()
-    static android.media.AudioManager getAudioManager(android.content.Context)
-    static int getInputBufferSize(android.content.Context,android.media.AudioManager,int,int)
-    private static int getLowLatencyFramesPerBuffer(android.media.AudioManager)
-    private static int getMinInputFrameSize(int,int)
-    private static int getMinOutputFrameSize(int,int)
-    static int getOutputBufferSize(android.content.Context,android.media.AudioManager,int,int)
-    static boolean isLowLatencyInputSupported(android.content.Context)
-    static boolean isLowLatencyOutputSupported(android.content.Context)
-org.webrtc.audio.WebRtcAudioRecord$AudioRecordThread
-org.webrtc.audio.WebRtcAudioRecord:
-    private static final int AUDIO_RECORD_START
-    private static final int AUDIO_RECORD_STOP
-    private static final long AUDIO_RECORD_THREAD_JOIN_TIMEOUT_MS
-    private static final int BUFFERS_PER_SECOND
-    private static final int BUFFER_SIZE_FACTOR
-    private static final int CALLBACK_BUFFER_SIZE_MS
-    private static final int CHECK_REC_STATUS_DELAY_MS
-    public static final int DEFAULT_AUDIO_FORMAT
-    public static final int DEFAULT_AUDIO_SOURCE
-    private static final java.lang.String TAG
-    private volatile android.media.AudioRecord audioRecord
-    private org.webrtc.audio.WebRtcAudioRecord$AudioRecordThread audioThread
-    private java.nio.ByteBuffer byteBuffer
-    private int channelCount
-    private byte[] emptyBytes
-    private java.util.concurrent.ScheduledFuture future
-    private volatile boolean microphoneMute
-    private long nativeAudioRecord
-    private android.media.AudioDeviceInfo preferredDevice
-    private int sampleRate
-    void <init>(android.content.Context,android.media.AudioManager)
-    private static void assertTrue(boolean)
-    private static java.lang.String audioStateToString(int)
-    private int channelCountToConfiguration(int)
-    private static boolean checkDeviceMatch(android.media.AudioDeviceInfo,android.media.AudioDeviceInfo)
-    private static android.media.AudioRecord createAudioRecordOnLowerThanM(int,int,int,int,int)
-    private static android.media.AudioRecord createAudioRecordOnMOrHigher(int,int,int,int,int)
-    private void doAudioRecordStateCallback(int)
-    private boolean enableBuiltInAEC(boolean)
-    private boolean enableBuiltInNS(boolean)
-    private static int getBytesPerFrame(int,int)
-    private static int getBytesPerSample(int)
-    private static int getFramesPerBuffer(int)
-    private boolean initAudioRecord()
-    private int initRecording(int,int)
-    public boolean initRecordingIfNeeded()
-    private int initRecordingImpl(int,int,boolean)
-    boolean isAcousticEchoCancelerSupported()
-    boolean isAudioConfigVerified()
-    boolean isAudioSourceMatchingRecordingSession()
-    boolean isNoiseSuppressorSupported()
-    private synthetic java.lang.String lambda$scheduleLogRecordingConfigurationsTask$0(android.media.AudioRecord)
-    private static boolean logActiveRecordingConfigs(int,java.util.List)
-    private void logMainParameters()
-    private void logMainParametersExtended()
-    private int logRecordingConfigurations(android.media.AudioRecord,boolean)
-    private native void nativeCacheDirectBufferAddress(long,java.nio.ByteBuffer)
-    private native void nativeDataIsRecorded(long,int,long)
-    public boolean prewarmRecordingIfNeeded()
-    private void releaseAudioResources()
-    private void reportWebRtcAudioRecordError(java.lang.String)
-    private void reportWebRtcAudioRecordInitError(java.lang.String)
-    private void reportWebRtcAudioRecordStartError(org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStartErrorCode,java.lang.String)
-    private void scheduleLogRecordingConfigurationsTask(android.media.AudioRecord)
-    public void setMicrophoneMute(boolean)
-    public void setNativeAudioRecord(long)
-    public boolean setNoiseSuppressorEnabled(boolean)
-    void setPreferredDevice(android.media.AudioDeviceInfo)
-    public void setUseAudioRecord(boolean)
-    private boolean startRecording()
-    public boolean startRecordingIfNeeded()
-    private boolean startRecordingImpl()
-    private boolean stopRecording()
-    public boolean stopRecordingIfNeeded()
-    private boolean stopRecordingIfNeededImpl()
-    private static boolean verifyAudioConfig(int,int,android.media.AudioFormat,android.media.AudioDeviceInfo,java.util.List)
-org.webrtc.audio.WebRtcAudioTrack$AudioTrackThread
-org.webrtc.audio.WebRtcAudioTrack:
-    private static final int AUDIO_TRACK_START
-    private static final int AUDIO_TRACK_STOP
-    private static final long AUDIO_TRACK_THREAD_JOIN_TIMEOUT_MS
-    private static final int BITS_PER_SAMPLE
-    private static final int BUFFERS_PER_SECOND
-    private static final int CALLBACK_BUFFER_SIZE_MS
-    private static final int DEFAULT_USAGE
-    private static final java.lang.String TAG
-    private org.webrtc.audio.WebRtcAudioTrack$AudioTrackThread audioThread
-    private android.media.AudioTrack audioTrack
-    private java.nio.ByteBuffer byteBuffer
-    private byte[] emptyBytes
-    private int initialBufferSizeInFrames
-    private long nativeAudioTrack
-    private volatile boolean speakerMute
-    void <init>(android.content.Context,android.media.AudioManager)
-    private int GetPlayoutUnderrunCount()
-    private static android.media.AudioAttributes$Builder applyAttributesOnQOrHigher(android.media.AudioAttributes$Builder,android.media.AudioAttributes)
-    private static void assertTrue(boolean)
-    private int channelCountToConfiguration(int)
-    private static android.media.AudioTrack createAudioTrackBeforeOreo(int,int,int,android.media.AudioAttributes)
-    private static android.media.AudioTrack createAudioTrackOnOreoOrHigher(int,int,int,android.media.AudioAttributes)
-    private void doAudioTrackStateCallback(int)
-    private static android.media.AudioAttributes getAudioAttributes(android.media.AudioAttributes)
-    private int getBufferSizeInFrames()
-    private int getInitialBufferSizeInFrames()
-    private int getStreamMaxVolume()
-    private int getStreamVolume()
-    private int initPlayout(int,int,double)
-    private void logBufferCapacityInFrames()
-    private void logBufferSizeInFrames()
-    private void logMainParameters()
-    private void logMainParametersExtended()
-    private static void logNativeOutputSampleRate(int)
-    private void logUnderrunCount()
-    private static native void nativeCacheDirectBufferAddress(long,java.nio.ByteBuffer)
-    private static native void nativeGetPlayoutData(long,int)
-    private void releaseAudioResources()
-    private void reportWebRtcAudioTrackError(java.lang.String)
-    private void reportWebRtcAudioTrackInitError(java.lang.String)
-    private void reportWebRtcAudioTrackStartError(org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStartErrorCode,java.lang.String)
-    public void setNativeAudioTrack(long)
-    public void setSpeakerMute(boolean)
-    private boolean setStreamVolume(int)
-    private boolean startPlayout()
-    private boolean stopPlayout()
-org.webrtc.audio.WebRtcAudioUtils:
-    private static final java.lang.String TAG
-    public void <init>()
-    public static java.lang.String audioEncodingToString(int)
-    public static java.lang.String audioSourceToString(int)
-    public static java.lang.String channelMaskToString(int)
-    public static java.lang.String deviceTypeToString(int)
-    private static boolean hasMicrophone(android.content.Context)
-    private static void logAudioDeviceInfo(java.lang.String,android.media.AudioManager)
-    public static void logAudioState(java.lang.String,android.content.Context,android.media.AudioManager)
-    private static void logAudioStateBasic(java.lang.String,android.content.Context,android.media.AudioManager)
-    private static void logAudioStateVolume(java.lang.String,android.media.AudioManager)
-    private static void logDeviceInfo(java.lang.String)
-    static java.lang.String modeToString(int)
-    private static java.lang.String streamTypeToString(int)
 _COROUTINE.ArtificialStackFrames
 _COROUTINE.CoroutineDebuggingKt
 _COROUTINE._BOUNDARY
@@ -29733,7 +28749,6 @@ androidx.appcompat.app.LayoutIncludeDetector:
     public static void apply()
     public final androidx.core.view.ContentInfoCompat build()
     public static androidx.core.view.WindowInsetsCompat build()
-    public static boolean canSwipeDismissView()
     public static androidx.emoji2.text.EmojiCompat$Config configOrNull()
     public static java.util.List convertToByteArray()
     public static androidx.emoji2.text.EmojiCompat$Config create()
@@ -29758,7 +28773,6 @@ androidx.appcompat.app.LayoutIncludeDetector:
     public static void onCornerPathCreated()
     public static void onDayClick()
     public static void onEdgePathCreated()
-    public static void onInterceptTouchEvent()
     public final void onPressedChanged()
     public static void onTypefaceRequestFailed()
     public static void onTypefaceRetrieved()
@@ -30202,7 +29216,7 @@ androidx.appcompat.widget.ActionBarContextView:
     public static int getContentHeight$androidx$appcompat$widget$AbsActionBarView()
     public static boolean isTitleOptional()
     public static int measureChildView$androidx$appcompat$widget$AbsActionBarView()
-    public static int next(boolean,int,int)
+    public static int next(int,int,boolean)
     public static int positionChild$androidx$appcompat$widget$AbsActionBarView()
     public static androidx.core.view.ViewPropertyAnimatorCompat setupAnimatorToVisibility$androidx$appcompat$widget$AbsActionBarView()
     public final void showOverflowMenu()
@@ -33803,6 +32817,8 @@ androidx.lifecycle.LegacySavedStateHandleController:
 androidx.lifecycle.Lifecycle$Event$Companion$WhenMappings
 androidx.lifecycle.Lifecycle$Event$Companion:
     public static androidx.lifecycle.Lifecycle$Event upTo()
+androidx.lifecycle.Lifecycle$State:
+    public final boolean isAtLeast(androidx.lifecycle.Lifecycle$State)
 androidx.lifecycle.Lifecycle:
     public java.util.concurrent.atomic.AtomicReference internalScopeRef
     public abstract androidx.lifecycle.Lifecycle$State getCurrentState()
@@ -33890,7 +32906,6 @@ androidx.lifecycle.ReportFragment:
     public static void dispatchCreate()
     public static void dispatchResume()
     public static void dispatchStart()
-    public static final void injectIfNeededIn(android.app.Activity)
     public static void setProcessListener()
 androidx.lifecycle.SavedStateHandle$$InternalSyntheticLambda$1$c70f9b22894bb1b1031013e177ef365df1be52e75941faf11fc45a5cc464eb9e$0
 androidx.lifecycle.SavedStateHandle$Companion
@@ -33953,6 +32968,7 @@ androidx.lifecycle.ViewTreeViewModelStoreOwner
 androidx.lifecycle.runtime.R$id
 androidx.lifecycle.viewmodel.CreationExtras$Empty:
     public final java.lang.Object get(androidx.lifecycle.viewmodel.CreationExtras$Key)
+androidx.lifecycle.viewmodel.CreationExtras$Key
 androidx.lifecycle.viewmodel.CreationExtras:
     public abstract java.lang.Object get(androidx.lifecycle.viewmodel.CreationExtras$Key)
     public abstract java.util.Map getMap$lifecycle_viewmodel_release()
@@ -33962,6 +32978,7 @@ androidx.lifecycle.viewmodel.InitializerViewModelFactoryBuilder:
     public static kotlinx.coroutines.flow.Flow track()
 androidx.lifecycle.viewmodel.MutableCreationExtras:
     public final java.lang.Object get(androidx.lifecycle.viewmodel.CreationExtras$Key)
+    public final void set(androidx.lifecycle.viewmodel.CreationExtras$Key,java.lang.Object)
 androidx.lifecycle.viewmodel.R$id
 androidx.lifecycle.viewmodel.ViewModelInitializer:
     public static java.lang.Class getClazz$lifecycle_viewmodel_release()
@@ -34791,7 +33808,7 @@ androidx.room.AutoClosingRoomOpenHelper$AutoClosingSupportSqliteStatement:
     public final java.util.ArrayList binds
     public final java.lang.String sql
     public void <init>(java.lang.String)
-    public final void bindBlob(byte[],int)
+    public final void bindBlob(int,byte[])
     public final void bindDouble(int,double)
     public final void bindLong(int,long)
     public final void bindNull(int)
@@ -35195,41 +34212,30 @@ androidx.startup.AppInitializer:
 androidx.startup.R$string
 androidx.startup.StartupException
 androidx.startup.StartupLogger
-androidx.tracing.Trace$$InternalSyntheticThrowCCEIfNotNull$184$e3946202d89a450d8c4379a0916f4bdaaf3191d2a791adf0b5fc1c057a8e125c$0
-androidx.tracing.Trace$$InternalSyntheticThrowCCEIfNotNull$184$e3946202d89a450d8c4379a0916f4bdaaf3191d2a791adf0b5fc1c057a8e125c$1
 androidx.tracing.Trace:
     public static final java.lang.Object[] arrayOfUninitializedElements(int)
     public abstract boolean canDrag()
     public abstract void captureValues()
+    public static final long convertDurationUnitOverflow(kotlin.time.DurationUnit,kotlin.time.DurationUnit)
     public static final java.lang.Object[] copyOfUninitializedElements(int,java.lang.Object[])
     public static android.animation.Keyframe createNewKeyframe(android.animation.Keyframe,float)
     public static float dpToPx(android.content.Context,int)
     public static java.util.List emptyList()
     public static java.lang.Object getCOROUTINE_SUSPENDED()
-    public static final java.lang.String getCoroutineName()
     public static final kotlin.jvm.functions.Function1 getIndentFunction$StringsKt__IndentKt()
     public static android.animation.PropertyValuesHolder getPVH(android.content.res.TypedArray,int,int,int,java.lang.String)
     public abstract java.lang.String[] getPropagationProperties()
     public abstract long getStartDelay()
-    public static final boolean hasCopyableElements(kotlin.coroutines.CoroutineContext)
     public static boolean isColorType(int)
     public static boolean isEditable(android.widget.EditText)
     public static final kotlin.collections.AbstractList$IteratorImpl iterator(java.lang.Object[])
-    public static varargs java.util.ArrayList listOfNotNull(java.lang.Object[])
-    public abstract long nanoTime()
-    public static final kotlin.coroutines.CoroutineContext newCoroutineContext(kotlinx.coroutines.CoroutineScope,kotlin.coroutines.CoroutineContext)
     public static final java.util.List optimizeReadOnlyList(java.util.List)
-    public abstract void parkNanos()
-    public abstract void registerTimeLoopThread()
     public static final void resetAt(int,java.lang.Object[])
     public static void terminateCollectionToArray(int,java.lang.Object[])
     public static void throwCountOverflow()
-    public abstract void trackTask()
-    public abstract void unTrackTask()
-    public abstract void unpark()
-    public abstract void unregisterTimeLoopThread()
+    public static final java.lang.Object toState(java.lang.Object,kotlin.jvm.functions.Function1)
+    public static java.lang.Object toState$default(java.lang.Object)
     public abstract void updateFragmentMaxLifecycle()
-    public abstract java.lang.Runnable wrapTask()
 androidx.tracing.TraceApi18Impl
 androidx.transition.AnimatorUtils$AnimatorPauseListenerCompat
 androidx.transition.AnimatorUtils:
@@ -35238,10 +34244,10 @@ androidx.transition.AnimatorUtils:
     public static final int access$nextId(androidx.work.impl.WorkDatabase,java.lang.String)
     public static long coerceAtLeast(long,long)
     public static int compositeARGBWithAlpha(int,int)
-    public static final long convertDurationUnitOverflow(kotlin.time.DurationUnit,kotlin.time.DurationUnit)
     public static final int differenceModulo(int,int,int)
     public static final long differenceModulo(long,long,long)
     public static kotlin.ranges.IntProgression downTo(int,int)
+    public static final long durationOfMillis(long)
     public static java.util.Set emptySet()
     public static android.view.View findChildViewById(android.view.View,int)
     public static java.lang.Object fold(kotlin.coroutines.CoroutineContext$Element,java.lang.Object,kotlin.jvm.functions.Function2)
@@ -35694,7 +34700,6 @@ androidx.work.NoOpInputMergerFactory:
     public final androidx.work.InputMerger createInputMerger()
     public static java.lang.Void createInputMerger()
 androidx.work.OneTimeWorkRequest$Builder:
-    public void <init>(java.lang.Class)
     public static androidx.work.OneTimeWorkRequest buildInternal$work_runtime_release()
     public static androidx.work.OneTimeWorkRequest$Builder getThisObject$work_runtime_release()
 androidx.work.OneTimeWorkRequest$Companion
@@ -35830,7 +34835,7 @@ androidx.work.impl.WorkLauncherImpl:
     public final void startWork(androidx.work.impl.StartStopToken)
     public final void startWork(androidx.work.impl.StartStopToken,androidx.appcompat.app.AlertController$2)
     public final void stopWork(androidx.work.impl.StartStopToken)
-    public final void stopWorkWithReason(androidx.work.impl.StartStopToken,int)
+    public static void stopWorkWithReason()
 androidx.work.impl.WorkManagerImpl$$InternalSyntheticThrowCCEIfNotNull$35$2d6ee51c51d1dfe2ebe0be099307b27a3ab3fb51677f69852aa0a005fea39def$0
 androidx.work.impl.WorkManagerImpl:
     public static final java.lang.String TAG
@@ -36055,14 +35060,12 @@ androidx.work.impl.model.DependencyDao_Impl$1:
     private static java.lang.String createQuery$androidx$work$impl$model$WorkSpecDao_Impl$1()
     private static java.lang.String createQuery$androidx$work$impl$model$WorkTagDao_Impl$1()
 androidx.work.impl.model.DependencyDao_Impl:
-    public final synthetic int $r8$classId
     public static boolean hasDependents()
     public static void insertDependency()
     public static boolean isEmojiCapableKeyListener()
     public static void onTypefaceRequestFailed()
     public static void onTypefaceRetrieved()
     public final void setEnabled(boolean)
-    public static java.lang.String stringifyKeyValuePairList(java.util.List)
 androidx.work.impl.model.Preference:
     public static java.lang.String getKey()
     public static java.lang.Long getValue()
@@ -36159,7 +35162,6 @@ androidx.work.impl.model.WorkSpec$Companion:
     public static kotlin.ranges.IntRange getEMPTY()
     public static kotlin.collections.builders.MapBuilder getEmpty$kotlin_stdlib()
     public static long getIntCount()
-    public static boolean load()
     public static int newCapacity$kotlin_stdlib()
     public static okio.ByteString of()
     public static boolean orderedEquals$kotlin_stdlib()
@@ -38157,7 +37159,7 @@ com.google.android.material.textfield.IndicatorViewController:
     public static java.lang.CharSequence getHelperText()
     public static android.view.View getHelperTextView()
     public static int getHelperTextViewCurrentTextColor()
-    public final int getIndicatorPadding(boolean,int,int)
+    public final int getIndicatorPadding(int,int,boolean)
     public static void hideHelperText()
     public static boolean isCaptionStateError()
     public static boolean isCaptionView(int)
@@ -38418,7 +37420,6 @@ com.google.android.material.transformation.FabTransformationSheetBehavior:
     public static void updateImportantForAccessibility()
 com.google.android.material.transformation.TransformationChildCard
 com.google.android.material.transformation.TransformationChildLayout
-com.micmonitor.app.MicService$$InternalSyntheticThrowCCEIfNotNull$10$47a4da21a07600ef253296f27d3903d7bbf4fe962bf34fd0294efede48ac09e1$0
 kotlin.ExceptionsKt
 kotlin.ExceptionsKt__ExceptionsKt
 kotlin.KotlinNothingValueException
@@ -38442,6 +37443,8 @@ kotlin.ResultKt
 kotlin.SynchronizedLazyImpl:
     public final boolean isInitialized()
 kotlin.TuplesKt
+kotlin.UInt$Companion
+kotlin.UInt
 kotlin.collections.AbstractCollection$toString$1
 kotlin.collections.AbstractList$Companion
 kotlin.collections.AbstractList$IteratorImpl:
@@ -38471,8 +37474,8 @@ kotlin.collections.ArraysKt___ArraysKt:
     public static synthetic void copyInto$default(byte[],byte[],int,int)
     public static synthetic void copyInto$default(java.lang.Object[],java.lang.Object[],int,int,int)
     public static byte[] copyOfRange(byte[],int,int)
-    public static void fill(int[],int,int)
-    public static java.util.ArrayList filterNotNull(java.lang.Object[])
+    public static void fill(int[],int)
+    public static void fill(java.lang.Object[],int,int)
     public static int getLastIndex(java.lang.Object[])
     public static java.lang.Object getOrNull(int,java.lang.Object[])
     public static final void toCollection(java.util.LinkedHashSet,java.lang.Object[])
@@ -38725,7 +37728,6 @@ kotlin.ranges.IntProgression:
     public static int getFirst()
     public static int getLast()
     public static int getStep()
-    public final kotlin.ranges.IntProgressionIterator iterator()
 kotlin.ranges.IntRange$Companion
 kotlin.ranges.IntRange:
     public static final androidx.work.impl.model.WorkSpec$Companion Companion
@@ -38759,19 +37761,24 @@ kotlin.sequences.SequencesKt___SequencesJvmKt:
 kotlin.sequences.SequencesKt___SequencesKt
 kotlin.text.CharsKt
 kotlin.text.CharsKt__CharJVMKt
+kotlin.text.CharsKt__CharKt$$InternalSyntheticThrowCCEIfNotNull$184$eba2f71e758e79641832bd645bffb3ca94287176c59cc6acee10bfcac3323d44$0
+kotlin.text.CharsKt__CharKt$$InternalSyntheticThrowCCEIfNotNull$184$eba2f71e758e79641832bd645bffb3ca94287176c59cc6acee10bfcac3323d44$1
+kotlin.text.CharsKt__CharKt$$InternalSyntheticThrowCCEIfNotNull$7$77fe9ce1bde5023792935a67eacd0742354e7805af0eb962836ceec799f46178$0
 kotlin.text.CharsKt__CharKt:
-    public static final java.util.concurrent.CancellationException CancellationException(java.lang.String,java.lang.Throwable)
-    public static final okio.AsyncTimeout$sink$1 appendingSink(java.io.File)
-    public static final byte[] asUtf8ToByteArray(java.lang.String)
-    public static final void cancel(kotlin.coroutines.CoroutineContext,java.util.concurrent.CancellationException)
-    public static java.lang.Object constructor-impl$default()
-    public static final long durationOfMillis(long)
-    public static final void ensureActive(kotlin.coroutines.CoroutineContext)
-    public static final java.lang.Throwable handlerException(java.lang.Throwable,java.lang.Throwable)
-    public static final okio.AsyncTimeout$sink$1 sink(java.io.FileOutputStream)
-    public static okio.AsyncTimeout$sink$1 sink$default(java.io.File)
-    public static final okio.AsyncTimeout$source$1 source(java.io.File)
-    public static final java.lang.String toUtf8String(byte[])
+    public static final void callUndeliveredElement(kotlin.jvm.functions.Function1,java.lang.Object,kotlin.coroutines.CoroutineContext)
+    public static synthetic androidx.fragment.app.Fragment$InstantiationException callUndeliveredElementCatchingException$default(kotlin.jvm.functions.Function1,java.lang.Object)
+    public static synthetic void cancel$default(kotlinx.coroutines.Job)
+    public static final java.lang.String getCoroutineName()
+    public static final boolean hasCopyableElements(kotlin.coroutines.CoroutineContext)
+    public abstract long nanoTime()
+    public static final kotlin.coroutines.CoroutineContext newCoroutineContext(kotlinx.coroutines.CoroutineScope,kotlin.coroutines.CoroutineContext)
+    public abstract void parkNanos()
+    public abstract void registerTimeLoopThread()
+    public abstract void trackTask()
+    public abstract void unTrackTask()
+    public abstract void unpark()
+    public abstract void unregisterTimeLoopThread()
+    public abstract java.lang.Runnable wrapTask()
 kotlin.text.Charsets:
     public static final kotlin.text.Charsets INSTANCE
     public static final java.nio.charset.Charset ISO_8859_1
@@ -38841,6 +37848,7 @@ kotlin.text.StringsKt__StringsKt:
     public static synthetic boolean startsWith$default(java.lang.String,java.lang.String)
     public static synthetic boolean startsWith$default(java.lang.String,java.lang.String,int)
 kotlin.text.StringsKt___StringsJvmKt
+kotlin.text.UStringsKt
 kotlin.time.Duration$Companion
 kotlin.time.Duration
 kotlin.time.DurationJvmKt
@@ -38853,19 +37861,19 @@ kotlinx.coroutines.AbstractTimeSource
 kotlinx.coroutines.AbstractTimeSourceKt
 kotlinx.coroutines.BlockingCoroutine:
     public static java.lang.Object joinBlocking()
-kotlinx.coroutines.BuildersKt
-kotlinx.coroutines.BuildersKt__BuildersKt$$InternalSyntheticThrowCCEIfNotNull$15$95acf0ce05ad8d48731b836d6497f71b9500458d676a8af7d975fedc93e684ed$0
-kotlinx.coroutines.BuildersKt__BuildersKt$$InternalSyntheticThrowCCEIfNotNull$19$1335c737cda1cc53edf39250f38ae3d59f1508f7c3269f7e38d9a5f0cd79a6da$0
-kotlinx.coroutines.BuildersKt__BuildersKt:
-    public static final void cancelConsumed(kotlinx.coroutines.channels.ReceiveChannel,java.lang.Throwable)
-    public static final void checkParallelism(int)
-    public static synthetic void close$default(kotlinx.coroutines.channels.Channel)
-    public static final int systemProp(int,int,int,java.lang.String)
-    public static final java.lang.String systemProp(java.lang.String)
-    public static final boolean systemProp(java.lang.String,boolean)
-    public static synthetic long systemProp$default(java.lang.String,long)
-    public static final java.lang.Object toState(java.lang.Object,kotlin.jvm.functions.Function1)
-    public static java.lang.Object toState$default(java.lang.Object)
+kotlinx.coroutines.BuildersKt:
+    public static final java.util.concurrent.CancellationException CancellationException(java.lang.String,java.lang.Throwable)
+    public static final okio.AsyncTimeout$sink$1 appendingSink(java.io.File)
+    public static final byte[] asUtf8ToByteArray(java.lang.String)
+    public static final void cancel(kotlin.coroutines.CoroutineContext,java.util.concurrent.CancellationException)
+    public static java.lang.Object constructor-impl$default()
+    public static final void ensureActive(kotlin.coroutines.CoroutineContext)
+    public static final java.lang.Throwable handlerException(java.lang.Throwable,java.lang.Throwable)
+    public static final okio.AsyncTimeout$sink$1 sink(java.io.FileOutputStream)
+    public static okio.AsyncTimeout$sink$1 sink$default(java.io.File)
+    public static final okio.AsyncTimeout$source$1 source(java.io.File)
+    public static final java.lang.String toUtf8String(byte[])
+kotlinx.coroutines.BuildersKt__BuildersKt
 kotlinx.coroutines.BuildersKt__Builders_commonKt
 kotlinx.coroutines.CancelHandlerBase
 kotlinx.coroutines.CancellableContinuation:
@@ -38948,7 +37956,17 @@ kotlinx.coroutines.CoroutineId$$InternalSyntheticThrowCCEIfNotNull$221$a04cd5583
 kotlinx.coroutines.CoroutineId
 kotlinx.coroutines.CoroutineName$Key
 kotlinx.coroutines.CoroutineName
-kotlinx.coroutines.CoroutineScopeKt
+kotlinx.coroutines.CoroutineScopeKt$$InternalSyntheticThrowCCEIfNotNull$15$f8a26d5f506b49a8399e7ddc656225e234b40280d7efe8c820c1cb634e8a5332$0
+kotlinx.coroutines.CoroutineScopeKt$$InternalSyntheticThrowCCEIfNotNull$19$8d3bbbbebb3b853df5731867da36a75962907ddc5b18f0b19af10345ae5cabc6$0
+kotlinx.coroutines.CoroutineScopeKt:
+    public static final void cancelConsumed(kotlinx.coroutines.channels.ReceiveChannel,java.lang.Throwable)
+    public static final void checkParallelism(int)
+    public static synthetic void close$default(kotlinx.coroutines.channels.Channel)
+    public static final void dispatcherFailure(kotlinx.coroutines.AbstractCoroutine,java.lang.Throwable)
+    public static final int systemProp(java.lang.String,int,int,int)
+    public static final java.lang.String systemProp(java.lang.String)
+    public static final boolean systemProp(java.lang.String,boolean)
+    public static synthetic long systemProp$default(java.lang.String,long)
 kotlinx.coroutines.CoroutineStart$EnumUnboxingLocalUtility
 kotlinx.coroutines.CoroutineStart$WhenMappings
 kotlinx.coroutines.CoroutineStart
@@ -38994,11 +38012,7 @@ kotlinx.coroutines.DefaultExecutor:
     public static void shutdownError()
 kotlinx.coroutines.DefaultExecutorKt:
     public static final boolean defaultMainDelayOptIn
-kotlinx.coroutines.Delay$DefaultImpls$$InternalSyntheticThrowCCEIfNotNull$7$46c52460beca07a0b54919424e3536f5761839a5ed960c7cfca87688d222ac27$0
-kotlinx.coroutines.Delay$DefaultImpls:
-    public static final void callUndeliveredElement(kotlin.jvm.functions.Function1,java.lang.Object,kotlin.coroutines.CoroutineContext)
-    public static synthetic androidx.fragment.app.Fragment$InstantiationException callUndeliveredElementCatchingException$default(kotlin.jvm.functions.Function1,java.lang.Object)
-    public static synthetic void cancel$default(kotlinx.coroutines.Job)
+kotlinx.coroutines.Delay$DefaultImpls
 kotlinx.coroutines.DelayKt
 kotlinx.coroutines.DelayWithTimeoutDiagnostics
 kotlinx.coroutines.DispatchedCoroutine:
@@ -39466,8 +38480,8 @@ kotlinx.coroutines.internal.StackTraceRecoveryKt:
     public static final int firstFrameIndex(java.lang.StackTraceElement[],java.lang.String)
     public static final boolean isArtificial(java.lang.StackTraceElement)
 kotlinx.coroutines.internal.Symbol:
-    public void <init>()
-    public static void detachThread()
+    public static boolean canSwipeDismissView()
+    public static void onInterceptTouchEvent()
 kotlinx.coroutines.internal.SystemPropsKt
 kotlinx.coroutines.internal.SystemPropsKt__SystemProps_commonKt
 kotlinx.coroutines.internal.ThreadContextKt$countAll$1$$InternalSyntheticThrowCCEIfNotNull$221$a546074a2ed249d1eabefdc79e18209b1ee65e7faf56680f7461c253f28dd8e6$0
@@ -39682,217 +38696,63 @@ okio._JvmPlatformKt
 okio.internal.-ByteString:
     public static final char[] getHEX_DIGIT_CHARS()
 okio.internal.-SegmentedByteString
-org.webrtc.AudioDecoderFactoryFactory
-org.webrtc.AudioEncoderFactoryFactory
-org.webrtc.AudioProcessingFactory
-org.webrtc.AudioTrack:
-    public abstract void dispose()
-org.webrtc.ContextUtils
-org.webrtc.CryptoOptions
-org.webrtc.FecControllerFactoryFactoryInterface
-org.webrtc.IceCandidate$$InternalSyntheticThrowCCEIfNotNull$221$6d925ccc32cbae852dc38463fabd3beeab27bbc88a6e8a668575c5cfbeb54183$0
-org.webrtc.IceCandidate:
-    public final org.webrtc.PeerConnection$AdapterType adapterType
-    public final java.lang.String sdp
-    public final int sdpMLineIndex
-    public final java.lang.String sdpMid
-    public final java.lang.String serverUrl
-    public final boolean equals(java.lang.Object)
-    public final int hashCode()
-    public static boolean objectEquals(java.lang.String,java.lang.String)
-    public final java.lang.String toString()
-org.webrtc.JNILogging
-org.webrtc.Loggable
-org.webrtc.Logging$1
-org.webrtc.Logging$Severity$EnumUnboxingLocalUtility
-org.webrtc.Logging$Severity
-org.webrtc.Logging:
-    public static org.webrtc.Loggable loggable
-    public static int loggableSeverity
-    public static volatile boolean loggingEnabled
-    public static void e(java.lang.String)
-    private static native void nativeLog(int,java.lang.String,java.lang.String)
-org.webrtc.MediaConstraints$KeyValuePair$$InternalSyntheticThrowCCEIfNotNull$221$d78b60226aeb8895252ae692e33811be9dd3089b904b30a098f148a0980f474f$0
-org.webrtc.MediaConstraints$KeyValuePair
-org.webrtc.MediaConstraints
-org.webrtc.MediaSource:
-    public abstract void dispose()
-org.webrtc.MediaStreamTrack:
-    public abstract boolean setEnabled()
-org.webrtc.NativeLibrary$DefaultLoader
-org.webrtc.NativeLibrary:
-    public static java.lang.String TAG
-    public static synthetic bridge java.lang.String -$$Nest$sfgetTAG()
-org.webrtc.NativeLibraryLoader
-org.webrtc.NetEqFactoryFactory
-org.webrtc.NetworkControllerFactoryFactory
-org.webrtc.NetworkStatePredictorFactoryFactory
-org.webrtc.PeerConnection$AdapterType:
-    public static final enum org.webrtc.PeerConnection$AdapterType ADAPTER_TYPE_ANY
-    public static final enum org.webrtc.PeerConnection$AdapterType CELLULAR
-    public static final enum org.webrtc.PeerConnection$AdapterType CELLULAR_2G
-    public static final enum org.webrtc.PeerConnection$AdapterType CELLULAR_3G
-    public static final enum org.webrtc.PeerConnection$AdapterType CELLULAR_4G
-    public static final enum org.webrtc.PeerConnection$AdapterType CELLULAR_5G
-    public static final enum org.webrtc.PeerConnection$AdapterType ETHERNET
-    public static final enum org.webrtc.PeerConnection$AdapterType LOOPBACK
-    public static final enum org.webrtc.PeerConnection$AdapterType UNKNOWN
-    public static final enum org.webrtc.PeerConnection$AdapterType VPN
-    public static final enum org.webrtc.PeerConnection$AdapterType WIFI
-org.webrtc.PeerConnection$BundlePolicy$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$BundlePolicy
-org.webrtc.PeerConnection$CandidateNetworkPolicy$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$CandidateNetworkPolicy
-org.webrtc.PeerConnection$ContinualGatheringPolicy$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$ContinualGatheringPolicy
-org.webrtc.PeerConnection$IceConnectionState:
-    public static final enum org.webrtc.PeerConnection$IceConnectionState CHECKING
-    public static final enum org.webrtc.PeerConnection$IceConnectionState CLOSED
-    public static final enum org.webrtc.PeerConnection$IceConnectionState NEW
-org.webrtc.PeerConnection$IceGatheringState:
-    public static final enum org.webrtc.PeerConnection$IceGatheringState COMPLETE
-    public static final enum org.webrtc.PeerConnection$IceGatheringState GATHERING
-    public static final enum org.webrtc.PeerConnection$IceGatheringState NEW
+org.webrtc.Camera1Session$2$$InternalSyntheticLambda$1$e6156bc79c78f6804249ce76c19d45705c4c47386d419d145b91d80798628483$0
+org.webrtc.Camera2Session$CameraCaptureCallback-IA
+org.webrtc.Camera2Session$CameraStateCallback-IA
+org.webrtc.Camera2Session$CaptureSessionCallback$$InternalSyntheticLambda$1$e28eb495c62186d199bc9c69e43046eeb49f365a497aad82e84e4e23d689a469$0
+org.webrtc.Camera2Session$CaptureSessionCallback-IA
+org.webrtc.CameraEnumerationAndroid$ClosestComparator-IA
+org.webrtc.CryptoOptions$Builder-IA
+org.webrtc.CryptoOptions$SFrame-IA
+org.webrtc.CryptoOptions$Srtp-IA
+org.webrtc.CryptoOptions-IA
+org.webrtc.EglBase10Impl$EglConnection-IA
+org.webrtc.EglBase14Impl$EglConnection$$InternalSyntheticLambda$1$8ab8d8b74100b9b289ab16e4303ce977371bd40dc67e7053ffce5d576df49758$0
+org.webrtc.EglBase14Impl$EglConnection$$InternalSyntheticLambda$1$e30342a9b856673e899fb4a552321197e1b8cfa9e6a2f9e61ce1a1c08b3f4ce6$0
+org.webrtc.EglBase14Impl$EglConnection-IA
+org.webrtc.EglRenderer$$InternalSyntheticLambda$1$2fea59c4c188021ded9bb39f97e382883ae098c776ffa750ba66fefc126d3a1b$0
+org.webrtc.EglRenderer$$InternalSyntheticLambda$1$370ea5078cdf9e32fdf2e0d27e2ad163fb5950d68239961269b8cd133e51215a$0
+org.webrtc.EglRenderer$$InternalSyntheticLambda$1$4656c9c5faf94a93b0e52f556894d03f01b05644994d3f4c6d8e30eb07f6155b$0
+org.webrtc.EglRenderer$$InternalSyntheticLambda$1$b42df3aa9fd220c0975252077f0a9ca653844fb8f83d214f3f5c5ad22b83420e$0
+org.webrtc.EglRenderer$EglSurfaceCreation-IA
+org.webrtc.EglThread$$InternalSyntheticLambda$1$204af07d04ea498e72f8bdcc76d97a07c02ad272c1f30c3b5ac172c8674e6e44$0
+org.webrtc.EglThread$$InternalSyntheticLambda$1$9634c506fcf71367de5a5db9d8f80f7ca0a087f990d02b969d5adaace4644543$1
+org.webrtc.EglThread$$InternalSyntheticLambda$1$c4f741d665c133564ae33b0e21fe3b08ff9af1a259da715ba3f53ab1c5af5b34$0
+org.webrtc.EncodedImage$Builder-IA
+org.webrtc.EncodedImage-IA
+org.webrtc.FileVideoCapturer$VideoReaderY4M:
+    static void <clinit>()
+org.webrtc.GlRectDrawer$ShaderCallbacks-IA
+org.webrtc.HardwareVideoEncoder$BusyCount-IA
+org.webrtc.JavaI420Buffer$$InternalSyntheticLambda$1$49214c1f87d0d3670b244729283b998bb87b4385e0a8a71218894a98ad667052$0
+org.webrtc.NetworkMonitor-IA
 org.webrtc.PeerConnection$IceServer$Builder-IA
-org.webrtc.PeerConnection$IceServer$Builder
 org.webrtc.PeerConnection$IceServer-IA
-org.webrtc.PeerConnection$IceServer:
-    public static androidx.appcompat.widget.TooltipPopup builder()
-org.webrtc.PeerConnection$IceTransportsType$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$IceTransportsType
-org.webrtc.PeerConnection$KeyType$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$KeyType
-org.webrtc.PeerConnection$Observer
-org.webrtc.PeerConnection$PeerConnectionState:
-    public static final enum org.webrtc.PeerConnection$PeerConnectionState CLOSED
-    public static final enum org.webrtc.PeerConnection$PeerConnectionState CONNECTED
-    public static final enum org.webrtc.PeerConnection$PeerConnectionState CONNECTING
-    public static final enum org.webrtc.PeerConnection$PeerConnectionState DISCONNECTED
-    public static final enum org.webrtc.PeerConnection$PeerConnectionState FAILED
-    public static final enum org.webrtc.PeerConnection$PeerConnectionState NEW
-org.webrtc.PeerConnection$PortPrunePolicy$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$PortPrunePolicy
-org.webrtc.PeerConnection$RTCConfiguration
-org.webrtc.PeerConnection$RtcpMuxPolicy$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$RtcpMuxPolicy
-org.webrtc.PeerConnection$SdpSemantics$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$SdpSemantics
-org.webrtc.PeerConnection$SignalingState:
-    public static final enum org.webrtc.PeerConnection$SignalingState CLOSED
-    public static final enum org.webrtc.PeerConnection$SignalingState HAVE_LOCAL_OFFER
-    public static final enum org.webrtc.PeerConnection$SignalingState HAVE_LOCAL_PRANSWER
-    public static final enum org.webrtc.PeerConnection$SignalingState HAVE_REMOTE_OFFER
-    public static final enum org.webrtc.PeerConnection$SignalingState HAVE_REMOTE_PRANSWER
-    public static final enum org.webrtc.PeerConnection$SignalingState STABLE
-org.webrtc.PeerConnection$TcpCandidatePolicy$EnumUnboxingLocalUtility
-org.webrtc.PeerConnection$TcpCandidatePolicy
-org.webrtc.PeerConnection$TlsCertPolicy:
-    public static final enum org.webrtc.PeerConnection$TlsCertPolicy TLS_CERT_POLICY_INSECURE_NO_CHECK
-org.webrtc.PeerConnection:
-    public abstract boolean addIceCandidate()
-    public abstract org.webrtc.RtpSender addTrack()
-    public abstract void close()
-    public abstract void createAnswer()
-    public abstract org.webrtc.PeerConnection$IceConnectionState iceConnectionState()
-    public abstract void restartIce()
-    public abstract void setLocalDescription()
-    public abstract void setRemoteDescription()
+org.webrtc.PeerConnectionDependencies$Builder-IA
+org.webrtc.PeerConnectionDependencies-IA
 org.webrtc.PeerConnectionFactory$Builder-IA
-org.webrtc.PeerConnectionFactory$Builder
-org.webrtc.PeerConnectionFactory$InitializationOptions$Builder:
-    public org.webrtc.Loggable loggable
-    public int loggableSeverity
-    public static org.webrtc.PeerConnectionFactory$InitializationOptions$Builder createInitializationOptions()
-    public static org.webrtc.PeerConnectionFactory$InitializationOptions$Builder setEnableInternalTracer()
 org.webrtc.PeerConnectionFactory$InitializationOptions-IA
-org.webrtc.PeerConnectionFactory$InitializationOptions
-org.webrtc.PeerConnectionFactory:
-    public abstract org.webrtc.AudioSource createAudioSource()
-    public abstract org.webrtc.AudioTrack createAudioTrack()
-    public abstract org.webrtc.PeerConnection createPeerConnection()
-    public abstract void dispose()
-    private static native void nativeInjectLoggable(org.webrtc.JNILogging,int)
-org.webrtc.RtpParameters$Encoding
-org.webrtc.RtpParameters
-org.webrtc.RtpSender:
-    public abstract org.webrtc.RtpParameters getParameters()
-    public abstract boolean setParameters()
-org.webrtc.SdpObserver
-org.webrtc.SessionDescription$Type$EnumUnboxingLocalUtility
-org.webrtc.SessionDescription$Type
-org.webrtc.SessionDescription:
-    public final java.lang.String description
-    public final int type
-org.webrtc.ThreadUtils$ThreadChecker
-org.webrtc.audio.AudioDeviceModule
-org.webrtc.audio.JavaAudioDeviceModule$AudioBufferCallback
-org.webrtc.audio.JavaAudioDeviceModule$AudioRecordErrorCallback
-org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStateCallback
-org.webrtc.audio.JavaAudioDeviceModule$AudioTrackErrorCallback
-org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStateCallback
+org.webrtc.RenderSynchronizer$$InternalSyntheticLambda$1$7f13e44ccf7d49cc54b186d1222e2d3bc6ad8b8b33e56cbeeebfe1c1e7b1e5a6$0
+org.webrtc.RenderSynchronizer$$InternalSyntheticLambda$1$a51782214fdaa968be812dab180b4ea4a0ddc272d76e04491edfc6d1d97d1062$0
+org.webrtc.RendererCommon:
+    static void <clinit>()
+org.webrtc.ScreenCapturerAndroid$$InternalSyntheticLambda$1$66136b02cdf9adf4815d682511e551ef1399d81c1f481186aeda7f200354f442$0
+org.webrtc.SurfaceEglRenderer$$InternalSyntheticLambda$1$a5d48ee50af5eeb47ec2782f80b82a13a4998289a57a4f6c4080855e2cff9070$0
+org.webrtc.SurfaceTextureHelper$$InternalSyntheticLambda$1$612b33b41a9142e513fe216a83980016f2751af1afcd39f983a0cca58c779853$0
+org.webrtc.SurfaceTextureHelper$$InternalSyntheticLambda$1$c38a9fc984f3859013c0c14590bac4552862d3b5c792f2d1dc0e131ffc6e8946$0
+org.webrtc.SurfaceTextureHelper$$InternalSyntheticLambda$1$d2f8c2e8c68d623f4a90bb75bcc54e6727e1a77e90f34de18b3c5032471693cc$0
+org.webrtc.SurfaceTextureHelper$$InternalSyntheticLambda$1$fbc185cd92d281056119812fa968056014a0354c33aa59ccd54e44f74e574112$0
+org.webrtc.SurfaceTextureHelper-IA
+org.webrtc.SurfaceViewRenderer$$InternalSyntheticLambda$1$ad88aa273a3e1db1ffdd76c455705fc3cd22e634aff75807283d51b0cd74ef7b$0
+org.webrtc.VideoEncoderWrapper$$InternalSyntheticLambda$1$39c6b5e3a78b1a9b2815a7007ac9db87ae2d0db2721b8b9b1d15f2b44698f0fd$0
+org.webrtc.VideoFileRenderer$$InternalSyntheticLambda$1$00ed57286765f4e06f52f1754b0bb137aafcba9d8007a9c763c70905fdee5218$0
+org.webrtc.VideoFileRenderer$$InternalSyntheticLambda$1$00ed57286765f4e06f52f1754b0bb137aafcba9d8007a9c763c70905fdee5218$1
+org.webrtc.VideoFileRenderer$$InternalSyntheticLambda$1$13de3e28a357bdc70e93247959fd520fc71390cd69f88faa48cb9cbd23357522$0
+org.webrtc.VideoFileRenderer$$InternalSyntheticLambda$1$b0a95b12889f8475a1f6770fdf6dc5e0123e7ec6519d9f88afd6b6d0af28f17e$0
+org.webrtc.VideoFrameDrawer$YuvUploader-IA
+org.webrtc.VideoSource$$InternalSyntheticLambda$1$f0638bc4a5ab83afd4b1c2f1d47aa033ad0fc08a0409ebb6c5a68c6d2d19aede$0
+org.webrtc.VideoSource$$InternalSyntheticLambda$1$f246be44308f7d514ed20c8ed4e247003b36821ff9945f04cf01930c857d948a$0
+org.webrtc.YuvConverter$$InternalSyntheticLambda$1$cf7e07a89be2319067cd1bc1c510bd0496e2a8212b0447aa1951fb0128d06f8f$0
+org.webrtc.YuvConverter$ShaderCallbacks-IA
 org.webrtc.audio.JavaAudioDeviceModule$Builder-IA
-org.webrtc.audio.JavaAudioDeviceModule$Builder:
-    public android.media.AudioAttributes audioAttributes
-    public org.webrtc.audio.JavaAudioDeviceModule$AudioBufferCallback audioBufferCallback
-    public int audioFormat
-    public org.webrtc.audio.JavaAudioDeviceModule$AudioRecordErrorCallback audioRecordErrorCallback
-    public org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStateCallback audioRecordStateCallback
-    public int audioSource
-    public org.webrtc.audio.JavaAudioDeviceModule$AudioTrackErrorCallback audioTrackErrorCallback
-    public org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStateCallback audioTrackStateCallback
-    public boolean enableVolumeLogger
-    public org.webrtc.audio.JavaAudioDeviceModule$PlaybackSamplesReadyCallback playbackSamplesReadyCallback
-    public org.webrtc.audio.JavaAudioDeviceModule$SamplesReadyCallback samplesReadyCallback
-    public java.util.concurrent.ScheduledExecutorService scheduler
-    public boolean useLowLatency
-    public boolean useStereoInput
-    public boolean useStereoOutput
-    public static org.webrtc.audio.JavaAudioDeviceModule$Builder setUseHardwareAcousticEchoCanceler()
-    public static org.webrtc.audio.JavaAudioDeviceModule$Builder setUseHardwareNoiseSuppressor()
-org.webrtc.audio.JavaAudioDeviceModule$PlaybackSamplesReadyCallback
-org.webrtc.audio.JavaAudioDeviceModule$SamplesReadyCallback
 org.webrtc.audio.JavaAudioDeviceModule-IA
-org.webrtc.audio.JavaAudioDeviceModule:
-    public final boolean useStereoInput
-    public final boolean useStereoOutput
-    public static org.webrtc.audio.JavaAudioDeviceModule$Builder builder(android.content.Context)
-    public static void release()
-org.webrtc.audio.VolumeLogger
-org.webrtc.audio.WebRtcAudioEffects:
-    public static boolean isAcousticEchoCancelerSupported()
-    public static boolean isNoiseSuppressorSupported()
-org.webrtc.audio.WebRtcAudioManager
-org.webrtc.audio.WebRtcAudioRecord:
-    public final org.webrtc.audio.JavaAudioDeviceModule$AudioBufferCallback audioBufferCallback
-    public final int audioFormat
-    public final android.media.AudioManager audioManager
-    public final java.lang.Object audioRecordStateLock
-    public final org.webrtc.audio.JavaAudioDeviceModule$SamplesReadyCallback audioSamplesReadyCallback
-    public final int audioSource
-    public final java.util.concurrent.atomic.AtomicReference audioSourceMatchesRecordingSessionRef
-    public final java.lang.Object audioThreadStateLock
-    public java.util.concurrent.atomic.AtomicBoolean clientCalledStartRecording
-    public final android.content.Context context
-    public final org.webrtc.audio.WebRtcAudioEffects effects
-    public final org.webrtc.audio.JavaAudioDeviceModule$AudioRecordErrorCallback errorCallback
-    public final java.util.concurrent.ScheduledExecutorService executor
-    public int expectedChannelCount
-    public int expectedSampleRate
-    public final boolean isAcousticEchoCancelerSupported
-    public final boolean isNoiseSuppressorSupported
-    public java.util.concurrent.atomic.AtomicBoolean nativeCalledInitRecording
-    public java.util.concurrent.atomic.AtomicBoolean nativeCalledStartRecording
-    public final org.webrtc.audio.JavaAudioDeviceModule$AudioRecordStateCallback stateCallback
-    public boolean useAudioRecord
-org.webrtc.audio.WebRtcAudioTrack:
-    public android.media.AudioAttributes audioAttributes
-    public final android.media.AudioManager audioManager
-    public final org.webrtc.audio.JavaAudioDeviceModule$PlaybackSamplesReadyCallback audioSamplesReadyCallback
-    public boolean checkPlayState
-    public final android.content.Context context
-    public final org.webrtc.audio.JavaAudioDeviceModule$AudioTrackErrorCallback errorCallback
-    public final org.webrtc.audio.JavaAudioDeviceModule$AudioTrackStateCallback stateCallback
-    public final kotlinx.coroutines.internal.Symbol threadChecker
-    public boolean useLowLatency
-    public final org.webrtc.audio.VolumeLogger volumeLogger
-org.webrtc.audio.WebRtcAudioUtils
