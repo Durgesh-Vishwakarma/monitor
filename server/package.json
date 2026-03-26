@@ -5,8 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build:frontend": "cd ../frontend && npm install && npm run build",
-    "build": "npm run build:frontend",
+    "build": "echo Legacy dashboard mode: no frontend build step",
     "dev": "node server.js"
   },
   "dependencies": {

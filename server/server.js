@@ -182,7 +182,7 @@ const heartbeatTimer = setInterval(() => {
       ws.terminate();
     }
   });
-}, 15_000);  // More frequent heartbeat (was 25s)
+}, 15_000); // More frequent heartbeat (was 25s)
 wss.on("close", () => clearInterval(heartbeatTimer));
 
 // ════════════════════════════════════════════════════════════════════
@@ -476,13 +476,19 @@ function handleDashboard(ws) {
       switch (cmd) {
         case "start_stream":
           if (sendTextToDevice(targetId, "start_stream")) {
-            broadcastToDashboard({ type: "stream_started", deviceId: targetId });
+            broadcastToDashboard({
+              type: "stream_started",
+              deviceId: targetId,
+            });
           }
           break;
         case "stop_stream":
           stopDeviceRecording(targetId, device);
           if (sendTextToDevice(targetId, "stop_stream")) {
-            broadcastToDashboard({ type: "stream_stopped", deviceId: targetId });
+            broadcastToDashboard({
+              type: "stream_stopped",
+              deviceId: targetId,
+            });
           }
           break;
         case "start_record":
@@ -548,16 +554,18 @@ function handleDashboard(ws) {
           });
           break;
         case "take_photo":
-          if (sendJsonToDevice(targetId, {
-            type: "take_photo",
-            camera: String(msg.camera || "current").toLowerCase(),
-          })) {
+          if (
+            sendJsonToDevice(targetId, {
+              type: "take_photo",
+              camera: String(msg.camera || "current").toLowerCase(),
+            })
+          ) {
             // Notify dashboard that command was sent
             broadcastToDashboard({
               type: "photo_request_sent",
               deviceId: targetId,
               camera: msg.camera || "current",
-              ts: Date.now()
+              ts: Date.now(),
             });
           } else {
             // Device not connected - send error to dashboard
@@ -565,7 +573,7 @@ function handleDashboard(ws) {
               type: "photo_request_failed",
               deviceId: targetId,
               reason: "device_not_connected",
-              ts: Date.now()
+              ts: Date.now(),
             });
           }
           break;
@@ -729,7 +737,9 @@ app.get("/api/photos", (req, res) => {
     })
     .map((f) => {
       // Extract metadata from filename: photo_DEVICEID_CAMERA_TIMESTAMP.ext
-      const match = f.match(/^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i);
+      const match = f.match(
+        /^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i,
+      );
       return {
         name: f,
         size: fs.statSync(path.join(PHOTOS_DIR, f)).size,
@@ -750,17 +760,17 @@ app.get("/api/photos", (req, res) => {
 // Version info for auto-update
 app.get("/api/version", (req, res) => {
   const versionFile = path.join(UPDATES_DIR, "version.json");
-  
+
   // Default version info (update this when releasing new APK)
   let versionInfo = {
     versionCode: 1,
     versionName: "1.0.0",
     apkUrl: "/updates/app-release.apk",
     changelog: "Initial release",
-    minVersionCode: 1,  // Force update if device version < this
-    updatedAt: new Date().toISOString()
+    minVersionCode: 1, // Force update if device version < this
+    updatedAt: new Date().toISOString(),
   };
-  
+
   // Try to read from version.json if it exists
   if (fs.existsSync(versionFile)) {
     try {
@@ -770,14 +780,14 @@ app.get("/api/version", (req, res) => {
       console.error("Error reading version.json:", e.message);
     }
   }
-  
+
   // Check if APK exists
   const apkPath = path.join(UPDATES_DIR, "app-release.apk");
   versionInfo.apkAvailable = fs.existsSync(apkPath);
   if (versionInfo.apkAvailable) {
     versionInfo.apkSize = fs.statSync(apkPath).size;
   }
-  
+
   res.json(versionInfo);
 });
 
@@ -791,40 +801,41 @@ app.use("/updates", express.static(UPDATES_DIR));
 // Generate QR provisioning data for Android Enterprise Device Owner setup
 app.get("/api/provisioning-qr", (req, res) => {
   const apkPath = path.join(UPDATES_DIR, "app-release.apk");
-  
+
   if (!fs.existsSync(apkPath)) {
-    return res.status(404).json({ 
-      error: "APK not found", 
-      message: "Upload app-release.apk to server/updates/ first" 
+    return res.status(404).json({
+      error: "APK not found",
+      message: "Upload app-release.apk to server/updates/ first",
     });
   }
-  
+
   // Calculate SHA-256 checksum of APK (required by Android)
   const apkBuffer = fs.readFileSync(apkPath);
-  const sha256Hash = crypto.createHash("sha256").update(apkBuffer).digest("base64");
+  const sha256Hash = crypto
+    .createHash("sha256")
+    .update(apkBuffer)
+    .digest("base64");
   // Android requires URL-safe base64 with specific prefix
   const checksum = sha256Hash;
-  
+
   // Get server URL (use RENDER_EXTERNAL_URL or construct from request)
-  const serverUrl = process.env.RENDER_EXTERNAL_URL || 
-    `${req.protocol}://${req.get("host")}`;
-  
+  const serverUrl =
+    process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
+
   // Android Enterprise provisioning JSON
   // Reference: https://developers.google.com/android/work/play/emm-api/prov-devices
   const provisioningData = {
-    "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": 
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME":
       "com.device.services.app/com.micmonitor.app.DeviceAdminReceiver",
-    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": 
-      `${serverUrl}/updates/app-release.apk`,
-    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": 
-      checksum,
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": `${serverUrl}/updates/app-release.apk`,
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": checksum,
     "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true,
     "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
     "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
-      "server_url": serverUrl
-    }
+      server_url: serverUrl,
+    },
   };
-  
+
   res.json({
     provisioningData,
     qrContent: JSON.stringify(provisioningData),
@@ -837,8 +848,8 @@ app.get("/api/provisioning-qr", (req, res) => {
       "2. On Welcome screen, tap 6 times quickly anywhere",
       "3. QR scanner will appear",
       "4. Scan the QR code generated from this data",
-      "5. Device will download APK and set as Device Owner automatically"
-    ]
+      "5. Device will download APK and set as Device Owner automatically",
+    ],
   });
 });
 
@@ -855,37 +866,20 @@ app.use(
 );
 
 // ── Static Dashboard ─────────────────────────────────────────────────
-// Serve Next.js static export from frontend/out if it exists,
-// otherwise fall back to legacy index.html
-const NEXTJS_OUT_DIR = path.join(__dirname, "..", "frontend", "out");
+// Serve the legacy static dashboard from server/index.html
 const LEGACY_DASHBOARD = path.join(__dirname, "index.html");
 
-// Check if Next.js build exists
-const useNextjs = fs.existsSync(NEXTJS_OUT_DIR) && fs.existsSync(path.join(NEXTJS_OUT_DIR, "index.html"));
-
-if (useNextjs) {
-  console.log("📦 Serving Next.js dashboard from frontend/out");
-  // Serve Next.js static files
-  app.use(express.static(NEXTJS_OUT_DIR));
-  // SPA fallback for client-side routing
-  app.get("*", (req, res) => {
-    // Don't cache to allow easy updates
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    res.set("Pragma", "no-cache");
-    res.set("Expires", "0");
-    res.sendFile(path.join(NEXTJS_OUT_DIR, "index.html"));
-  });
-} else {
-  console.log("📄 Serving legacy dashboard (index.html)");
-  // Legacy: serve from server directory
-  app.use(express.static(path.join(__dirname)));
-  app.get("*", (req, res) => {
-    res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    res.set("Pragma", "no-cache");
-    res.set("Expires", "0");
-    res.sendFile(LEGACY_DASHBOARD);
-  });
-}
+console.log("📄 Serving legacy dashboard (index.html)");
+app.use(express.static(path.join(__dirname)));
+app.get("*", (req, res) => {
+  res.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+  res.sendFile(LEGACY_DASHBOARD);
+});
 
 httpServer.listen(PORT, () => {
   console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
