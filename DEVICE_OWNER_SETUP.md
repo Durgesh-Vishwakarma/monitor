@@ -1,6 +1,59 @@
 # Device Owner Setup Guide
 
-## ⚠️ Important Requirements
+## 📱 Two Setup Methods
+
+### Method 1: QR Code Provisioning (Recommended for fresh devices)
+Use QR code scanning during device setup - **no USB or computer needed after initial setup!**
+
+### Method 2: USB/ADB Setup (Traditional)
+Requires computer with USB connection.
+
+---
+
+## 🚀 METHOD 1: QR Code Provisioning (Easiest)
+
+This method works on **freshly factory-reset devices** without needing a computer for each device.
+
+### Prerequisites
+1. Upload `app-release.apk` to `server/updates/` folder
+2. Deploy server (or run locally)
+3. Open dashboard and click **"📱 Setup New Device"** button
+
+### Steps
+1. **Factory reset** the target device
+2. Power ON the device
+3. On the **Welcome/Start screen**, **tap 6 times quickly** anywhere on the screen
+4. A **QR scanner** will appear
+5. Scan the QR code from the dashboard
+6. Device will:
+   - Download the APK automatically
+   - Install it silently
+   - Set it as Device Owner
+   - Grant all permissions
+7. ✅ Done! Device will connect to dashboard automatically
+
+### ⚠️ Important Notes
+- Only works on **freshly reset devices** with no accounts
+- QR provisioning requires Android 7.0+ (most devices support it)
+- Some OEMs (Realme, Oppo, Samsung) may need you to tap in specific areas
+- If QR scanner doesn't appear, try tapping faster or in different screen areas
+
+### Alternative QR Activation Methods
+| Brand | Method |
+|-------|--------|
+| Samsung | Tap "Emergency Call" → dial *#0*# → exits to QR scanner |
+| Realme/Oppo | Tap 6 times on welcome screen |
+| Xiaomi | Tap 6 times on welcome screen |
+| Stock Android | Tap 6 times on welcome screen |
+| Pixel | Tap 6 times on welcome screen |
+
+---
+
+## 🔧 METHOD 2: USB/ADB Setup (Traditional)
+
+Use this if QR provisioning doesn't work or you need more control.
+
+### ⚠️ Important Requirements
 
 `adb shell dpm set-device-owner` only works when:
 - ✅ Device is **factory reset** (fresh)
@@ -9,10 +62,6 @@
 - ✅ Your app is **already installed** via ADB
 
 If ANY of these conditions are not met → command will fail!
-
----
-
-## ✅ Step-by-Step Setup
 
 ### Step 1: Factory Reset Device
 ```

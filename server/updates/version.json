@@ -2,6 +2,6 @@
   "versionCode": 14,
   "versionName": "1.5.0",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "Removed automatic 15-minute updates,Removed WiFi ON/OFF feature",
+  "changelog": "Removed auto-update polling, WiFi control, added QR provisioning",
   "minVersionCode": 1
 }
