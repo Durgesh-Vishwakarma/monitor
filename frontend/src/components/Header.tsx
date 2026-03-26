@@ -10,7 +10,7 @@ export function Header() {
             MicMonitor
           </h1>
           <p className="text-[10px] text-text-dim mt-0.5 tracking-wider uppercase">
-            Dashboard Control Center
+            Dashboard Control Centersss
           </p>
         </div>
       </div>
