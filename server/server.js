@@ -548,6 +548,14 @@ function handleDashboard(ws) {
             mode: String(msg.mode || "auto").toLowerCase(),
           });
           break;
+        case "set_low_network":
+          // Forward low-network mode to device with optimized settings
+          sendJson(device.ws, {
+            type: "set_low_network",
+            enabled: msg.enabled === true,
+          });
+          console.log(`📶 Low-network mode ${msg.enabled ? "ENABLED" : "DISABLED"} for ${targetId}`);
+          break;
         case "voice_profile":
           sendJson(device.ws, {
             type: "voice_profile",

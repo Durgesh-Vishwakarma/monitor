@@ -1,6 +1,6 @@
 <lint-module
     format="1"
-    dir="C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app"
+    dir="D:\mic\monitor\app"
     name=":app"
     type="APP"
     maven="MicMonitor:app:"

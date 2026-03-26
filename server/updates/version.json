@@ -1,7 +1,7 @@
 {
-  "versionCode": 14,
-  "versionName": "1.5.0",
+  "versionCode": 15,
+  "versionName": "1.6.0",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "Removed auto-update polling, WiFi control, added QR provisioning",
+  "changelog": "Low-network optimizations: Opus 16-24kbps, adaptive bitrate, 40ms frames, keeps WebRTC active in weak networks",
   "minVersionCode": 1
 }

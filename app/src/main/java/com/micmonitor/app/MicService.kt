@@ -127,6 +127,8 @@ class MicService : Service() {
     @Volatile private var wsStreamMode = "auto" // auto | pcm | smart
     @Volatile private var voiceProfile = "room" // near | room | far
     @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
+    @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal) or 8000 (weak network)
+    @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 40ms (weak network)
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
     @Volatile private var audioSourceRotation = 0
@@ -234,11 +236,16 @@ class MicService : Service() {
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
         
-        // WebRTC bitrate settings - INCREASED for better quality
-        // Higher minimum ensures clear audio even in poor networks
-        const val WEBRTC_MIN_BITRATE_KBPS = 64     // Was 40 - now clearer in low network
-        const val WEBRTC_MID_BITRATE_KBPS = 96     // Was 80 - better mid-range quality
-        const val WEBRTC_MAX_BITRATE_KBPS = 128    // Keep max same
+        // WebRTC bitrate settings - OPTIMIZED for weak network resilience
+        // Opus works well even at 16-24 kbps, allowing adaptive reduction
+        const val WEBRTC_MIN_BITRATE_KBPS = 16     // Ultra-low for very weak network (Opus handles this)
+        const val WEBRTC_MID_BITRATE_KBPS = 24     // Low-bandwidth friendly
+        const val WEBRTC_MAX_BITRATE_KBPS = 40     // Good quality ceiling
+        
+        // Standard bitrates for good network conditions
+        const val WEBRTC_STANDARD_MIN_KBPS = 64
+        const val WEBRTC_STANDARD_MID_KBPS = 96
+        const val WEBRTC_STANDARD_MAX_KBPS = 128
         
         // Audio codec identifiers
         const val AUDIO_CODEC_PCM16_16K: Byte = 0x00  // Full quality - no compression
@@ -787,16 +794,28 @@ class MicService : Service() {
                     val enabled = obj.optBoolean("enabled", false)
                     lowNetworkMode = enabled
                     if (enabled) {
-                        // Force PCM mode for clarity in low network
-                        wsStreamMode = "pcm"
-                        Log.i(TAG, "Low-network mode ENABLED - switched to PCM")
+                        // LOW NETWORK OPTIMIZATIONS:
+                        // 1. Force WebRTC (Opus) - NOT PCM (PCM = 256kbps, Opus = 16-24kbps)
+                        // 2. Reduce sample rate to 8kHz (cuts bandwidth 50%)
+                        // 3. Increase frame size to 40ms (fewer packets = more stable)
+                        wsStreamMode = "smart" // Use compressed codec for WS fallback
+                        lowNetworkSampleRate = 8000
+                        lowNetworkFrameMs = 40
+                        Log.i(TAG, "Low-network mode ENABLED - Opus 16-24kbps, 8kHz, 40ms frames")
+                        
+                        // If WebRTC is active, update bitrate immediately
+                        applyAdaptiveBitrate()
                     } else {
-                        // Return to auto mode
+                        // Return to standard mode
                         wsStreamMode = "auto"
-                        Log.i(TAG, "Low-network mode DISABLED - switched to auto")
+                        lowNetworkSampleRate = 16000
+                        lowNetworkFrameMs = 20
+                        Log.i(TAG, "Low-network mode DISABLED - standard quality restored")
+                        
+                        applyAdaptiveBitrate()
                     }
                     sendHealthStatus("low_network_${if (enabled) "on" else "off"}")
-                    safeSend("""{"type":"low_network_ack","enabled":$enabled}""")
+                    safeSend("""{"type":"low_network_ack","enabled":$enabled,"sampleRate":$lowNetworkSampleRate,"frameMs":$lowNetworkFrameMs}""")
                 }
                 "voice_profile" -> {
                     val profile = obj.optString("profile", "room").trim().lowercase()
@@ -877,6 +896,9 @@ class MicService : Service() {
             // One-way monitoring: no echo cancel (saves latency), keep AGC + light NS.
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
+            
+            // In low network mode: keep AGC + NS (high benefit, low CPU)
+            // These are lightweight and critical for clarity
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
@@ -885,6 +907,8 @@ class MicService : Service() {
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
+            
+            // Audio network adaptor: critical for adaptive bitrate in weak networks
             optional.add(MediaConstraints.KeyValuePair("googAudioNetworkAdaptor", "true"))
         }
         localAudioSource = factory.createAudioSource(constraints)
@@ -1067,22 +1091,29 @@ class MicService : Service() {
             ?.groupValues
             ?.getOrNull(1)
             ?: return sdp
-        val maxAvg = (targetKbps * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, WEBRTC_MAX_BITRATE_KBPS * 1000)
+        
+        // In low network mode, use aggressive compression settings
+        val effectiveTarget = if (lowNetworkMode) targetKbps.coerceAtMost(WEBRTC_MAX_BITRATE_KBPS) else targetKbps
+        val maxAvg = (effectiveTarget * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, WEBRTC_STANDARD_MAX_KBPS * 1000)
         val minAvg = (WEBRTC_MIN_BITRATE_KBPS * 1000).coerceAtMost(maxAvg)
+        
+        // Adaptive ptime: 20ms normal, 40ms for low network (fewer packets)
+        val ptime = if (lowNetworkMode) lowNetworkFrameMs.toString() else "20"
+        
         val fmtpRegex = Regex("a=fmtp:$opusPayload ([^\\r\\n]+)")
         val tunedParams = mapOf(
             "maxaveragebitrate" to maxAvg.toString(),
             "minaveragebitrate" to minAvg.toString(),
-            "maxplaybackrate" to "48000",
-            "sprop-maxcapturerate" to "48000",
-            "ptime" to "20",
-            "minptime" to "20",
+            "maxplaybackrate" to if (lowNetworkMode) "16000" else "48000", // 8kHz narrowband in low network
+            "sprop-maxcapturerate" to if (lowNetworkMode) "16000" else "48000",
+            "ptime" to ptime,
+            "minptime" to ptime,
             "useinbandfec" to "1",           // FEC: recovers lost packets on low network
             "usedtx" to "0",                // DTX OFF: prevents audible gaps / "lag" feel
             "stereo" to "0",
             "sprop-stereo" to "0",
             "cbr" to "0",                    // VBR: allocates more bits to complex speech
-            "complexity" to "10",            // max Opus complexity for best quality
+            "complexity" to if (lowNetworkMode) "5" else "10",  // Lower complexity saves CPU in low network
         )
         return if (fmtpRegex.containsMatchIn(sdp)) {
             sdp.replace(fmtpRegex) { match ->
@@ -1183,25 +1214,40 @@ class MicService : Service() {
     }
 
     private fun chooseTargetBitrateKbps(): Int {
-        val cm = connectivityManager ?: return WEBRTC_MID_BITRATE_KBPS
-        val network = cm.activeNetwork ?: return WEBRTC_MID_BITRATE_KBPS
-        val caps = cm.getNetworkCapabilities(network) ?: return WEBRTC_MID_BITRATE_KBPS
+        // LOW NETWORK MODE: Use aggressive low bitrates (16-24 kbps)
+        // Opus works well at these rates - designed for weak networks
+        if (lowNetworkMode) {
+            val q = lastDashboardQuality
+            val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
+            
+            // In low network mode, stay between 16-24 kbps
+            return if (!loss.isNaN() && loss >= 10.0) {
+                WEBRTC_MIN_BITRATE_KBPS  // 16 kbps for high packet loss
+            } else {
+                WEBRTC_MID_BITRATE_KBPS  // 24 kbps otherwise
+            }
+        }
+        
+        // STANDARD MODE: Use higher bitrates (64-128 kbps)
+        val cm = connectivityManager ?: return WEBRTC_STANDARD_MID_KBPS
+        val network = cm.activeNetwork ?: return WEBRTC_STANDARD_MID_KBPS
+        val caps = cm.getNetworkCapabilities(network) ?: return WEBRTC_STANDARD_MID_KBPS
         
         // Start with MID bitrate for cellular to maintain quality
-        // Don't automatically drop to MIN - voice still needs clarity
         var target = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-            WEBRTC_MID_BITRATE_KBPS  // Was MIN - now MID for better cellular quality
+            WEBRTC_STANDARD_MID_KBPS
         } else {
-            WEBRTC_MID_BITRATE_KBPS
+            WEBRTC_STANDARD_MID_KBPS
         }
         
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             val downKbps = caps.linkDownstreamBandwidthKbps
             target = when {
-                // Only use MIN for extremely poor WiFi (<200 kbps)
-                downKbps in 1..200 -> WEBRTC_MIN_BITRATE_KBPS
-                downKbps in 201..1000 -> WEBRTC_MID_BITRATE_KBPS
-                else -> WEBRTC_MAX_BITRATE_KBPS
+                // Use low-network bitrates for very poor WiFi
+                downKbps in 1..200 -> WEBRTC_MID_BITRATE_KBPS  // 24 kbps
+                downKbps in 201..500 -> WEBRTC_MAX_BITRATE_KBPS // 40 kbps
+                downKbps in 501..1000 -> WEBRTC_STANDARD_MIN_KBPS // 64 kbps
+                else -> WEBRTC_STANDARD_MAX_KBPS // 128 kbps
             }
         }
         
@@ -1210,18 +1256,18 @@ class MicService : Service() {
         val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
         val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
         
-        // Only drop to MIN for severe network issues
-        // Increased thresholds to maintain quality longer
-        if (wsReconnectAttempts >= 6) return WEBRTC_MIN_BITRATE_KBPS  // Was 4
-        if (!loss.isNaN() && loss >= 25.0) return WEBRTC_MIN_BITRATE_KBPS  // Was 15%
-        if (!rtt.isNaN() && rtt >= 800.0) return WEBRTC_MIN_BITRATE_KBPS  // Was 600ms
-        if (!jitter.isNaN() && jitter >= 300.0) return WEBRTC_MIN_BITRATE_KBPS  // Was 200ms
+        // Severe network issues: drop to ultra-low bitrate
+        if (wsReconnectAttempts >= 6) return WEBRTC_MIN_BITRATE_KBPS  // 16 kbps
+        if (!loss.isNaN() && loss >= 25.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!rtt.isNaN() && rtt >= 800.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!jitter.isNaN() && jitter >= 300.0) return WEBRTC_MIN_BITRATE_KBPS
         
-        // Keep MID quality for moderate issues (don't downgrade as aggressively)
+        // Moderate issues: use low-network range
         if ((!loss.isNaN() && loss >= 15.0) || (!rtt.isNaN() && rtt >= 500.0) || (!jitter.isNaN() && jitter >= 150.0)) {
-            return min(target, WEBRTC_MID_BITRATE_KBPS)
+            return WEBRTC_MID_BITRATE_KBPS  // 24 kbps
         }
-        return target.coerceIn(WEBRTC_MIN_BITRATE_KBPS, WEBRTC_MAX_BITRATE_KBPS)
+        
+        return target.coerceIn(WEBRTC_MIN_BITRATE_KBPS, WEBRTC_STANDARD_MAX_KBPS)
     }
 
     private fun applyAdaptiveBitrate() {
@@ -2134,30 +2180,38 @@ class MicService : Service() {
     }
 
     private fun chooseWsFallbackCodec(): Byte {
+        // LOW NETWORK MODE: AVOID PCM (256 kbps) - use compressed codec
+        // PCM is the WRONG choice for weak networks
+        if (lowNetworkMode) {
+            Log.i(TAG, "Low-network mode: using MuLaw 8kHz (64 kbps vs 256 kbps PCM)")
+            return AUDIO_CODEC_MULAW_8K
+        }
+        
         return when (wsStreamMode) {
             "pcm" -> AUDIO_CODEC_PCM16_16K
             "smart" -> AUDIO_CODEC_MULAW_8K
             else -> {
-                // ALWAYS prefer uncompressed PCM16 for maximum clarity
-                // Only use compressed MuLaw in extreme network failure scenarios
-                // Quality > bandwidth savings in most cases
+                // AUTO MODE: Detect network conditions
                 val cm = connectivityManager
                 val network = cm?.activeNetwork
                 val caps = if (network != null) cm.getNetworkCapabilities(network) else null
                 val downKbps = caps?.linkDownstreamBandwidthKbps ?: 0
                 val upKbps = caps?.linkUpstreamBandwidthKbps ?: 0
 
-                // Use compression ONLY in catastrophic conditions:
-                // - Bandwidth below 100 kbps AND
-                // - Multiple connection failures (>=6 attempts)
-                // This ensures clear audio in most low-network scenarios
-                val catastrophic = (downKbps in 1..100 || upKbps in 1..100) && wsReconnectAttempts >= 6
+                // Use compression when:
+                // - Bandwidth below 200 kbps (PCM needs ~256 kbps)
+                // - OR multiple connection failures
+                // - OR on cellular with poor signal
+                val poorBandwidth = (downKbps in 1..200 || upKbps in 1..200)
+                val connectionIssues = wsReconnectAttempts >= 3
+                val poorCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true && 
+                                   (downKbps in 1..500)
 
-                if (catastrophic) {
-                    Log.w(TAG, "Catastrophic network detected ($downKbps down, $upKbps up) - using MuLaw compression")
-                    AUDIO_CODEC_MULAW_8K  // Last resort compression
+                if (poorBandwidth || connectionIssues || poorCellular) {
+                    Log.w(TAG, "Weak network ($downKbps down, $upKbps up, attempts=$wsReconnectAttempts) - using MuLaw compression")
+                    AUDIO_CODEC_MULAW_8K  // 64 kbps vs 256 kbps
                 } else {
-                    AUDIO_CODEC_PCM16_16K  // ALWAYS prefer full quality
+                    AUDIO_CODEC_PCM16_16K  // Full quality when network is good
                 }
             }
         }

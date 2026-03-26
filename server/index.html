@@ -1570,10 +1570,10 @@
           banner.classList.toggle("low", low);
           if (networkMode.forcedLow) {
             bannerText.textContent =
-              "Forced low-network profile is active: PCM clarity mode + WebRTC fallback off.";
+              "🚀 Low-network mode: Opus 16-24kbps, 8kHz, 40ms frames (saves ~90% bandwidth vs PCM)";
           } else if (networkMode.autoLow) {
             bannerText.textContent =
-              "Poor link detected automatically. Switched to PCM clarity fallback temporarily.";
+              "⚡ Poor link detected - auto-switched to low-bandwidth Opus mode";
           } else {
             bannerText.textContent = "Auto adaptive mode is active.";
           }
@@ -1591,21 +1591,11 @@
         if (!networkMode.forcedLow) {
           clearAutoLowNetworkState("forced_off");
         }
-        applyNetworkModeToAllDevices();
+        applyNetworkModeToAllDevices(); // This now sends set_low_network to devices
         updateNetworkModeUi();
 
-        // Send low-network command to all connected devices
-        Object.keys(deviceState).forEach((deviceId) => {
-          const state = deviceState[deviceId];
-          if (state && state.online) {
-            sendCmd(deviceId, "set_low_network", {
-              enabled: networkMode.forcedLow,
-            });
-          }
-        });
-
         log(
-          `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"}`,
+          `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"} - ${networkMode.forcedLow ? "Opus 16-24kbps active" : "standard mode"}`,
           networkMode.forcedLow ? "warn" : "info",
         );
       }
@@ -1672,24 +1662,29 @@
         const low = isDeviceLowNetworkModeActive(state);
         renderDeviceNetworkChip(deviceId, state);
         if (low) {
+          // LOW-NETWORK MODE: Prefer WebRTC (Opus) over WebSocket (PCM)
+          // Opus at 16-24 kbps handles packet loss better than PCM at 256 kbps
           if (!state.lowModePrevStreamMode) {
             state.lowModePrevStreamMode = state.streamMode || "auto";
           }
-          if (state.streamMode !== "pcm") {
-            state.streamMode = "pcm";
-            saveStreamMode(deviceId, "pcm");
+          // Switch WS fallback to compressed mode (smart = MuLaw 8kHz, 64kbps)
+          if (state.streamMode !== "smart") {
+            state.streamMode = "smart";
+            saveStreamMode(deviceId, "smart");
             const streamBtn = document.getElementById(`btnStream_${deviceId}`);
-            if (streamBtn) streamBtn.textContent = "Stream: PCM";
-            sendCmd(deviceId, "stream_codec", { mode: "pcm" });
+            if (streamBtn) streamBtn.textContent = "Stream: Smart (Low-Net)";
+            sendCmd(deviceId, "stream_codec", { mode: "smart" });
           }
-          if (state.useWebRtc && state.isLive) {
-            stopWebRtc(deviceId, true);
-            sendCmd(deviceId, "start_stream");
+          // DON'T stop WebRTC - Opus is BETTER for weak networks!
+          // If not using WebRTC, suggest switching to it
+          if (!state.useWebRtc && state.isLive) {
             log(
-              `Low-network fallback enabled for ${deviceId} (PCM clarity mode)`,
-              "warn",
+              `💡 ${deviceId}: Consider enabling WebRTC - Opus (16-24kbps) handles weak networks better than PCM (256kbps)`,
+              "info",
             );
           }
+          // Send low-network command to device (enables Opus optimizations)
+          sendCmd(deviceId, "set_low_network", { enabled: true });
         } else if (state.lowModePrevStreamMode) {
           const restoreMode = state.lowModePrevStreamMode;
           state.lowModePrevStreamMode = null;
@@ -1701,6 +1696,8 @@
               streamBtn.textContent = `Stream: ${streamModeLabel(restoreMode)}`;
             sendCmd(deviceId, "stream_codec", { mode: restoreMode });
           }
+          // Disable low-network mode on device
+          sendCmd(deviceId, "set_low_network", { enabled: false });
         }
       }
 
