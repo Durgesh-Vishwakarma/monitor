@@ -1135,9 +1135,7 @@
             display: none;
           "
         >
-          <strong style="color: var(--text)"
-            >📋 Setup Instructions:</strong
-          >
+          <strong style="color: var(--text)">📋 Setup Instructions:</strong>
           <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.8">
             <li>Factory reset the device</li>
             <li>
@@ -1293,7 +1291,9 @@
         instructions.style.display = "none";
 
         try {
-          const res = await fetch("/api/provisioning-qr", { cache: "no-store" });
+          const res = await fetch("/api/provisioning-qr", {
+            cache: "no-store",
+          });
           if (!res.ok) {
             throw new Error(`Provisioning API failed: HTTP ${res.status}`);
           }

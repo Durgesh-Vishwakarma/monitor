@@ -929,10 +929,7 @@ const QRCODE_BUILD_DIR = path.join(
   path.dirname(require.resolve("qrcode/package.json")),
   "build",
 );
-app.use(
-  "/vendor/qrcode",
-  express.static(QRCODE_BUILD_DIR),
-);
+app.use("/vendor/qrcode", express.static(QRCODE_BUILD_DIR));
 
 // ── Static Dashboard ─────────────────────────────────────────────────
 // Serve the legacy static dashboard from server/index.html
