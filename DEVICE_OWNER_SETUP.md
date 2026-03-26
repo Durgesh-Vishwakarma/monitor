@@ -88,8 +88,18 @@ com.device.services.app/.DeviceAdminReceiver
 
 ## 🔓 How to Remove Device Owner (if needed)
 ```bash
-adb shell dpm remove-active-admin com.device.services.app/.DeviceAdminReceiver
+# This fails for real Device Owner (works only for test admin)
+adb shell dpm remove-active-admin com.device.services.app/com.micmonitor.app.DeviceAdminReceiver
 ```
+
+For a real Device Owner, use one of these:
+
+1) From app/dashboard command (implemented):
+- Send command: `clear_device_owner`
+- App calls `DevicePolicyManager.clearDeviceOwnerApp(packageName)`
+
+2) If app is not reachable:
+- Factory reset the device (guaranteed removal)
 
 Or from app code:
 ```kotlin

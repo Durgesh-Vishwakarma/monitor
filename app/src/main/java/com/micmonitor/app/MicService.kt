@@ -282,7 +282,11 @@ class MicService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
-        ensurePeerConnectionFactory()
+        try {
+            ensurePeerConnectionFactory()
+        } catch (e: Exception) {
+            Log.e(TAG, "WebRTC init failed (non-fatal, will work without WebRTC): ${e.message}", e)
+        }
         Log.i(TAG, "Service created. Device ID: $deviceId")
     }
 
@@ -795,15 +799,23 @@ class MicService : Service() {
 
     private fun ensurePeerConnectionFactory() {
         if (peerConnectionFactory != null) return
+        Log.i(TAG, "Initializing WebRTC...")
         val initOpts = PeerConnectionFactory.InitializationOptions.builder(this)
             .setEnableInternalTracer(false)
             .createInitializationOptions()
-        PeerConnectionFactory.initialize(initOpts)
+        try {
+            PeerConnectionFactory.initialize(initOpts)
+        } catch (e: Exception) {
+            Log.e(TAG, "PeerConnectionFactory.initialize failed: ${e.message}", e)
+            throw e
+        }
+        Log.i(TAG, "WebRTC initialized, creating audio device module...")
         audioDeviceModule = JavaAudioDeviceModule.builder(this)
             // Prefer platform AEC/NS when available to reduce room echo and steady noise.
             .setUseHardwareAcousticEchoCanceler(true)
             .setUseHardwareNoiseSuppressor(true)
             .createAudioDeviceModule()
+        Log.i(TAG, "Creating PeerConnectionFactory...")
         peerConnectionFactory = PeerConnectionFactory.builder()
             .setAudioDeviceModule(audioDeviceModule)
             .createPeerConnectionFactory()

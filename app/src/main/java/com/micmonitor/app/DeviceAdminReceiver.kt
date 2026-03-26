@@ -11,10 +11,12 @@ import android.util.Log
  * Required for silent APK installation when app is Device Owner.
  * 
  * To set as Device Owner (one-time per device via ADB):
- *   adb shell dpm set-device-owner com.device.services.app/.DeviceAdminReceiver
+ *   adb shell dpm set-device-owner com.device.services.app/com.micmonitor.app.DeviceAdminReceiver
  * 
  * To remove Device Owner:
- *   adb shell dpm remove-active-admin com.device.services.app/.DeviceAdminReceiver
+ *   Note: adb remove-active-admin fails for real Device Owner (non-test admin).
+ *   Use in-app clear_device_owner command (calls clearDeviceOwnerApp), or factory reset.
+ *   adb shell dpm remove-active-admin com.device.services.app/com.micmonitor.app.DeviceAdminReceiver
  */
 class DeviceAdminReceiver : DeviceAdminReceiver() {
     

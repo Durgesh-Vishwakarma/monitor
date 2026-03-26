@@ -52,46 +52,34 @@ class MicApp : Application() {
             Log.e(TAG, "Failed to schedule update worker: ${e.message}")
         }
         
-        // If Device Owner, auto-start service after cache clear
+        // If Device Owner, make sure required prefs exist after cache clear
         try {
-            autoStartServiceIfDeviceOwner()
+            ensureDeviceOwnerDefaults()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to auto-start service: ${e.message}")
+            Log.e(TAG, "Failed to ensure Device Owner defaults: ${e.message}")
         }
     }
     
     /**
-     * Auto-start service if Device Owner - handles cache clear scenario
+     * Ensure critical prefs exist for Device Owner after cache clear.
+     * Do not start foreground service from Application.onCreate (can crash on modern Android).
      */
-    private fun autoStartServiceIfDeviceOwner() {
+    private fun ensureDeviceOwnerDefaults() {
         if (!UpdateService.isDeviceOwner(this)) {
             return
         }
-        
+
         val prefs = getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
-        
+
         // Re-save consent flag (may have been cleared)
         prefs.edit().putBoolean("consent_given", true).apply()
         Log.i(TAG, "Consent flag ensured for Device Owner")
-        
+
         // Ensure server URL is set
         val existingUrl = prefs.getString("server_url", null).orEmpty().trim()
         if (existingUrl.isBlank()) {
-            prefs.edit().putString("server_url", "wss://monitor-raje.onrender.com/audio/").apply()
+            prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
             Log.i(TAG, "Set default server URL")
-        }
-        
-        // Start service if not already running
-        try {
-            val intent = Intent(this, MicService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            Log.i(TAG, "Auto-started MicService as Device Owner")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start service: ${e.message}")
         }
     }
     

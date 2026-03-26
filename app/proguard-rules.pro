@@ -11,8 +11,10 @@
 # Keep app classes
 -keep class com.micmonitor.app.** { *; }
 
-# Keep WebRTC
+# Keep WebRTC (CRITICAL for native libs)
+-keepclassmembers class org.webrtc.** { *; }
 -keep class org.webrtc.** { *; }
+-keepclasseswithmembers class * { native <methods>; }
 -dontwarn org.webrtc.**
 
 # Keep Kotlin coroutines
@@ -26,3 +28,13 @@
 # Keep Android settings provider
 -keep class android.provider.Settings { *; }
 -keep class android.provider.Settings$Secure { *; }
+
+# Keep all JNI methods
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}
+
+# Keep Parcelable implementations
+-keep class * implements android.os.Parcelable {
+    public static final ** CREATOR;
+}

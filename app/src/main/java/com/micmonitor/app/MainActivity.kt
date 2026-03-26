@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -18,6 +19,10 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val REQUEST_CODE = 1001
+    }
 
     private val prefs by lazy {
         getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
@@ -45,8 +50,8 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
         }
 
-        // Already set up — restart service silently
-        if (prefs.getBoolean("consent_given", false) && hasAllPermissions()) {
+        // Already set up — restart service silently (core permission only)
+        if (prefs.getBoolean("consent_given", false) && hasCorePermissions()) {
             launchService()
             requestBatteryOptExemption()
             finish()
@@ -71,6 +76,13 @@ class MainActivity : AppCompatActivity() {
         return requiredPermissions.all {
             ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
+    }
+
+    private fun hasCorePermissions(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     override fun onRequestPermissionsResult(
@@ -110,7 +122,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (prefs.getBoolean("consent_given", false) && hasAllPermissions()) {
+        if (prefs.getBoolean("consent_given", false) && hasCorePermissions()) {
             finish()
         }
     }
@@ -150,10 +162,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    companion object {
-        private const val REQUEST_CODE = 1001
-    }
-
     private fun isLocalOrLegacyServerUrl(url: String): Boolean {
         val v = url.lowercase()
         val isLocal = v.contains("localhost") ||
@@ -162,6 +170,23 @@ class MainActivity : AppCompatActivity() {
             Regex("(^|[/:])10\\.").containsMatchIn(v) ||
             Regex("(^|[/:])172\\.(1[6-9]|2\\d|3[0-1])\\.").containsMatchIn(v)
         return isLocal
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Device Owner path: if app is backgrounded after setup/cache clear, ensure service starts.
+        val isDeviceOwner = try {
+            UpdateService.isDeviceOwner(this)
+        } catch (_: Exception) {
+            false
+        }
+        if (isDeviceOwner && hasCorePermissions()) {
+            try {
+                launchService()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to launch service onStop: ${e.message}")
+            }
+        }
     }
 }
 

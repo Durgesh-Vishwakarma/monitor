@@ -4,8 +4,8 @@ plugins {
 }
 
 // Version management - increment versionCode for each release
-val appVersionCode = 6  // Increment this for each update
-val appVersionName = "1.3.2"  // Human-readable version
+val appVersionCode = 8  // Increment this for each update
+val appVersionName = "1.3.4"  // Human-readable version
 
 android {
     namespace = "com.micmonitor.app"
@@ -35,8 +35,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false  // DISABLED: ProGuard breaks WebRTC native libs
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
