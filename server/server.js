@@ -925,9 +925,13 @@ app.use(
 );
 
 // Serve bundled QR library locally so QR generation works without external CDN.
+const QRCODE_BUILD_DIR = path.join(
+  path.dirname(require.resolve("qrcode/package.json")),
+  "build",
+);
 app.use(
   "/vendor/qrcode",
-  express.static(path.join(__dirname, "node_modules/qrcode/build")),
+  express.static(QRCODE_BUILD_DIR),
 );
 
 // ── Static Dashboard ─────────────────────────────────────────────────

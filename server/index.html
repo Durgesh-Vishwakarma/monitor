@@ -1087,7 +1087,7 @@
     >
       <div
         style="
-          background: var(--card-bg);
+          background: var(--card);
           border-radius: 16px;
           padding: 24px;
           max-width: 500px;
@@ -1104,7 +1104,7 @@
             margin-bottom: 16px;
           "
         >
-          <h2 style="margin: 0; color: var(--text-primary)">
+          <h2 style="margin: 0; color: var(--text)">
             📱 Device Provisioning QR
           </h2>
           <button
@@ -1114,28 +1114,28 @@
               border: none;
               font-size: 24px;
               cursor: pointer;
-              color: var(--text-secondary);
+              color: var(--text2);
             "
           >
             ✕
           </button>
         </div>
         <div id="qrContent" style="text-align: center">
-          <div style="color: var(--text-secondary)">Loading...</div>
+          <div style="color: var(--text2)">Loading...</div>
         </div>
         <div
           id="qrInstructions"
           style="
             margin-top: 16px;
             padding: 16px;
-            background: var(--bg-secondary);
+            background: var(--bg2);
             border-radius: 8px;
             font-size: 14px;
-            color: var(--text-secondary);
+            color: var(--text2);
             display: none;
           "
         >
-          <strong style="color: var(--text-primary)"
+          <strong style="color: var(--text)"
             >📋 Setup Instructions:</strong
           >
           <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.8">
@@ -1236,38 +1236,45 @@
           return window.QRCode;
         }
 
-        const scriptUrls = ["/vendor/qrcode/qrcode.min.js"];
+        const scriptUrls = [
+          "/vendor/qrcode/qrcode.min.js",
+          `/vendor/qrcode/qrcode.min.js?t=${Date.now()}`,
+        ];
+
+        const loadScriptWithTimeout = (src, timeoutMs = 6000) =>
+          new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = src;
+            script.async = true;
+            script.crossOrigin = "anonymous";
+
+            const timer = setTimeout(() => {
+              script.remove();
+              reject(new Error(`QR script timeout: ${src}`));
+            }, timeoutMs);
+
+            script.onload = () => {
+              clearTimeout(timer);
+              resolve();
+            };
+            script.onerror = () => {
+              clearTimeout(timer);
+              script.remove();
+              reject(new Error(`Failed to load ${src}`));
+            };
+
+            document.head.appendChild(script);
+          });
 
         for (const src of scriptUrls) {
           try {
-            await new Promise((resolve, reject) => {
-              const existing = document.querySelector(`script[src=\"${src}\"]`);
-              if (existing) {
-                if (
-                  window.QRCode &&
-                  typeof window.QRCode.toCanvas === "function"
-                ) {
-                  resolve();
-                  return;
-                }
-              }
-
-              const script = existing || document.createElement("script");
-              if (!existing) {
-                script.src = src;
-                script.async = true;
-                document.head.appendChild(script);
-              }
-
-              script.onload = () => resolve();
-              script.onerror = () => reject(new Error(`Failed to load ${src}`));
-            });
+            await loadScriptWithTimeout(src);
 
             if (window.QRCode && typeof window.QRCode.toCanvas === "function") {
               return window.QRCode;
             }
-          } catch (_) {
-            // Try next CDN
+          } catch (e) {
+            console.warn("QR script load attempt failed:", e?.message || e);
           }
         }
 
@@ -1286,9 +1293,10 @@
         instructions.style.display = "none";
 
         try {
-          const res = await fetch("/api/provisioning-qr", {
-            cache: "no-store",
-          });
+          const res = await fetch("/api/provisioning-qr", { cache: "no-store" });
+          if (!res.ok) {
+            throw new Error(`Provisioning API failed: HTTP ${res.status}`);
+          }
           const data = await res.json();
 
           if (data.error) {
