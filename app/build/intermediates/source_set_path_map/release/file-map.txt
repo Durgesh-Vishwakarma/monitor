@@ -36,7 +36,6 @@ com.micmonitor.app-pngs-34 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor
 com.micmonitor.app-resValues-35 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\generated\res\resValues\release
 com.micmonitor.app-packageReleaseResources-36 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\incremental\release\packageReleaseResources\merged.dir
 com.micmonitor.app-packageReleaseResources-37 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\incremental\release\packageReleaseResources\stripped.dir
-com.micmonitor.app-merged-not-compiled-resources-38 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\merged-not-compiled-resources\release
-com.micmonitor.app-merged_res-39 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\merged_res\release
-com.micmonitor.app-main-40 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\res
-com.micmonitor.app-release-41 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\release\res
+com.micmonitor.app-merged_res-38 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\build\intermediates\merged_res\release
+com.micmonitor.app-main-39 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\main\res
+com.micmonitor.app-release-40 C:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor\app\src\release\res
