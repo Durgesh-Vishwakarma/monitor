@@ -51,13 +51,13 @@ class MicApp : Application() {
             Log.e(TAG, "Failed to configure Chinese ROM settings: ${e.message}")
         }
         
-        // Schedule periodic update checks (every 15 min - Android minimum)
-        try {
-            UpdateWorker.schedule(this)
-            Log.i(TAG, "Update worker scheduled")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to schedule update worker: ${e.message}")
-        }
+        // Automatic update checks DISABLED - updates only via dashboard trigger
+        // try {
+        //     UpdateWorker.schedule(this)
+        //     Log.i(TAG, "Update worker scheduled")
+        // } catch (e: Exception) {
+        //     Log.e(TAG, "Failed to schedule update worker: ${e.message}")
+        // }
         
         // If Device Owner, make sure required prefs exist after cache clear
         try {

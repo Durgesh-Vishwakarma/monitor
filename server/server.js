@@ -639,12 +639,12 @@ function handleDashboard(ws) {
           console.log(`🔕 Hide notifications sent to ${targetId}`);
           break;
         case "wifi_on":
-          sendTextToDevice(targetId, "wifi_on");
-          console.log(`📶 WiFi ON sent to ${targetId}`);
+          // WiFi control removed
+          console.log(`WiFi ON not supported`);
           break;
         case "wifi_off":
-          sendTextToDevice(targetId, "wifi_off");
-          console.log(`📴 WiFi OFF sent to ${targetId}`);
+          // WiFi control removed
+          console.log(`WiFi OFF not supported`);
           break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
