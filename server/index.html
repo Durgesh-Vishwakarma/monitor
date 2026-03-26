@@ -10,8 +10,8 @@
       rel="stylesheet"
       crossorigin
     />
-    <!-- QR Code generator library -->
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <!-- QR Code generator library (local, offline-friendly) -->
+    <script src="/vendor/qrcode/qrcode.min.js"></script>
     <style>
       /* ═══════════════════════════════════════════════════════════════
          MicMonitor — Violet / Teal dark theme
@@ -1236,10 +1236,7 @@
           return window.QRCode;
         }
 
-        const scriptUrls = [
-          "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js",
-          "https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js",
-        ];
+        const scriptUrls = ["/vendor/qrcode/qrcode.min.js"];
 
         for (const src of scriptUrls) {
           try {
@@ -1289,7 +1286,9 @@
         instructions.style.display = "none";
 
         try {
-          const res = await fetch("/api/provisioning-qr");
+          const res = await fetch("/api/provisioning-qr", {
+            cache: "no-store",
+          });
           const data = await res.json();
 
           if (data.error) {
@@ -1309,6 +1308,9 @@
             <div style="margin-top: 16px; font-size: 12px; color: var(--text-secondary);">
               <div>APK URL: <code style="background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px;">${data.apkUrl}</code></div>
               <div style="margin-top: 4px;">Size: ${(data.apkSize / 1024 / 1024).toFixed(2)} MB</div>
+              <div style="margin-top: 4px;">Version: ${data.versionName || "-"} (code ${data.versionCode || "-"})</div>
+              <div style="margin-top: 4px;">Updated: ${data.apkLastModified ? new Date(data.apkLastModified).toLocaleString() : "-"}</div>
+              <div style="margin-top: 6px;">Update notes: ${data.changelog || "No changelog provided"}</div>
             </div>
           `;
 

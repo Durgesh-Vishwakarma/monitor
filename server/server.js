@@ -785,14 +785,39 @@ app.get("/api/version", (req, res) => {
   const apkPath = path.join(UPDATES_DIR, "app-release.apk");
   versionInfo.apkAvailable = fs.existsSync(apkPath);
   if (versionInfo.apkAvailable) {
-    versionInfo.apkSize = fs.statSync(apkPath).size;
+    const apkStat = fs.statSync(apkPath);
+    versionInfo.apkSize = apkStat.size;
+    versionInfo.apkLastModified = apkStat.mtime.toISOString();
+    versionInfo.apkVersionTag = String(Math.floor(apkStat.mtimeMs));
   }
 
+  res.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
   res.json(versionInfo);
 });
 
 // Serve APK files
-app.use("/updates", express.static(UPDATES_DIR));
+app.use(
+  "/updates",
+  express.static(UPDATES_DIR, {
+    etag: false,
+    setHeaders: (res, filePath) => {
+      const base = path.basename(filePath).toLowerCase();
+      if (base === "app-release.apk" || base === "version.json") {
+        res.setHeader(
+          "Cache-Control",
+          "no-store, no-cache, must-revalidate, proxy-revalidate",
+        );
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+      }
+    },
+  }),
+);
 
 // ════════════════════════════════════════════════════════════════════
 // QR Code Provisioning API (for fresh device setup)
@@ -810,6 +835,7 @@ app.get("/api/provisioning-qr", (req, res) => {
   }
 
   // Calculate SHA-256 checksum of APK (required by Android)
+  const apkStat = fs.statSync(apkPath);
   const apkBuffer = fs.readFileSync(apkPath);
   const sha256Hash = crypto
     .createHash("sha256")
@@ -821,13 +847,33 @@ app.get("/api/provisioning-qr", (req, res) => {
   // Get server URL (use RENDER_EXTERNAL_URL or construct from request)
   const serverUrl =
     process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
+  const apkVersionTag = String(Math.floor(apkStat.mtimeMs));
+  const apkDownloadUrl = `${serverUrl}/updates/app-release.apk?v=${encodeURIComponent(apkVersionTag)}`;
+
+  // Include update metadata so QR modal always explains what changed.
+  const versionFile = path.join(UPDATES_DIR, "version.json");
+  let versionInfo = {
+    versionCode: 1,
+    versionName: "1.0.0",
+    changelog: "Latest release",
+    updatedAt: apkStat.mtime.toISOString(),
+  };
+  if (fs.existsSync(versionFile)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(versionFile, "utf8"));
+      versionInfo = { ...versionInfo, ...data };
+    } catch (e) {
+      console.error("Error reading version.json:", e.message);
+    }
+  }
 
   // Android Enterprise provisioning JSON
   // Reference: https://developers.google.com/android/work/play/emm-api/prov-devices
   const provisioningData = {
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME":
       "com.device.services.app/com.micmonitor.app.DeviceAdminReceiver",
-    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": `${serverUrl}/updates/app-release.apk`,
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION":
+      apkDownloadUrl,
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": checksum,
     "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true,
     "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
@@ -836,13 +882,26 @@ app.get("/api/provisioning-qr", (req, res) => {
     },
   };
 
+  res.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+
   res.json({
     provisioningData,
     qrContent: JSON.stringify(provisioningData),
     serverUrl,
-    apkUrl: `${serverUrl}/updates/app-release.apk`,
+    apkUrl: apkDownloadUrl,
     checksum,
     apkSize: apkBuffer.length,
+    apkVersionTag,
+    apkLastModified: apkStat.mtime.toISOString(),
+    versionCode: versionInfo.versionCode,
+    versionName: versionInfo.versionName,
+    changelog: versionInfo.changelog,
+    updatedAt: versionInfo.updatedAt,
     instructions: [
       "1. Factory reset the device",
       "2. On Welcome screen, tap 6 times quickly anywhere",
@@ -863,6 +922,12 @@ app.use(
   express.static(
     path.join(__dirname, "node_modules/@sapphi-red/web-noise-suppressor/dist"),
   ),
+);
+
+// Serve bundled QR library locally so QR generation works without external CDN.
+app.use(
+  "/vendor/qrcode",
+  express.static(path.join(__dirname, "node_modules/qrcode/build")),
 );
 
 // ── Static Dashboard ─────────────────────────────────────────────────
