@@ -1310,9 +1310,10 @@
             return;
           }
 
-          // Generate QR code
+          // Render QR code (prefer server-generated image for reliability)
           content.innerHTML = `
-            <canvas id="qrCanvas" style="border-radius: 12px; background: white; padding: 16px;"></canvas>
+            <div id="qrImageWrap"></div>
+            <canvas id="qrCanvas" style="border-radius: 12px; background: white; padding: 16px; display: none;"></canvas>
             <div style="margin-top: 16px; font-size: 12px; color: var(--text-secondary);">
               <div>APK URL: <code style="background: var(--bg-secondary); padding: 2px 6px; border-radius: 4px;">${data.apkUrl}</code></div>
               <div style="margin-top: 4px;">Size: ${(data.apkSize / 1024 / 1024).toFixed(2)} MB</div>
@@ -1322,14 +1323,20 @@
             </div>
           `;
 
-          // Use QRCode library to generate
-          const QRCodeLib = await ensureQRCodeLibrary();
           const canvas = document.getElementById("qrCanvas");
-          await QRCodeLib.toCanvas(canvas, data.qrContent, {
-            width: 280,
-            margin: 2,
-            color: { dark: "#000000", light: "#ffffff" },
-          });
+          const qrImageWrap = document.getElementById("qrImageWrap");
+
+          if (data.qrDataUrl && typeof data.qrDataUrl === "string") {
+            qrImageWrap.innerHTML = `<img src="${data.qrDataUrl}" alt="Provisioning QR" style="width: 280px; height: 280px; border-radius: 12px; background: white; padding: 8px;">`;
+          } else {
+            const QRCodeLib = await ensureQRCodeLibrary();
+            canvas.style.display = "block";
+            await QRCodeLib.toCanvas(canvas, data.qrContent, {
+              width: 280,
+              margin: 2,
+              color: { dark: "#000000", light: "#ffffff" },
+            });
+          }
 
           instructions.style.display = "block";
         } catch (err) {

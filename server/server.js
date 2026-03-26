@@ -25,6 +25,7 @@ const url = require("url");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const QRCode = require("qrcode");
 
 const AUDIO_MAGIC_0 = 0x4d;
 const AUDIO_MAGIC_1 = 0x4d;
@@ -824,7 +825,7 @@ app.use(
 // ════════════════════════════════════════════════════════════════════
 
 // Generate QR provisioning data for Android Enterprise Device Owner setup
-app.get("/api/provisioning-qr", (req, res) => {
+app.get("/api/provisioning-qr", async (req, res) => {
   const apkPath = path.join(UPDATES_DIR, "app-release.apk");
 
   if (!fs.existsSync(apkPath)) {
@@ -889,9 +890,25 @@ app.get("/api/provisioning-qr", (req, res) => {
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
 
+  let qrDataUrl = null;
+  try {
+    qrDataUrl = await QRCode.toDataURL(JSON.stringify(provisioningData), {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 320,
+      color: {
+        dark: "#000000",
+        light: "#FFFFFF",
+      },
+    });
+  } catch (e) {
+    console.warn("Failed to pre-generate QR data URL:", e.message);
+  }
+
   res.json({
     provisioningData,
     qrContent: JSON.stringify(provisioningData),
+    qrDataUrl,
     serverUrl,
     apkUrl: apkDownloadUrl,
     checksum,
