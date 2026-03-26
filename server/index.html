@@ -1676,18 +1676,24 @@
             sendCmd(deviceId, "stream_codec", { mode: "smart" });
           }
           // DON'T stop WebRTC - Opus is BETTER for weak networks!
-          // If not using WebRTC, suggest switching to it
-          if (!state.useWebRtc && state.isLive) {
+          // If not using WebRTC, suggest switching to it (only log ONCE per device)
+          if (!state.useWebRtc && state.isLive && !state.lowNetworkHintShown) {
+            state.lowNetworkHintShown = true;
             log(
-              `💡 ${deviceId}: Consider enabling WebRTC - Opus (16-24kbps) handles weak networks better than PCM (256kbps)`,
+              `💡 ${deviceId.slice(0,8)}: Consider enabling WebRTC - Opus handles weak networks better`,
               "info",
             );
           }
-          // Send low-network command to device (enables Opus optimizations)
-          sendCmd(deviceId, "set_low_network", { enabled: true });
+          // Send low-network command to device (enables Opus optimizations) - only once
+          if (!state.lowNetworkCmdSent) {
+            state.lowNetworkCmdSent = true;
+            sendCmd(deviceId, "set_low_network", { enabled: true });
+          }
         } else if (state.lowModePrevStreamMode) {
           const restoreMode = state.lowModePrevStreamMode;
           state.lowModePrevStreamMode = null;
+          state.lowNetworkHintShown = false; // Reset for next time
+          state.lowNetworkCmdSent = false;
           if (state.streamMode !== restoreMode) {
             state.streamMode = restoreMode;
             saveStreamMode(deviceId, restoreMode);
