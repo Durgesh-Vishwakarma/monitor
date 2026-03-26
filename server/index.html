@@ -2160,7 +2160,7 @@
           if (raw === "0") return false;
           if (raw === "1") return true;
         } catch (_) {}
-        return true;
+        return false;  // Default OFF - don't auto-start WebRTC
       }
 
       function savePreferRtc(deviceId, enabled) {
@@ -2777,6 +2777,10 @@
         const state = deviceState[deviceId];
         if (!state) return;
         if (!state.useWebRtc) {
+          // Check low-network mode but don't block - just warn
+          if (networkMode.forcedLow) {
+            log("WebRTC requested but low-network mode is active - may have reduced quality", "warn");
+          }
           state.preferWebRtc = true;
           savePreferRtc(deviceId, true);
           if (!state.isLive) {

