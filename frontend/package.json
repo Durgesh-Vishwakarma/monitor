@@ -10,10 +10,11 @@
     "export": "next build"
   },
   "dependencies": {
+    "@swc/helpers": "^0.5.19",
     "next": "^14.2.3",
+    "qrcode": "^1.5.3",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "qrcode": "^1.5.3"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
