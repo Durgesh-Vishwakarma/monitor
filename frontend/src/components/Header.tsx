@@ -7,7 +7,7 @@ export function Header() {
         </div>
         <div>
           <h1 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-violet-light to-teal-light bg-clip-text text-transparent">
-            MicMonitor
+            MicMonitorsss
           </h1>
           <p className="text-[10px] text-text-dim mt-0.5 tracking-wider uppercase">
             Dashboard Control Centersss
