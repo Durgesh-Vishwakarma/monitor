@@ -41,11 +41,50 @@ This method works on **freshly factory-reset devices** without needing a compute
 ### Alternative QR Activation Methods
 | Brand | Method |
 |-------|--------|
-| Samsung | Tap "Emergency Call" → dial *#0*# → exits to QR scanner |
-| Realme/Oppo | Tap 6 times on welcome screen |
+| Samsung | Tap "Emergency Call" → dial `*#0*#` → exits to QR scanner |
+| Realme/Oppo | Tap 6 times on welcome screen (see detailed guide below) |
 | Xiaomi | Tap 6 times on welcome screen |
 | Stock Android | Tap 6 times on welcome screen |
 | Pixel | Tap 6 times on welcome screen |
+
+### 📱 Realme Detailed QR Provisioning Guide
+
+Works on: **Realme 7, 7 Pro, 8, 8 Pro, 9, 10, 11, 12, 13, 13 Pro, 13 Pro+, GT, GT Neo, Narzo series**
+
+#### Step-by-Step for Realme UI 3.0+ / 4.0+ / 5.0+
+
+1. **Factory reset** the device completely
+2. Boot up and reach the **"Hi there"** or **"Welcome"** screen
+3. **Tap 6 times rapidly** on the empty area (NOT on any button):
+   - Realme 7/8/9: Tap **center of screen** below the text
+   - Realme 10/11/12/13: Tap **top-right corner** (near status bar area)
+   - Realme Pro variants: Tap **bottom of the screen** (below "Get started")
+4. A QR scanner should appear after ~1 second
+5. Scan the QR code from your dashboard
+
+#### If QR Scanner Doesn't Appear:
+
+| Issue | Solution |
+|-------|----------|
+| Tapping doesn't work | Try tapping **faster** (all 6 taps within 1 second) |
+| Wrong area | Try different screen areas: center, top-right, bottom |
+| ColorOS prompt appears | Dismiss it and try again |
+| "Connect to WiFi first" | Connect to WiFi, go back, then tap again |
+| Android 13+ Realme UI 4.0 | May need to tap **7 times** instead of 6 |
+| Android 14+ Realme UI 5.0 | Tap 6 times on **"English (United States)"** language text |
+
+#### Alternative Method for Stubborn Realme Devices:
+
+1. At welcome screen, connect to **WiFi first**
+2. Go back to the language selection screen
+3. Tap 6 times on the **language name** (e.g., "English")
+4. QR scanner should appear
+
+#### Realme-Specific Notes:
+- Realme **7i / C-series**: Standard 6-tap on center works
+- Realme **GT / GT Neo**: Tap 6 times on **top-left corner**
+- Realme **Narzo series**: Same as Realme 7/8 (center tap)
+- If using **ColorOS 13/14**: Enterprise enrollment may show as "Work profile setup"
 
 ---
 
