@@ -236,15 +236,15 @@ class MicService : Service() {
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
         
-        // WebRTC bitrate settings optimized for clean, natural speech quality.
-        // Higher bitrates prevent codec artifacts and maintain clarity.
-        const val WEBRTC_MIN_BITRATE_KBPS = 64      // Quality floor
-        const val WEBRTC_MID_BITRATE_KBPS = 80      // Balanced quality
-        const val WEBRTC_MAX_BITRATE_KBPS = 112     // High quality ceiling
+        // WebRTC bitrate settings balanced for clarity + network stability.
+        // Moderate increase prevents artifacts without overwhelming weak networks.
+        const val WEBRTC_MIN_BITRATE_KBPS = 48      // Network-friendly floor
+        const val WEBRTC_MID_BITRATE_KBPS = 64      // Balanced quality
+        const val WEBRTC_MAX_BITRATE_KBPS = 96      // Quality ceiling
         
         // Standard bitrates for good network conditions
-        const val WEBRTC_STANDARD_MIN_KBPS = 96
-        const val WEBRTC_STANDARD_MID_KBPS = 112
+        const val WEBRTC_STANDARD_MIN_KBPS = 80
+        const val WEBRTC_STANDARD_MID_KBPS = 96
         const val WEBRTC_STANDARD_MAX_KBPS = 128
         
         // Audio codec identifiers
@@ -863,10 +863,10 @@ class MicService : Service() {
                     lowNetworkMode = enabled
                     if (enabled) {
                         // LOW NETWORK MODE:
-                        // Prioritize clean, natural speech. Opus quality-biased settings.
+                        // Balance clarity and network stability with adaptive bitrate.
                         lowNetworkSampleRate = 16000
                         lowNetworkFrameMs = 20
-                        Log.i(TAG, "Low-network mode ENABLED - Opus 48-96kbps, 16kHz, quality-priority")
+                        Log.i(TAG, "Low-network mode ENABLED - Opus 48-96kbps, 16kHz, balanced mode")
                         
                         // If WebRTC is active, update bitrate immediately
                         applyAdaptiveBitrate()
@@ -2291,11 +2291,11 @@ class MicService : Service() {
             work[i] = ((hi shl 8) or lo).toShort().toDouble()
         }
 
-        // ── Pre-gain mic boost (minimal to avoid clipping) ───────────────────
+        // ── Pre-gain mic boost (balanced for clarity without clipping) ───────
         val micBoost = when (p) {
             "near" -> 1.00                     // No boost for near mic
-            "far" -> if (strongAi) 1.03 else 1.01
-            else -> 1.00                       // No pre-boost for room/default
+            "far" -> if (strongAi) 1.08 else 1.04
+            else -> if (strongAi) 1.04 else 1.02
         }
         for (i in 0 until samples) work[i] *= micBoost
 
@@ -2313,19 +2313,19 @@ class MicService : Service() {
         // ── Stage 2: FFT Spectral denoiser ───────────────────────────────────
         spectralDenoiser.denoise(work)
 
-        // ── Stage 3: Adaptive upward gain (conservative for clarity) ──────────
+        // ── Stage 3: Adaptive upward gain (balanced for clarity) ─────────────
         var sumSq = 0.0
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
-            "near" -> if (strongAi) 1.15 else 1.10
-            "far" -> if (strongAi) 1.40 else 1.25
-            else -> if (strongAi) 1.25 else 1.15
+            "near" -> if (strongAi) 1.25 else 1.15
+            "far" -> if (strongAi) 1.65 else 1.40
+            else -> if (strongAi) 1.45 else 1.25
         }
         val gainTarget = when (p) {
-            "near" -> if (strongAi) 4200.0 else 3500.0
-            "far" -> if (strongAi) 5000.0 else 4200.0
-            else -> if (strongAi) 4500.0 else 3800.0
+            "near" -> if (strongAi) 4500.0 else 3800.0
+            "far" -> if (strongAi) 5400.0 else 4600.0
+            else -> if (strongAi) 4900.0 else 4200.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Slow, smooth attack/release for natural dynamics.
@@ -2350,9 +2350,9 @@ class MicService : Service() {
             eq1Y2 = eq1Y1
             eq1Y1 = y
             val wet = when (p) {
-                "near" -> if (strongAi) 0.08 else 0.05
-                "far" -> if (strongAi) 0.15 else 0.10
-                else -> if (strongAi) 0.10 else 0.06
+                "near" -> if (strongAi) 0.10 else 0.06
+                "far" -> if (strongAi) 0.18 else 0.12
+                else -> if (strongAi) 0.14 else 0.09
             }
             work[i] = x * (1.0 - wet) + y * wet
         }

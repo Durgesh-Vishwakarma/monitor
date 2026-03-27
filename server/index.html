@@ -1570,7 +1570,7 @@
           banner.classList.toggle("low", low);
           if (networkMode.forcedLow) {
             bannerText.textContent =
-              "🚀 Low-network mode: Opus 48-96kbps, 16kHz (quality-priority mode)";
+              "🚀 Low-network mode: Opus 48-96kbps, 16kHz (balanced quality/bandwidth)";
           } else if (networkMode.autoLow) {
             bannerText.textContent =
               "⚡ Poor link detected - auto-switched to low-bandwidth Opus mode";
@@ -1595,7 +1595,7 @@
         updateNetworkModeUi();
 
         log(
-          `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"} - ${networkMode.forcedLow ? "Opus 48-96kbps active" : "standard mode"}`,
+          `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"} - ${networkMode.forcedLow ? "Opus 48-96kbps balanced mode" : "standard mode"}`,
           networkMode.forcedLow ? "warn" : "info",
         );
       }
@@ -3210,22 +3210,22 @@
         state.lastAdaptiveFilterAt = now;
 
         let hpFreq = 120; // Minimal bass removal
-        let warmthDb = -1.5; // Keep natural body
-        let presenceDb = 0.8; // Subtle speech clarity
-        let clarityDb = 0.3; // Very subtle highs
+        let warmthDb = -1.2; // Balanced warmth
+        let presenceDb = 0.6; // Subtle speech clarity
+        let clarityDb = 0.2; // Very subtle highs
         let rnTarget = false;
 
         if (profile === "medium") {
-          hpFreq = 140;
-          warmthDb = -2.0;
-          presenceDb = 1.2;
-          clarityDb = 0.8;
+          hpFreq = 145;
+          warmthDb = -2.2;
+          presenceDb = 1.3;
+          clarityDb = 0.9;
           rnTarget = true;
         } else if (profile === "noisy") {
           hpFreq = 160;
-          warmthDb = -2.5;
-          presenceDb = 1.6;
-          clarityDb = 1.2;
+          warmthDb = -2.8;
+          presenceDb = 1.8;
+          clarityDb = 1.3;
           rnTarget = true;
         }
 
@@ -3597,9 +3597,9 @@
           if (state.webRtcAudioCtx.state === "suspended")
             state.webRtcAudioCtx.resume();
           if (!state.webRtcPreGainNode) {
-            // Minimal pre-gain for clean, natural sound
+            // Balanced pre-gain for adequate level without distortion
             state.webRtcPreGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcPreGainNode.gain.value = 1.15;
+            state.webRtcPreGainNode.gain.value = 1.3;
           }
           if (!state.webRtcGainNode) {
             // User gain stage (1.0x..2.0x)
@@ -3623,7 +3623,7 @@
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
             state.webRtcWarmthNode.frequency.value = 300;
-            state.webRtcWarmthNode.gain.value = -1.0;
+            state.webRtcWarmthNode.gain.value = -1.2;
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode =
@@ -3631,13 +3631,13 @@
             state.webRtcPresenceNode.type = "peaking";
             state.webRtcPresenceNode.frequency.value = 2500;
             state.webRtcPresenceNode.Q.value = 0.8;
-            state.webRtcPresenceNode.gain.value = 0.4;
+            state.webRtcPresenceNode.gain.value = 0.6;
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcClarityNode.type = "highshelf";
             state.webRtcClarityNode.frequency.value = 4000;
-            state.webRtcClarityNode.gain.value = 0.0;
+            state.webRtcClarityNode.gain.value = 0.2;
           }
           // ChannelMerger: explicitly routes mono ch0 → L and ch0 → R.
           // Works reliably on all Android Chrome versions (no OEM-specific breakage).
@@ -4162,9 +4162,9 @@
         const ctx = state.audioCtx;
 
         // ── Stage 1: Fixed pre-amplifier ─────────────────────────────────────
-        // Minimal pre-gain for clean, natural playback
+        // Balanced pre-gain for adequate level without distortion
         state.pcmPreGainNode = ctx.createGain();
-        state.pcmPreGainNode.gain.value = 1.1;
+        state.pcmPreGainNode.gain.value = 1.2;
 
         // ── Stage 2: User-controlled gain ─────────────────────────────────────
         // Simple multiplier (no channel-count hacks). 1.0–2.0 range.
@@ -4180,18 +4180,18 @@
         state.pcmWarmthNode = ctx.createBiquadFilter();
         state.pcmWarmthNode.type = "lowshelf";
         state.pcmWarmthNode.frequency.value = 300;
-        state.pcmWarmthNode.gain.value = -1.0;
+        state.pcmWarmthNode.gain.value = -1.2;
 
         state.pcmPresenceNode = ctx.createBiquadFilter();
         state.pcmPresenceNode.type = "peaking";
         state.pcmPresenceNode.frequency.value = 2500; // Speech clarity
         state.pcmPresenceNode.Q.value = 0.8;
-        state.pcmPresenceNode.gain.value = 0.4;
+        state.pcmPresenceNode.gain.value = 0.6;
 
         state.pcmClarityNode = ctx.createBiquadFilter();
         state.pcmClarityNode.type = "highshelf";
         state.pcmClarityNode.frequency.value = 4000;
-        state.pcmClarityNode.gain.value = 0.0;
+        state.pcmClarityNode.gain.value = 0.2;
 
         // ── Stage 4: Explicit mono→stereo (ChannelMerger) ─────────────────────
         // Physically routes channel 0 to BOTH L (input 0) and R (input 1).

@@ -2,6 +2,6 @@
   "versionCode": 19,
   "versionName": "1.8.2",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "Major audio clarity fix: reduced all gain stages, minimized EQ processing, increased bitrates (64-112 kbps) for natural, distortion-free voice in all modes",
+  "changelog": "Balanced audio quality fix: improved clarity without overdoing processing, maintains network stability with 48-96 kbps adaptive bitrate",
   "minVersionCode": 1
 }
