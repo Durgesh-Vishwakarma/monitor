@@ -1,7 +1,7 @@
 {
-  "versionCode": 18,
-  "versionName": "1.8.1",
+  "versionCode": 19,
+  "versionName": "1.8.2",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "Audio/photo quality improvements and reliable device command acknowledgments",
+  "changelog": "Major audio clarity fix: reduced all gain stages, minimized EQ processing, increased bitrates (64-112 kbps) for natural, distortion-free voice in all modes",
   "minVersionCode": 1
 }
