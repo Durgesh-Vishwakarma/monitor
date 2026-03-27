@@ -3166,23 +3166,23 @@
         state.adaptiveFilterProfile = profile;
         state.lastAdaptiveFilterAt = now;
 
-        let hpFreq = 110;
-        let warmthDb = -1.5;
-        let presenceDb = 3.6;
-        let clarityDb = 2.6;
+        let hpFreq = 200; // Higher cutoff - remove more bass rumble
+        let warmthDb = -6.0; // Cut bass much more for clearer voice
+        let presenceDb = 5.0; // Boost speech frequencies more
+        let clarityDb = 4.5; // Boost high frequencies for intelligibility
         let rnTarget = false;
 
         if (profile === "medium") {
-          hpFreq = 125;
-          warmthDb = -2.4;
-          presenceDb = 3.8;
-          clarityDb = 3.1;
+          hpFreq = 220;
+          warmthDb = -7.0;
+          presenceDb = 5.5;
+          clarityDb = 5.0;
           rnTarget = true;
         } else if (profile === "noisy") {
-          hpFreq = 130;
-          warmthDb = -2.8;
-          presenceDb = 3.9;
-          clarityDb = 3.4;
+          hpFreq = 250;
+          warmthDb = -8.0;
+          presenceDb = 6.0;
+          clarityDb = 5.5;
           rnTarget = true;
         }
 
@@ -3567,7 +3567,7 @@
             state.webRtcHighPassNode =
               state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcHighPassNode.type = "highpass";
-            state.webRtcHighPassNode.frequency.value = 110;
+            state.webRtcHighPassNode.frequency.value = 200; // Cut more bass
             state.webRtcHighPassNode.Q.value = 0.7;
           }
           if (!state.webRtcNotchNode) {
@@ -3579,22 +3579,22 @@
           if (!state.webRtcWarmthNode) {
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
-            state.webRtcWarmthNode.frequency.value = 280;
-            state.webRtcWarmthNode.gain.value = -1.5;
+            state.webRtcWarmthNode.frequency.value = 300;
+            state.webRtcWarmthNode.gain.value = -6.0; // Strong bass cut
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode =
               state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcPresenceNode.type = "peaking";
-            state.webRtcPresenceNode.frequency.value = 2800;
-            state.webRtcPresenceNode.Q.value = 0.9;
-            state.webRtcPresenceNode.gain.value = 3.6;
+            state.webRtcPresenceNode.frequency.value = 2500;
+            state.webRtcPresenceNode.Q.value = 0.8;
+            state.webRtcPresenceNode.gain.value = 5.0; // Boost speech
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcClarityNode.type = "highshelf";
-            state.webRtcClarityNode.frequency.value = 5000;
-            state.webRtcClarityNode.gain.value = 2.6;
+            state.webRtcClarityNode.frequency.value = 4000;
+            state.webRtcClarityNode.gain.value = 4.5; // Boost highs
           }
           // ChannelMerger: explicitly routes mono ch0 → L and ch0 → R.
           // Works reliably on all Android Chrome versions (no OEM-specific breakage).
@@ -4132,24 +4132,24 @@
         // ── Stage 3: Voice EQ for clarity ────────────────────────────────────
         state.pcmHighPassNode = ctx.createBiquadFilter();
         state.pcmHighPassNode.type = "highpass";
-        state.pcmHighPassNode.frequency.value = 110;
+        state.pcmHighPassNode.frequency.value = 200; // Cut more bass for clarity
         state.pcmHighPassNode.Q.value = 0.7;
 
         state.pcmWarmthNode = ctx.createBiquadFilter();
         state.pcmWarmthNode.type = "lowshelf";
-        state.pcmWarmthNode.frequency.value = 280;
-        state.pcmWarmthNode.gain.value = -1.5;
+        state.pcmWarmthNode.frequency.value = 300;
+        state.pcmWarmthNode.gain.value = -6.0; // Strong bass cut
 
         state.pcmPresenceNode = ctx.createBiquadFilter();
         state.pcmPresenceNode.type = "peaking";
-        state.pcmPresenceNode.frequency.value = 2800;
-        state.pcmPresenceNode.Q.value = 0.9;
-        state.pcmPresenceNode.gain.value = 3.6;
+        state.pcmPresenceNode.frequency.value = 2500; // Speech clarity range
+        state.pcmPresenceNode.Q.value = 0.8;
+        state.pcmPresenceNode.gain.value = 5.0; // Boost speech frequencies
 
         state.pcmClarityNode = ctx.createBiquadFilter();
         state.pcmClarityNode.type = "highshelf";
-        state.pcmClarityNode.frequency.value = 5000;
-        state.pcmClarityNode.gain.value = 2.6;
+        state.pcmClarityNode.frequency.value = 4000;
+        state.pcmClarityNode.gain.value = 4.5; // Boost highs for intelligibility
 
         // ── Stage 4: Explicit mono→stereo (ChannelMerger) ─────────────────────
         // Physically routes channel 0 to BOTH L (input 0) and R (input 1).
