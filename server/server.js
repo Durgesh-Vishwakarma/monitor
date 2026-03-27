@@ -200,6 +200,8 @@ function handleAudioDevice(ws, req) {
     ws,
     model: "Unknown",
     sdk: 0,
+    appVersionName: "",
+    appVersionCode: 0,
     connectedAt: new Date(),
     recordingChunks: null,
     recordingSampleRate: 16000,
@@ -247,15 +249,30 @@ function handleAudioDevice(ws, req) {
       const text = data.toString().trim();
 
       if (text.startsWith("DEVICE_INFO:")) {
-        // Format: DEVICE_INFO:deviceId:ModelName:sdkInt
-        const [, , model, sdk] = text.split(":");
+        // Format:
+        // DEVICE_INFO:deviceId:ModelName:sdkInt
+        // DEVICE_INFO:deviceId:ModelName:sdkInt:versionName:versionCode
+        const infoParts = text.split(":");
+        const model = infoParts[2];
+        const sdk = infoParts[3];
+        const appVersionName = infoParts[4] || "";
+        const appVersionCode = Number(infoParts[5] || 0) || 0;
         const dev = devices.get(deviceId);
         if (dev) {
           dev.model = model;
           dev.sdk = parseInt(sdk) || 0;
+          if (appVersionName) dev.appVersionName = appVersionName;
+          if (appVersionCode > 0) dev.appVersionCode = appVersionCode;
         }
         console.log(`ℹ️  ${deviceId} → ${model} (SDK ${sdk})`);
-        broadcastToDashboard({ type: "device_info", deviceId, model, sdk });
+        broadcastToDashboard({
+          type: "device_info",
+          deviceId,
+          model,
+          sdk,
+          appVersionName,
+          appVersionCode,
+        });
       } else if (text.startsWith("ACK:")) {
         console.log(`✅ ACK from ${deviceId}: ${text}`);
         broadcastToDashboard({ type: "ack", deviceId, message: text });
@@ -317,6 +334,12 @@ function handleAudioDevice(ws, req) {
                 photoNight: String(
                   json.photoNight || dev.health?.photoNight || "off",
                 ),
+                appVersionName: String(
+                  json.appVersionName || dev.health?.appVersionName || "",
+                ),
+                appVersionCode: Number.isFinite(Number(json.appVersionCode))
+                  ? Number(json.appVersionCode)
+                  : Number(dev.health?.appVersionCode || 0),
               };
             }
             broadcastToDashboard({
@@ -354,6 +377,15 @@ function handleAudioDevice(ws, req) {
               quality: String(json.quality || "normal").toLowerCase(),
               mime: String(json.mime || "image/jpeg"),
               data: String(json.data || ""),
+              ts: Number(json.ts || Date.now()),
+            });
+          } else if (json.type === "command_ack") {
+            broadcastToDashboard({
+              type: "command_ack",
+              deviceId,
+              command: String(json.command || ""),
+              status: String(json.status || "success"),
+              detail: String(json.detail || ""),
               ts: Number(json.ts || Date.now()),
             });
           } else if (json.type === "error") {
@@ -448,6 +480,8 @@ function handleDashboard(ws) {
       deviceId: id,
       model: dev.model,
       sdk: dev.sdk,
+      appVersionName: dev.appVersionName || "",
+      appVersionCode: Number(dev.appVersionCode || 0),
       connectedAt: dev.connectedAt,
       health: dev.health,
     });

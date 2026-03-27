@@ -1,7 +1,7 @@
 {
-  "versionCode": 17,
-  "versionName": "1.8.0",
+  "versionCode": 18,
+  "versionName": "1.8.1",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "Realme/Xiaomi auto-launch fix, enhanced Chinese ROM battery optimization, enable_autostart command, aggressive keep-alive policies",
+  "changelog": "Audio/photo quality improvements and reliable device command acknowledgments",
   "minVersionCode": 1
 }

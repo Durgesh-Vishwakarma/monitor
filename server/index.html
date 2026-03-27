@@ -1570,7 +1570,7 @@
           banner.classList.toggle("low", low);
           if (networkMode.forcedLow) {
             bannerText.textContent =
-              "🚀 Low-network mode: Opus 16-24kbps, 8kHz, 40ms frames (saves ~90% bandwidth vs PCM)";
+              "🚀 Low-network mode: Opus 32-64kbps, 16kHz, 30ms frames (clarity-priority low-bandwidth mode)";
           } else if (networkMode.autoLow) {
             bannerText.textContent =
               "⚡ Poor link detected - auto-switched to low-bandwidth Opus mode";
@@ -1595,7 +1595,7 @@
         updateNetworkModeUi();
 
         log(
-          `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"} - ${networkMode.forcedLow ? "Opus 16-24kbps active" : "standard mode"}`,
+          `Forced low-network mode ${networkMode.forcedLow ? "enabled" : "disabled"} - ${networkMode.forcedLow ? "Opus 32-64kbps active" : "standard mode"}`,
           networkMode.forcedLow ? "warn" : "info",
         );
       }
@@ -1662,19 +1662,11 @@
         const low = isDeviceLowNetworkModeActive(state);
         renderDeviceNetworkChip(deviceId, state);
         if (low) {
-          // LOW-NETWORK MODE: Prefer WebRTC (Opus) over WebSocket (PCM)
-          // Opus at 16-24 kbps handles packet loss better than PCM at 256 kbps
+          // LOW-NETWORK MODE: Prefer WebRTC (Opus) over WebSocket fallback.
           if (!state.lowModePrevStreamMode) {
             state.lowModePrevStreamMode = state.streamMode || "auto";
           }
-          // Switch WS fallback to compressed mode (smart = MuLaw 8kHz, 64kbps)
-          if (state.streamMode !== "smart") {
-            state.streamMode = "smart";
-            saveStreamMode(deviceId, "smart");
-            const streamBtn = document.getElementById(`btnStream_${deviceId}`);
-            if (streamBtn) streamBtn.textContent = "Stream: Smart (Low-Net)";
-            sendCmd(deviceId, "stream_codec", { mode: "smart" });
-          }
+          // Keep user-selected stream mode; don't force MuLaw while WebRTC is active.
           // DON'T stop WebRTC - Opus is BETTER for weak networks!
           // If not using WebRTC, suggest switching to it (only log ONCE per device)
           if (!state.useWebRtc && state.isLive && !state.lowNetworkHintShown) {
@@ -1828,11 +1820,23 @@
         switch (msg.type) {
           case "device_list":
             msg.devices.forEach((d) =>
-              addDeviceCard(d.deviceId, d.model, d.health || null),
+              addDeviceCard(
+                d.deviceId,
+                d.model,
+                d.health || null,
+                d.appVersionName || "",
+                Number(d.appVersionCode || 0),
+              ),
             );
             break;
           case "device_connected":
-            addDeviceCard(msg.deviceId, msg.model || "…", msg.health || null);
+            addDeviceCard(
+              msg.deviceId,
+              msg.model || "…",
+              msg.health || null,
+              msg.appVersionName || "",
+              Number(msg.appVersionCode || 0),
+            );
             log(`Device connected: ${msg.deviceId}`, "ok");
             break;
           case "device_disconnected":
@@ -1840,8 +1844,17 @@
             log(`Device disconnected: ${msg.deviceId}`, "warn");
             break;
           case "device_info":
-            updateDeviceMeta(msg.deviceId, msg.model, msg.sdk);
-            log(`${msg.deviceId} → ${msg.model} (SDK ${msg.sdk})`, "info");
+            updateDeviceMeta(
+              msg.deviceId,
+              msg.model,
+              msg.sdk,
+              msg.appVersionName || "",
+              Number(msg.appVersionCode || 0),
+            );
+            log(
+              `${msg.deviceId} → ${msg.model} (SDK ${msg.sdk})${msg.appVersionName ? ` · App ${msg.appVersionName}${msg.appVersionCode ? ` (${msg.appVersionCode})` : ""}` : ""}`,
+              "info",
+            );
             break;
           case "device_health":
             renderDeviceHealth(msg.deviceId, msg.health || null);
@@ -1870,6 +1883,12 @@
           case "ack":
             log(`ACK ${msg.deviceId}: ${msg.message}`, "info");
             break;
+          case "command_ack": {
+            const base = `CMD ${msg.deviceId}: ${msg.command || "unknown"} (${msg.status || "success"})`;
+            const text = msg.detail ? `${base} - ${msg.detail}` : base;
+            log(text, msg.status === "error" ? "warn" : "ok");
+            break;
+          }
           case "stream_recovery_sent":
             log(`Auto mic recovery sent to ${msg.deviceId}`, "warn");
             break;
@@ -2014,7 +2033,7 @@
         return sample / 32768;
       }
 
-      function addDeviceCard(deviceId, model, health) {
+      function addDeviceCard(deviceId, model, health, appVersionName, appVersionCode) {
         if (
           deviceState[deviceId] &&
           document.getElementById(`card_${deviceId}`)
@@ -2161,6 +2180,8 @@
           preferWebRtc: savedPreferRtc,
           photoQuality: savedPhotoQuality,
           photoNightMode: savedPhotoNight,
+          appVersionName: appVersionName || health?.appVersionName || "",
+          appVersionCode: Number(appVersionCode || health?.appVersionCode || 0),
           webRtcRnnoiseNode: null,
           pcmRnnoiseNode: null,
           webRtcRnnoiseInitPromise: null,
@@ -2220,6 +2241,13 @@
         );
         if (photoNightBtn)
           photoNightBtn.textContent = `Night: ${photoNightLabel(savedPhotoNight)}`;
+        updateDeviceMeta(
+          deviceId,
+          model || "Unknown",
+          Number(health?.sdk || 0),
+          appVersionName || health?.appVersionName || "",
+          Number(appVersionCode || health?.appVersionCode || 0),
+        );
         sendCmd(deviceId, "voice_profile", { profile: savedVoiceProfile });
         sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
         sendCmd(deviceId, "photo_quality", { mode: savedPhotoQuality });
@@ -2299,10 +2327,10 @@
         try {
           const raw = localStorage.getItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
           const v = Number(raw);
-          const allowed = [1.0, 1.5, 2.0, 3.0, 4.0];
+          const allowed = [1.0, 1.5, 2.0];
           if (allowed.some((x) => Math.abs(x - v) < 0.01)) return v;
         } catch (_) {}
-        return 2.0; // Increased default for better voice clarity
+        return 1.5; // Default gain (natural level)
       }
 
       function savePlaybackGain(deviceId, gain) {
@@ -2496,9 +2524,22 @@
           document.getElementById("noDevices").style.display = "block";
       }
 
-      function updateDeviceMeta(deviceId, model, sdk) {
+      function updateDeviceMeta(deviceId, model, sdk, appVersionName, appVersionCode) {
         const el = document.getElementById(`meta_${deviceId}`);
-        if (el) el.textContent = `${model} · Android SDK ${sdk}`;
+        if (!el) return;
+        const state = deviceState[deviceId];
+        if (state) {
+          if (appVersionName) state.appVersionName = appVersionName;
+          if (Number.isFinite(Number(appVersionCode)))
+            state.appVersionCode = Number(appVersionCode);
+        }
+        const verName = appVersionName || state?.appVersionName || "";
+        const verCode = Number(appVersionCode || state?.appVersionCode || 0);
+        const verText =
+          verName || verCode > 0
+            ? ` · App ${verName || "?"}${verCode > 0 ? ` (${verCode})` : ""}`
+            : "";
+        el.textContent = `${model} · Android SDK ${sdk}${verText}`;
       }
 
       function renderDeviceHealth(deviceId, health) {
@@ -3029,7 +3070,8 @@
       }
 
       function renderWebRtcState(deviceId, state, bitrateKbps, quality) {
-        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown", null);
+        if (!deviceState[deviceId])
+          addDeviceCard(deviceId, "Unknown", null, "", 0);
         const st = deviceState[deviceId];
         st.health = st.health || {};
         st.health.webRtcState = state || st.health.webRtcState || "state";
@@ -3083,7 +3125,7 @@
         }
 
         if (!deviceState[msg.deviceId])
-          addDeviceCard(msg.deviceId, "Unknown", null);
+          addDeviceCard(msg.deviceId, "Unknown", null, "", 0);
         const list = document.getElementById(`photoList_${msg.deviceId}`);
         if (!list) return;
         const item = document.createElement("div");
@@ -3141,12 +3183,13 @@
         if (!state) return;
         const mul = Number(state.playbackGain || 1.0);
         // If pre-gain node exists, user gain is direct multiplier. If not, keep legacy fallback.
+        const safeMul = Math.min(2.0, Math.max(1.0, mul));
         if (state.webRtcGainNode)
           state.webRtcGainNode.gain.value =
-            (state.webRtcPreGainNode ? 1.0 : 6.0) * mul;
+            (state.webRtcPreGainNode ? 1.0 : 6.0) * safeMul;
         if (state.pcmGainNode)
           state.pcmGainNode.gain.value =
-            (state.pcmPreGainNode ? 1.0 : 4.8) * mul;
+            (state.pcmPreGainNode ? 1.0 : 4.8) * safeMul;
       }
 
       function applyAdaptiveNoiseProfile(deviceId, state, noiseDb) {
@@ -3166,23 +3209,23 @@
         state.adaptiveFilterProfile = profile;
         state.lastAdaptiveFilterAt = now;
 
-        let hpFreq = 200; // Higher cutoff - remove more bass rumble
-        let warmthDb = -6.0; // Cut bass much more for clearer voice
-        let presenceDb = 5.0; // Boost speech frequencies more
-        let clarityDb = 4.5; // Boost high frequencies for intelligibility
+        let hpFreq = 140; // Gentle bass removal
+        let warmthDb = -2.0; // Keep natural body
+        let presenceDb = 1.0; // Mild speech clarity
+        let clarityDb = 0.5; // Very subtle highs
         let rnTarget = false;
 
         if (profile === "medium") {
-          hpFreq = 220;
-          warmthDb = -7.0;
-          presenceDb = 5.5;
-          clarityDb = 5.0;
+          hpFreq = 150;
+          warmthDb = -2.5;
+          presenceDb = 1.5;
+          clarityDb = 1.0;
           rnTarget = true;
         } else if (profile === "noisy") {
-          hpFreq = 250;
-          warmthDb = -8.0;
-          presenceDb = 6.0;
-          clarityDb = 5.5;
+          hpFreq = 165;
+          warmthDb = -3.0;
+          presenceDb = 2.0;
+          clarityDb = 1.5;
           rnTarget = true;
         }
 
@@ -3213,8 +3256,8 @@
       function cyclePlaybackGain(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        const levels = [1.0, 1.5, 2.0, 3.0, 4.0];
-        const current = Number(state.playbackGain || 1.0);
+        const levels = [1.0, 1.5, 2.0];
+        const current = Math.min(2.0, Number(state.playbackGain || 1.0));
         const idx = levels.findIndex((v) => Math.abs(v - current) < 0.01);
         state.playbackGain = levels[(idx + 1 + levels.length) % levels.length];
         savePlaybackGain(deviceId, state.playbackGain);
@@ -3554,12 +3597,12 @@
           if (state.webRtcAudioCtx.state === "suspended")
             state.webRtcAudioCtx.resume();
           if (!state.webRtcPreGainNode) {
-            // Fixed pre-gain before RNNoise to prevent low/suppressed voice on quiet devices.
+            // Reduced pre-gain - prevents harsh/crispy distortion
             state.webRtcPreGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcPreGainNode.gain.value = 6.0;
+            state.webRtcPreGainNode.gain.value = 1.6;
           }
           if (!state.webRtcGainNode) {
-            // User gain stage (1.0x..3.0x)
+            // User gain stage (1.0x..2.0x)
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
             state.webRtcGainNode.gain.value = Number(state.playbackGain || 1.0);
           }
@@ -3567,7 +3610,7 @@
             state.webRtcHighPassNode =
               state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcHighPassNode.type = "highpass";
-            state.webRtcHighPassNode.frequency.value = 200; // Cut more bass
+            state.webRtcHighPassNode.frequency.value = 140; // Gentle bass filter
             state.webRtcHighPassNode.Q.value = 0.7;
           }
           if (!state.webRtcNotchNode) {
@@ -3580,7 +3623,7 @@
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
             state.webRtcWarmthNode.frequency.value = 300;
-            state.webRtcWarmthNode.gain.value = -6.0; // Strong bass cut
+            state.webRtcWarmthNode.gain.value = -2.0;
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode =
@@ -3588,13 +3631,13 @@
             state.webRtcPresenceNode.type = "peaking";
             state.webRtcPresenceNode.frequency.value = 2500;
             state.webRtcPresenceNode.Q.value = 0.8;
-            state.webRtcPresenceNode.gain.value = 5.0; // Boost speech
+            state.webRtcPresenceNode.gain.value = 1.0;
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcClarityNode.type = "highshelf";
             state.webRtcClarityNode.frequency.value = 4000;
-            state.webRtcClarityNode.gain.value = 4.5; // Boost highs
+            state.webRtcClarityNode.gain.value = 0.5;
           }
           // ChannelMerger: explicitly routes mono ch0 → L and ch0 → R.
           // Works reliably on all Android Chrome versions (no OEM-specific breakage).
@@ -4044,7 +4087,8 @@
       function renderDeviceData(deviceId, data) {
         if (!data) return;
         // Auto-create card if data arrives before device_connected (e.g. race or reconnect)
-        if (!deviceState[deviceId]) addDeviceCard(deviceId, "Unknown", null);
+        if (!deviceState[deviceId])
+          addDeviceCard(deviceId, "Unknown", null, "", 0);
         const locEl = document.getElementById(`tab_${deviceId}_location`);
         if (locEl && data.location) {
           const l = data.location;
@@ -4118,38 +4162,36 @@
         const ctx = state.audioCtx;
 
         // ── Stage 1: Fixed pre-amplifier ─────────────────────────────────────
-        // Boosts the raw PCM signal BEFORE RNNoise so the model receives a loud
-        // enough input to correctly classify speech (not suppress it as noise),
-        // and provides base loudness regardless of RNNoise state.
+        // Moderate boost to ensure sufficient signal level without distortion
         state.pcmPreGainNode = ctx.createGain();
-        state.pcmPreGainNode.gain.value = 4.8;
+        state.pcmPreGainNode.gain.value = 1.5;
 
         // ── Stage 2: User-controlled gain ─────────────────────────────────────
-        // Simple multiplier (no channel-count hacks). 1.0–3.0 range.
+        // Simple multiplier (no channel-count hacks). 1.0–2.0 range.
         state.pcmGainNode = ctx.createGain();
         state.pcmGainNode.gain.value = Number(state.playbackGain || 1.0);
 
         // ── Stage 3: Voice EQ for clarity ────────────────────────────────────
         state.pcmHighPassNode = ctx.createBiquadFilter();
         state.pcmHighPassNode.type = "highpass";
-        state.pcmHighPassNode.frequency.value = 200; // Cut more bass for clarity
+        state.pcmHighPassNode.frequency.value = 140; // Gentle bass filter
         state.pcmHighPassNode.Q.value = 0.7;
 
         state.pcmWarmthNode = ctx.createBiquadFilter();
         state.pcmWarmthNode.type = "lowshelf";
         state.pcmWarmthNode.frequency.value = 300;
-        state.pcmWarmthNode.gain.value = -6.0; // Strong bass cut
+        state.pcmWarmthNode.gain.value = -2.0;
 
         state.pcmPresenceNode = ctx.createBiquadFilter();
         state.pcmPresenceNode.type = "peaking";
-        state.pcmPresenceNode.frequency.value = 2500; // Speech clarity range
+        state.pcmPresenceNode.frequency.value = 2500; // Speech clarity
         state.pcmPresenceNode.Q.value = 0.8;
-        state.pcmPresenceNode.gain.value = 5.0; // Boost speech frequencies
+        state.pcmPresenceNode.gain.value = 1.0;
 
         state.pcmClarityNode = ctx.createBiquadFilter();
         state.pcmClarityNode.type = "highshelf";
         state.pcmClarityNode.frequency.value = 4000;
-        state.pcmClarityNode.gain.value = 4.5; // Boost highs for intelligibility
+        state.pcmClarityNode.gain.value = 0.5;
 
         // ── Stage 4: Explicit mono→stereo (ChannelMerger) ─────────────────────
         // Physically routes channel 0 to BOTH L (input 0) and R (input 1).
