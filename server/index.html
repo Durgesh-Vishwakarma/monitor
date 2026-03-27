@@ -2283,7 +2283,7 @@
           if (raw === "0") return false;
           if (raw === "1") return true;
         } catch (_) {}
-        return false; // Default OFF — vendor files not available, prevents performance issues
+        return false; // Default OFF
       }
 
       function saveRnnoiseEnabled(deviceId, enabled) {
@@ -2302,7 +2302,7 @@
           const allowed = [1.0, 1.5, 2.0, 3.0, 4.0];
           if (allowed.some((x) => Math.abs(x - v) < 0.01)) return v;
         } catch (_) {}
-        return 1.5;
+        return 2.0; // Increased default for better voice clarity
       }
 
       function savePlaybackGain(deviceId, gain) {
@@ -4241,11 +4241,11 @@
           }
           const now = state.audioCtx.currentTime;
 
-          // Increased jitter buffer for low network resilience
-          // Higher buffer = more tolerance for network delays, less choppy audio
-          const targetLeadSec = 0.04; // Was 0.015 - increased for network jitter
-          const maxLeadSec = 0.25; // Was 0.12 - more buffer room for slow networks
-          const resyncThreshold = 0.15; // Was 0.06 - allow more drift before resync
+          // Large buffer prioritizes voice clarity over latency
+          // User accepts ~5 second delay for clearer audio
+          const targetLeadSec = 2.0; // Large buffer for smooth, clear playback
+          const maxLeadSec = 5.0; // Allow up to 5 seconds of buffering
+          const resyncThreshold = 3.0; // High tolerance - avoid choppy resyncs
 
           if (state.nextPlayTime < now - resyncThreshold)
             state.nextPlayTime = now + targetLeadSec;
