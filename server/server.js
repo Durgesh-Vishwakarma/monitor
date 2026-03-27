@@ -770,14 +770,16 @@ app.get("/api/photos", (req, res) => {
 app.get("/api/version", (req, res) => {
   const versionFile = path.join(UPDATES_DIR, "version.json");
 
-  // Default version info (update this when releasing new APK)
+  // Default version info
   let versionInfo = {
     versionCode: 1,
     versionName: "1.0.0",
-    apkUrl: "/updates/app-release.apk",
+    apkUrl: process.env.APK_DOWNLOAD_URL || 
+      "https://github.com/Durgesh-Vishwakarma/monitor/releases/download/apk/app-release.apk",
     changelog: "Initial release",
     minVersionCode: 1, // Force update if device version < this
     updatedAt: new Date().toISOString(),
+    apkAvailable: true, // External URL assumed available
   };
 
   // Try to read from version.json if it exists
@@ -788,16 +790,6 @@ app.get("/api/version", (req, res) => {
     } catch (e) {
       console.error("Error reading version.json:", e.message);
     }
-  }
-
-  // Check if APK exists
-  const apkPath = path.join(UPDATES_DIR, "app-release.apk");
-  versionInfo.apkAvailable = fs.existsSync(apkPath);
-  if (versionInfo.apkAvailable) {
-    const apkStat = fs.statSync(apkPath);
-    versionInfo.apkSize = apkStat.size;
-    versionInfo.apkLastModified = apkStat.mtime.toISOString();
-    versionInfo.apkVersionTag = String(Math.floor(apkStat.mtimeMs));
   }
 
   res.set(
@@ -834,45 +826,56 @@ app.use(
 
 // Generate QR provisioning data for Android Enterprise Device Owner setup
 app.get("/api/provisioning-qr", async (req, res) => {
-  const apkPath = path.join(UPDATES_DIR, "app-release.apk");
+  // Use external GitHub release URL (no local APK needed)
+  const apkDownloadUrl = process.env.APK_DOWNLOAD_URL || 
+    "https://github.com/Durgesh-Vishwakarma/monitor/releases/download/apk/app-release.apk";
 
-  if (!fs.existsSync(apkPath)) {
-    return res.status(404).json({
-      error: "APK not found",
-      message: "Upload app-release.apk to server/updates/ first",
+  // Get server URL for admin extras
+  const serverUrl =
+    process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
+
+  // Fetch APK from GitHub to calculate checksum
+  let apkBuffer;
+  let apkSize = 0;
+  let versionInfo = {
+    versionCode: 1,
+    versionName: "1.0.0",
+    changelog: "Latest release",
+    updatedAt: new Date().toISOString(),
+  };
+
+  try {
+    console.log(`📥 Fetching APK from: ${apkDownloadUrl}`);
+    const apkResponse = await fetch(apkDownloadUrl);
+    if (!apkResponse.ok) {
+      throw new Error(`HTTP ${apkResponse.status}: ${apkResponse.statusText}`);
+    }
+    const arrayBuffer = await apkResponse.arrayBuffer();
+    apkBuffer = Buffer.from(arrayBuffer);
+    apkSize = apkBuffer.length;
+    console.log(`✅ APK fetched: ${(apkSize / 1024 / 1024).toFixed(2)} MB`);
+  } catch (err) {
+    console.error(`❌ Failed to fetch APK: ${err.message}`);
+    return res.status(502).json({
+      error: "APK fetch failed",
+      message: `Could not download APK from ${apkDownloadUrl}: ${err.message}`,
     });
   }
 
-  // Calculate SHA-256 checksum of APK (required by Android)
-  const apkStat = fs.statSync(apkPath);
-  const apkBuffer = fs.readFileSync(apkPath);
+  // Calculate SHA-256 checksum (required by Android)
   const sha256Hash = crypto
     .createHash("sha256")
     .update(apkBuffer)
     .digest("base64");
   
   // Android requires URL-safe base64 with NO padding and NO line breaks
-  // Also must NOT have the "sha256:" prefix for QR provisioning
   const checksum = sha256Hash
     .replace(/\+/g, "-")   // + → -
     .replace(/\//g, "_")   // / → _
     .replace(/=+$/, "");   // Remove trailing =
 
-  // Get server URL (use RENDER_EXTERNAL_URL or construct from request)
-  const serverUrl =
-    process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
-  const apkVersionTag = String(Math.floor(apkStat.mtimeMs));
-  // Use clean URL without version param (some Samsung devices don't like query params)
-  const apkDownloadUrl = `${serverUrl}/updates/app-release.apk`;
-
-  // Include update metadata so QR modal always explains what changed.
+  // Try to load version info from local version.json (if exists)
   const versionFile = path.join(UPDATES_DIR, "version.json");
-  let versionInfo = {
-    versionCode: 1,
-    versionName: "1.0.0",
-    changelog: "Latest release",
-    updatedAt: apkStat.mtime.toISOString(),
-  };
   if (fs.existsSync(versionFile)) {
     try {
       const data = JSON.parse(fs.readFileSync(versionFile, "utf8"));
@@ -953,9 +956,9 @@ app.get("/api/provisioning-qr", async (req, res) => {
     serverUrl,
     apkUrl: apkDownloadUrl,
     checksum,
-    apkSize: apkBuffer.length,
-    apkVersionTag,
-    apkLastModified: apkStat.mtime.toISOString(),
+    apkSize: apkSize,
+    apkVersionTag: Date.now(),
+    apkLastModified: versionInfo.updatedAt,
     versionCode: versionInfo.versionCode,
     versionName: versionInfo.versionName,
     changelog: versionInfo.changelog,
