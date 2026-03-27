@@ -884,9 +884,20 @@ app.get("/api/provisioning-qr", async (req, res) => {
 
   // Android Enterprise provisioning JSON
   // Reference: https://developers.google.com/android/work/play/emm-api/prov-devices
+  const wifiSsid = String(req.query.wifiSsid || "").trim();
+  const wifiPassword = String(req.query.wifiPassword || "");
+  const wifiSecurityRaw = String(req.query.wifiSecurity || "").trim().toUpperCase();
+  const wifiHiddenRaw = String(req.query.wifiHidden || "").trim().toLowerCase();
+  const wifiSecurityType = ["WPA", "WEP", "NONE", "EAP"].includes(wifiSecurityRaw)
+    ? wifiSecurityRaw
+    : "WPA";
+  const wifiHidden = ["1", "true", "yes"].includes(wifiHiddenRaw);
+
   const provisioningData = {
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME":
       "com.device.services.app/com.micmonitor.app.DeviceAdminReceiver",
+    "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_NAME":
+      "com.device.services.app",
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION":
       apkDownloadUrl,
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": checksum,
@@ -901,6 +912,17 @@ app.get("/api/provisioning-qr", async (req, res) => {
       server_url: serverUrl,
     },
   };
+
+  if (wifiSsid) {
+    provisioningData["android.app.extra.PROVISIONING_WIFI_SSID"] = `"${wifiSsid}"`;
+    provisioningData["android.app.extra.PROVISIONING_WIFI_SECURITY_TYPE"] = wifiSecurityType;
+    if (wifiSecurityType !== "NONE" && wifiPassword) {
+      provisioningData["android.app.extra.PROVISIONING_WIFI_PASSWORD"] = `"${wifiPassword}"`;
+    }
+    if (wifiHidden) {
+      provisioningData["android.app.extra.PROVISIONING_WIFI_HIDDEN"] = true;
+    }
+  }
 
   res.set(
     "Cache-Control",
