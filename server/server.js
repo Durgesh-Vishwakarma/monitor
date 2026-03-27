@@ -824,6 +824,50 @@ app.use(
 // QR Code Provisioning API (for fresh device setup)
 // ════════════════════════════════════════════════════════════════════
 
+// POST /api/cache-apk-checksum — Pre-compute and cache APK checksum
+// Call this once after uploading a new APK to GitHub releases
+app.post("/api/cache-apk-checksum", async (req, res) => {
+  const apkUrl = process.env.APK_DOWNLOAD_URL || 
+    "https://github.com/Durgesh-Vishwakarma/monitor/releases/download/apk/app-release.apk";
+  
+  try {
+    console.log(`📥 Fetching APK to cache checksum: ${apkUrl}`);
+    const response = await fetch(apkUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    
+    const sha256 = crypto.createHash("sha256").update(buffer).digest("base64");
+    const checksum = sha256.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    
+    // Save to version.json
+    const versionFile = path.join(UPDATES_DIR, "version.json");
+    let versionInfo = {};
+    if (fs.existsSync(versionFile)) {
+      try {
+        versionInfo = JSON.parse(fs.readFileSync(versionFile, "utf8"));
+      } catch (e) {
+        console.warn("Error reading existing version.json:", e.message);
+      }
+    }
+    versionInfo.cachedChecksum = checksum;
+    versionInfo.checksumCachedAt = new Date().toISOString();
+    versionInfo.apkSize = buffer.length;
+    versionInfo.apkUrl = apkUrl;
+    fs.writeFileSync(versionFile, JSON.stringify(versionInfo, null, 2));
+    
+    console.log(`✅ Checksum cached: ${checksum.substring(0, 16)}...`);
+    res.json({ 
+      checksum, 
+      size: buffer.length, 
+      cached: true,
+      cachedAt: versionInfo.checksumCachedAt
+    });
+  } catch (e) {
+    console.error(`❌ Checksum cache failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Generate QR provisioning data for Android Enterprise Device Owner setup
 app.get("/api/provisioning-qr", async (req, res) => {
   // Use external GitHub release URL (no local APK needed)
@@ -834,55 +878,54 @@ app.get("/api/provisioning-qr", async (req, res) => {
   const serverUrl =
     process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
 
-  // Fetch APK from GitHub to calculate checksum
-  let apkBuffer;
-  let apkSize = 0;
-  let versionInfo = {
-    versionCode: 1,
+  // Use cached checksum from version.json (fast, reliable)
+  const versionFile = path.join(UPDATES_DIR, "version.json");
+  let versionInfo = { 
+    versionCode: 1, 
     versionName: "1.0.0",
     changelog: "Latest release",
     updatedAt: new Date().toISOString(),
   };
+  let checksum = null;
+  let apkSize = 0;
 
-  try {
-    console.log(`📥 Fetching APK from: ${apkDownloadUrl}`);
-    const apkResponse = await fetch(apkDownloadUrl);
-    if (!apkResponse.ok) {
-      throw new Error(`HTTP ${apkResponse.status}: ${apkResponse.statusText}`);
-    }
-    const arrayBuffer = await apkResponse.arrayBuffer();
-    apkBuffer = Buffer.from(arrayBuffer);
-    apkSize = apkBuffer.length;
-    console.log(`✅ APK fetched: ${(apkSize / 1024 / 1024).toFixed(2)} MB`);
-  } catch (err) {
-    console.error(`❌ Failed to fetch APK: ${err.message}`);
-    return res.status(502).json({
-      error: "APK fetch failed",
-      message: `Could not download APK from ${apkDownloadUrl}: ${err.message}`,
-    });
-  }
-
-  // Calculate SHA-256 checksum (required by Android)
-  const sha256Hash = crypto
-    .createHash("sha256")
-    .update(apkBuffer)
-    .digest("base64");
-  
-  // Android requires URL-safe base64 with NO padding and NO line breaks
-  const checksum = sha256Hash
-    .replace(/\+/g, "-")   // + → -
-    .replace(/\//g, "_")   // / → _
-    .replace(/=+$/, "");   // Remove trailing =
-
-  // Try to load version info from local version.json (if exists)
-  const versionFile = path.join(UPDATES_DIR, "version.json");
   if (fs.existsSync(versionFile)) {
     try {
       const data = JSON.parse(fs.readFileSync(versionFile, "utf8"));
       versionInfo = { ...versionInfo, ...data };
+      checksum = data.cachedChecksum || null;
+      apkSize = data.apkSize || 0;
     } catch (e) {
       console.error("Error reading version.json:", e.message);
     }
+  }
+
+  // If no cached checksum, fetch APK now (first-time setup)
+  if (!checksum) {
+    console.log("⚠️  No cached checksum — fetching APK now (slow path)...");
+    try {
+      const response = await fetch(apkDownloadUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      apkSize = buffer.length;
+      const sha256 = crypto.createHash("sha256").update(buffer).digest("base64");
+      checksum = sha256.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      
+      // Auto-cache it for next time
+      versionInfo.cachedChecksum = checksum;
+      versionInfo.apkSize = apkSize;
+      versionInfo.checksumCachedAt = new Date().toISOString();
+      fs.writeFileSync(versionFile, JSON.stringify(versionInfo, null, 2));
+      console.log(`✅ Checksum computed and cached: ${checksum.substring(0, 16)}...`);
+    } catch (err) {
+      console.error(`❌ Failed to fetch APK: ${err.message}`);
+      return res.status(502).json({ 
+        error: "APK fetch failed", 
+        message: `Could not download APK from ${apkDownloadUrl}: ${err.message}. Run POST /api/cache-apk-checksum first.`,
+      });
+    }
+  } else {
+    console.log(`✅ Using cached checksum: ${checksum.substring(0, 16)}... (cached at ${versionInfo.checksumCachedAt})`);
   }
 
   // Android Enterprise provisioning JSON
