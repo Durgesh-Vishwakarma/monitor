@@ -2,6 +2,6 @@
   "versionCode": 19,
   "versionName": "1.8.2",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "Balanced audio quality fix: improved clarity without overdoing processing, maintains network stability with 48-96 kbps adaptive bitrate",
+  "changelog": "Enhanced far voice capture (Voice:Far), gain control 1.0x-5.0x, RNNoise now manual-only (default OFF, no auto-switching)",
   "minVersionCode": 1
 }

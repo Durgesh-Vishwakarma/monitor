@@ -3182,8 +3182,8 @@
       function applyPlaybackGain(state) {
         if (!state) return;
         const mul = Number(state.playbackGain || 1.0);
-        // If pre-gain node exists, user gain is direct multiplier. If not, keep legacy fallback.
-        const safeMul = Math.min(2.0, Math.max(1.0, mul));
+        // Extended gain range up to 5.0x for far voice capture
+        const safeMul = Math.min(5.0, Math.max(1.0, mul));
         if (state.webRtcGainNode)
           state.webRtcGainNode.gain.value =
             (state.webRtcPreGainNode ? 1.0 : 6.0) * safeMul;
@@ -3213,20 +3213,18 @@
         let warmthDb = -1.2; // Balanced warmth
         let presenceDb = 0.6; // Subtle speech clarity
         let clarityDb = 0.2; // Very subtle highs
-        let rnTarget = false;
+        // Note: RNNoise auto-switching is disabled - user controls it manually
 
         if (profile === "medium") {
           hpFreq = 145;
           warmthDb = -2.2;
           presenceDb = 1.3;
           clarityDb = 0.9;
-          rnTarget = true;
         } else if (profile === "noisy") {
           hpFreq = 160;
           warmthDb = -2.8;
           presenceDb = 1.8;
           clarityDb = 1.3;
-          rnTarget = true;
         }
 
         if (state.webRtcHighPassNode)
@@ -3245,19 +3243,15 @@
           state.pcmPresenceNode.gain.value = presenceDb;
         if (state.pcmClarityNode) state.pcmClarityNode.gain.value = clarityDb;
 
-        const rnSwitchReady =
-          !state.lastRnAutoSwitchAt || now - state.lastRnAutoSwitchAt > 12000;
-        if (rnSwitchReady && state.rnnoiseEnabled !== rnTarget) {
-          state.lastRnAutoSwitchAt = now;
-          setRnnoiseEnabled(deviceId, state, rnTarget, `auto_${profile}`);
-        }
+        // Automatic RNNoise switching is DISABLED - user must manually toggle RNNoise
+        // (Previously auto-enabled for medium/noisy profiles)
       }
 
       function cyclePlaybackGain(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
-        const levels = [1.0, 1.5, 2.0];
-        const current = Math.min(2.0, Number(state.playbackGain || 1.0));
+        const levels = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
+        const current = Math.min(5.0, Number(state.playbackGain || 1.0));
         const idx = levels.findIndex((v) => Math.abs(v - current) < 0.01);
         state.playbackGain = levels[(idx + 1 + levels.length) % levels.length];
         savePlaybackGain(deviceId, state.playbackGain);

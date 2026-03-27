@@ -2294,7 +2294,7 @@ class MicService : Service() {
         // ── Pre-gain mic boost (balanced for clarity without clipping) ───────
         val micBoost = when (p) {
             "near" -> 1.00                     // No boost for near mic
-            "far" -> if (strongAi) 1.08 else 1.04
+            "far" -> if (strongAi) 1.15 else 1.10  // Higher boost for distant voices
             else -> if (strongAi) 1.04 else 1.02
         }
         for (i in 0 until samples) work[i] *= micBoost
@@ -2319,12 +2319,12 @@ class MicService : Service() {
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
             "near" -> if (strongAi) 1.25 else 1.15
-            "far" -> if (strongAi) 1.65 else 1.40
+            "far" -> if (strongAi) 2.0 else 1.65   // Higher ceiling for far voices
             else -> if (strongAi) 1.45 else 1.25
         }
         val gainTarget = when (p) {
             "near" -> if (strongAi) 4500.0 else 3800.0
-            "far" -> if (strongAi) 5400.0 else 4600.0
+            "far" -> if (strongAi) 6200.0 else 5200.0  // Higher target for far voices
             else -> if (strongAi) 4900.0 else 4200.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
@@ -2351,7 +2351,7 @@ class MicService : Service() {
             eq1Y1 = y
             val wet = when (p) {
                 "near" -> if (strongAi) 0.10 else 0.06
-                "far" -> if (strongAi) 0.18 else 0.12
+                "far" -> if (strongAi) 0.25 else 0.18  // More EQ processing for far voices
                 else -> if (strongAi) 0.14 else 0.09
             }
             work[i] = x * (1.0 - wet) + y * wet
