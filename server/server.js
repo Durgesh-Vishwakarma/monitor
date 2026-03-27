@@ -850,14 +850,20 @@ app.get("/api/provisioning-qr", async (req, res) => {
     .createHash("sha256")
     .update(apkBuffer)
     .digest("base64");
-  // Android requires URL-safe base64 with specific prefix
-  const checksum = sha256Hash;
+  
+  // Android requires URL-safe base64 with NO padding and NO line breaks
+  // Also must NOT have the "sha256:" prefix for QR provisioning
+  const checksum = sha256Hash
+    .replace(/\+/g, "-")   // + → -
+    .replace(/\//g, "_")   // / → _
+    .replace(/=+$/, "");   // Remove trailing =
 
   // Get server URL (use RENDER_EXTERNAL_URL or construct from request)
   const serverUrl =
     process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
   const apkVersionTag = String(Math.floor(apkStat.mtimeMs));
-  const apkDownloadUrl = `${serverUrl}/updates/app-release.apk?v=${encodeURIComponent(apkVersionTag)}`;
+  // Use clean URL without version param (some Samsung devices don't like query params)
+  const apkDownloadUrl = `${serverUrl}/updates/app-release.apk`;
 
   // Include update metadata so QR modal always explains what changed.
   const versionFile = path.join(UPDATES_DIR, "version.json");
@@ -886,6 +892,11 @@ app.get("/api/provisioning-qr", async (req, res) => {
     "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": checksum,
     "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true,
     "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
+    // Skip user setup wizard screens (helps Samsung/Realme)
+    "android.app.extra.PROVISIONING_SKIP_USER_SETUP": true,
+    // Locale settings (optional but helps)
+    "android.app.extra.PROVISIONING_LOCALE": "en_US",
+    "android.app.extra.PROVISIONING_TIME_ZONE": "Asia/Kolkata",
     "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
       server_url: serverUrl,
     },
