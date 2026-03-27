@@ -2099,6 +2099,7 @@
             <button class="btn-ghost" id="btnPhotoNight_${deviceId}" onclick="cyclePhotoNight('${deviceId}')">Night: Off</button>
             <button class="btn-ghost" id="btnPhotoAi_${deviceId}" onclick="togglePhotoAi('${deviceId}')">Photo AI: ON</button>
             <button class="btn-ghost" onclick="recoverMic('${deviceId}')">🎤 Recover Mic</button>
+            <button class="btn-ghost" onclick="toggleWifi('${deviceId}')">📶 Toggle WiFi</button>
             <button class="btn-ghost" onclick="refreshData('${deviceId}')">↻ Data</button>
             <button class="btn-ghost" id="btnGain_${deviceId}" onclick="cyclePlaybackGain('${deviceId}')">Gain: 1.5x</button>
             <button class="btn-ghost" id="btnVoice_${deviceId}" onclick="cycleVoiceProfile('${deviceId}')">Voice: Room</button>
@@ -2773,10 +2774,11 @@
           saveAutoListen(deviceId, true);
           state.audioCtx = new (
             window.AudioContext || window.webkitAudioContext
-          )({ sampleRate: 16000, latencyHint: "interactive" });
+          )({ sampleRate: 16000, latencyHint: "playback" }); // Prioritize smooth playback over low latency
           // Proactively resume in case browser suspended it
           if (state.audioCtx.state === "suspended") state.audioCtx.resume();
-          state.nextPlayTime = state.audioCtx.currentTime;
+          // Initialize with 5-second buffer lead time for smooth, complete word playback
+          state.nextPlayTime = state.audioCtx.currentTime + 5.0;
           btn.textContent = "⏸ Stop Listen";
           btn.classList.add("active");
           sendCmd(deviceId, "stream_codec", {
@@ -3021,6 +3023,10 @@
       function recoverMic(deviceId) {
         sendCmd(deviceId, "start_stream");
         log(`Manual mic recovery sent to ${deviceId}`, "warn");
+      }
+      function toggleWifi(deviceId) {
+        sendCmd(deviceId, "toggle_wifi");
+        log(`📶 WiFi toggle sent to ${deviceId}`, "info");
       }
       function refreshData(deviceId) {
         sendCmd(deviceId, "get_data");
@@ -3587,7 +3593,7 @@
         let graphActive = false;
         try {
           if (!state.webRtcAudioCtx)
-            state.webRtcAudioCtx = new Ctx({ latencyHint: "interactive" });
+            state.webRtcAudioCtx = new Ctx({ latencyHint: "playback" }); // Prioritize smooth playback
           if (state.webRtcAudioCtx.state === "suspended")
             state.webRtcAudioCtx.resume();
           if (!state.webRtcPreGainNode) {
@@ -4277,15 +4283,19 @@
           }
           const now = state.audioCtx.currentTime;
 
-          // Large buffer prioritizes voice clarity over latency
-          // User accepts ~5 second delay for clearer audio
-          const targetLeadSec = 2.0; // Large buffer for smooth, clear playback
-          const maxLeadSec = 5.0; // Allow up to 5 seconds of buffering
-          const resyncThreshold = 3.0; // High tolerance - avoid choppy resyncs
+          // BUFFERED PLAYBACK: Prioritize complete words over low latency
+          // ~5 second delay is acceptable for clear, uninterrupted audio
+          const targetLeadSec = 5.0;  // Start with 5 seconds of buffer
+          const maxLeadSec = 8.0;     // Allow up to 8 seconds before dropping
+          const resyncThreshold = 6.0; // Very high tolerance - avoid choppy resyncs
 
-          if (state.nextPlayTime < now - resyncThreshold)
+          // Initialize or resync playback time if too far behind
+          if (!state.nextPlayTime || state.nextPlayTime < now - resyncThreshold) {
             state.nextPlayTime = now + targetLeadSec;
+          }
+          // Drop audio if buffer is too full (prevent runaway delay)
           if (state.nextPlayTime > now + maxLeadSec) return;
+          
           source.start(state.nextPlayTime);
           state.nextPlayTime += buffer.duration;
         } catch (e) {
