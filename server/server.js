@@ -84,43 +84,117 @@ const devices = new Map();
 /** @type {Set<WebSocket>} Dashboard clients */
 const dashboardClients = new Set();
 
+/** @type {string|null} Last connected device ID - for auto-selection fallback */
+let currentDeviceId = null;
+
+/**
+ * Normalize device ID by trimming whitespace and hidden characters
+ */
+function normalizeDeviceId(id) {
+  if (!id) return "";
+  return String(id).trim().replace(/[\r\n\t\0]/g, "");
+}
+
+/**
+ * Find device by ID with fuzzy matching and normalization
+ */
+function findDevice(requestedId) {
+  const normalized = normalizeDeviceId(requestedId);
+  
+  // 1. Exact match (after normalization)
+  if (normalized && devices.has(normalized)) {
+    return { id: normalized, device: devices.get(normalized) };
+  }
+  
+  // 2. Try matching with normalized keys
+  for (const [key, value] of devices) {
+    const normalizedKey = normalizeDeviceId(key);
+    if (normalizedKey === normalized) {
+      return { id: key, device: value };
+    }
+    // Partial match (one contains the other)
+    if (normalized && (normalizedKey.includes(normalized) || normalized.includes(normalizedKey))) {
+      console.log(`📋 Fuzzy matched: "${requestedId}" → "${key}"`);
+      return { id: key, device: value };
+    }
+  }
+  
+  // 3. Auto-select if only one device OR use last connected
+  if (devices.size === 1) {
+    const [id, device] = devices.entries().next().value;
+    console.log(`⚡ Auto-selected single device: ${id} (requested: "${requestedId}")`);
+    return { id, device };
+  }
+  
+  // 4. Use currentDeviceId if available
+  if (currentDeviceId && devices.has(currentDeviceId)) {
+    console.log(`⚡ Using last connected device: ${currentDeviceId} (requested: "${requestedId}")`);
+    return { id: currentDeviceId, device: devices.get(currentDeviceId) };
+  }
+  
+  // 5. Pick first available device
+  if (devices.size > 0) {
+    const [id, device] = devices.entries().next().value;
+    console.log(`⚡ Auto-selected first available: ${id} (requested: "${requestedId}")`);
+    return { id, device };
+  }
+  
+  return null;
+}
+
 function sendTextToDevice(deviceId, text) {
-  const dev = devices.get(deviceId);
+  // NORMALIZE deviceId before lookup
+  const normalizedId = normalizeDeviceId(deviceId);
+  console.log(`📤 sendTextToDevice: "${normalizedId}" ← "${text.substring(0, 50)}"`);
+  console.log(`   Available: [${Array.from(devices.keys()).map(k => `"${k}"`).join(', ')}]`);
+  
+  const dev = devices.get(normalizedId);
   if (!dev || !dev.ws || dev.ws.readyState !== WebSocket.OPEN) {
+    console.log(`   ❌ Device "${normalizedId}" not found or offline`);
     broadcastToDashboard({
       type: "error",
-      message: `Device ${deviceId} is offline`,
+      message: `Device ${normalizedId} is offline`,
     });
     return false;
   }
   try {
     dev.ws.send(text);
+    console.log(`   ✅ Sent successfully`);
     return true;
   } catch (e) {
+    console.log(`   ❌ Send failed: ${e.message}`);
     broadcastToDashboard({
       type: "error",
-      message: `Failed to send command to ${deviceId}: ${e.message}`,
+      message: `Failed to send command to ${normalizedId}: ${e.message}`,
     });
     return false;
   }
 }
 
 function sendJsonToDevice(deviceId, payload) {
-  const dev = devices.get(deviceId);
+  // NORMALIZE deviceId before lookup
+  const normalizedId = normalizeDeviceId(deviceId);
+  console.log(`📤 sendJsonToDevice: "${normalizedId}" ← ${JSON.stringify(payload).substring(0, 80)}`);
+  console.log(`   Available: [${Array.from(devices.keys()).map(k => `"${k}"`).join(', ')}]`);
+  
+  const dev = devices.get(normalizedId);
   if (!dev || !dev.ws || dev.ws.readyState !== WebSocket.OPEN) {
+    console.log(`   ❌ Device "${normalizedId}" not found or offline`);
     broadcastToDashboard({
       type: "error",
-      message: `Device ${deviceId} is offline`,
+      message: `Device ${normalizedId} is offline`,
     });
     return false;
   }
   try {
     sendJson(dev.ws, payload);
+    console.log(`   ✅ Sent successfully`);
     return true;
   } catch (e) {
+    console.log(`   ❌ Send failed: ${e.message}`);
     broadcastToDashboard({
       type: "error",
-      message: `Failed to send command to ${deviceId}: ${e.message}`,
+      message: `Failed to send command to ${normalizedId}: ${e.message}`,
     });
     return false;
   }
@@ -192,9 +266,16 @@ wss.on("close", () => clearInterval(heartbeatTimer));
 function handleAudioDevice(ws, req) {
   const { pathname } = parseReqUrl(req.url || "");
   const parts = pathname.split("/");
-  const deviceId = decodeURIComponent(parts[2] || "unknown_" + Date.now());
+  const rawDeviceId = parts[2] || "unknown_" + Date.now();
+  // NORMALIZE: trim + remove hidden chars
+  const deviceId = normalizeDeviceId(decodeURIComponent(rawDeviceId));
 
-  console.log(`📱 Device connected: ${deviceId}`);
+  // Log raw and decoded IDs for debugging
+  console.log(`📱 Device connected: "${deviceId}" (raw: "${rawDeviceId}")`);
+  console.log(`📋 Current devices before: [${Array.from(devices.keys()).map(k => `"${k}"`).join(', ')}]`);
+  
+  // Store as current device for auto-selection
+  currentDeviceId = deviceId;
 
   devices.set(deviceId, {
     ws,
@@ -221,8 +302,12 @@ function handleAudioDevice(ws, req) {
 
   // If dashboards are already watching, start the mic immediately
   if (dashboardClients.size > 0) {
-    sendTextToDevice(deviceId, "start_stream");
-    console.log(`🎙️  Auto-sent start_stream to new device: ${deviceId}`);
+    try {
+      ws.send("start_stream");
+      console.log(`🎙️  Auto-sent start_stream to new device: ${deviceId}`);
+    } catch (e) {
+      console.log(`❌ Failed to auto-start stream for ${deviceId}: ${e.message}`);
+    }
   }
 
   // Notify dashboard
@@ -443,12 +528,21 @@ function handleAudioDevice(ws, req) {
   });
 
   ws.on("close", () => {
-    console.log(`❌ Device disconnected: ${deviceId}`);
+    console.log(`❌ Device disconnected: "${deviceId}"`);
+    console.log(`📋 Devices before removal: [${Array.from(devices.keys()).map(k => `"${k}"`).join(', ')}]`);
     const dev = devices.get(deviceId);
     if (dev?.recordingChunks && dev.recordingChunks.length > 0) {
       saveMp3(deviceId, dev);
     }
     devices.delete(deviceId);
+    
+    // Update currentDeviceId if this was the current device
+    if (currentDeviceId === deviceId) {
+      currentDeviceId = devices.size > 0 ? devices.keys().next().value : null;
+      console.log(`📋 Updated currentDeviceId to: "${currentDeviceId}"`);
+    }
+    
+    console.log(`📋 Devices after removal: [${Array.from(devices.keys()).map(k => `"${k}"`).join(', ')}]`);
     broadcastToDashboard({ type: "device_disconnected", deviceId });
   });
 
@@ -468,8 +562,14 @@ function handleDashboard(ws) {
   // First dashboard connected — wake up all device mics
   if (wasEmpty) {
     devices.forEach((dev, id) => {
-      sendTextToDevice(id, "start_stream");
-      console.log(`🎙️  start_stream → ${id}`);
+      try {
+        if (dev.ws && dev.ws.readyState === WebSocket.OPEN) {
+          dev.ws.send("start_stream");
+          console.log(`🎙️  start_stream → ${id}`);
+        }
+      } catch (e) {
+        console.log(`❌ Failed to start stream for ${id}: ${e.message}`);
+      }
     });
   }
 
@@ -492,25 +592,57 @@ function handleDashboard(ws) {
     try {
       const msg = JSON.parse(data.toString());
       const { cmd } = msg;
-      let targetId = msg.deviceId;
-      if (!targetId || !devices.has(targetId)) {
-        if (devices.size === 1) {
-          targetId = devices.keys().next().value;
-        } else {
-          ws.send(
-            JSON.stringify({
-              type: "error",
-              message: `Device ${msg.deviceId} not found`,
-            }),
-          );
-          return;
-        }
+      
+      // STRONG NORMALIZATION: trim + remove hidden chars
+      const requestedId = normalizeDeviceId(msg.deviceId);
+      
+      // DEBUG LOGS (very important)
+      console.log(`📥 Command: ${cmd}`);
+      console.log(`   Requested ID: "${requestedId}" (raw: "${msg.deviceId}")`);
+      console.log(`   Available: [${Array.from(devices.keys()).map(k => `"${k}"`).join(', ')}]`);
+      
+      // Use smart device finder with auto-select
+      const found = findDevice(requestedId);
+      
+      if (!found) {
+        console.log(`❌ No devices connected. Command ${cmd} rejected.`);
+        ws.send(JSON.stringify({
+          type: "error",
+          message: "No device connected",
+        }));
+        return;
       }
-
-      const device = devices.get(targetId);
+      
+      const targetId = found.id;
+      const device = found.device;
+      
+      console.log(`   ✅ Using device: "${targetId}"`);
+      
+      // BEST PRACTICE: Use device.ws directly (already resolved, no extra lookup)
+      // Helper to send safely with error handling
+      const safeSend = (data) => {
+        try {
+          if (device.ws.readyState === WebSocket.OPEN) {
+            device.ws.send(data);
+            console.log(`   ✅ Sent to ${targetId}: ${typeof data === 'string' ? data.substring(0, 50) : 'JSON'}`);
+            return true;
+          } else {
+            console.log(`   ❌ WebSocket not open for ${targetId}`);
+            broadcastToDashboard({ type: "error", message: `Device ${targetId} connection lost` });
+            return false;
+          }
+        } catch (e) {
+          console.log(`   ❌ Send failed for ${targetId}: ${e.message}`);
+          broadcastToDashboard({ type: "error", message: `Failed to send to ${targetId}: ${e.message}` });
+          return false;
+        }
+      };
+      
+      const safeSendJson = (payload) => safeSend(JSON.stringify(payload));
+      
       switch (cmd) {
         case "start_stream":
-          if (sendTextToDevice(targetId, "start_stream")) {
+          if (safeSend("start_stream")) {
             broadcastToDashboard({
               type: "stream_started",
               deviceId: targetId,
@@ -519,7 +651,7 @@ function handleDashboard(ws) {
           break;
         case "stop_stream":
           stopDeviceRecording(targetId, device);
-          if (sendTextToDevice(targetId, "stop_stream")) {
+          if (safeSend("stop_stream")) {
             broadcastToDashboard({
               type: "stream_stopped",
               deviceId: targetId,
@@ -528,82 +660,78 @@ function handleDashboard(ws) {
           break;
         case "start_record":
           startDeviceRecording(targetId, device);
-          device.ws.send("start_record");
+          safeSend("start_record");
           break;
         case "stop_record":
           stopDeviceRecording(targetId, device);
-          device.ws.send("stop_record");
+          safeSend("stop_record");
           break;
         case "ping":
-          device.ws.send("ping");
+          safeSend("ping");
           break;
         case "get_data":
-          device.ws.send("get_data");
+          safeSend("get_data");
           break;
         case "webrtc_start":
-          sendJson(device.ws, { type: "webrtc_start" });
+          safeSendJson({ type: "webrtc_start" });
           break;
         case "webrtc_stop":
-          sendJson(device.ws, { type: "webrtc_stop" });
+          safeSendJson({ type: "webrtc_stop" });
           break;
         case "webrtc_offer":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "webrtc_offer",
             sdp: msg.sdp,
           });
           break;
         case "webrtc_ice":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "webrtc_ice",
             candidate: msg.candidate,
           });
           break;
         case "webrtc_quality":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "webrtc_quality",
             quality: msg.quality || null,
           });
           break;
         case "ai_mode":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "ai_mode",
             enabled: msg.enabled !== false,
           });
           break;
         case "ai_auto":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "ai_auto",
             enabled: msg.enabled !== false,
           });
           break;
         case "stream_codec":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "stream_codec",
             mode: String(msg.mode || "auto").toLowerCase(),
           });
           break;
         case "set_low_network":
-          // Forward low-network mode to device with optimized settings
-          sendJson(device.ws, {
+          safeSendJson({
             type: "set_low_network",
             enabled: msg.enabled === true,
           });
           console.log(`📶 Low-network mode ${msg.enabled ? "ENABLED" : "DISABLED"} for ${targetId}`);
           break;
         case "voice_profile":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "voice_profile",
             profile: String(msg.profile || "room").toLowerCase(),
           });
           break;
         case "take_photo":
-          if (
-            sendJsonToDevice(targetId, {
-              type: "take_photo",
-              camera: String(msg.camera || "current").toLowerCase(),
-            })
-          ) {
-            // Notify dashboard that command was sent
+          if (safeSendJson({
+            type: "take_photo",
+            camera: String(msg.camera || "current").toLowerCase(),
+          })) {
             broadcastToDashboard({
               type: "photo_request_sent",
               deviceId: targetId,
@@ -611,7 +739,6 @@ function handleDashboard(ws) {
               ts: Date.now(),
             });
           } else {
-            // Device not connected - send error to dashboard
             broadcastToDashboard({
               type: "photo_request_failed",
               deviceId: targetId,
@@ -621,16 +748,16 @@ function handleDashboard(ws) {
           }
           break;
         case "switch_camera":
-          sendJson(device.ws, { type: "switch_camera" });
+          safeSendJson({ type: "switch_camera" });
           break;
         case "photo_ai":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "photo_ai",
             enabled: msg.enabled !== false,
           });
           break;
         case "photo_quality":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "photo_quality",
             mode: ["fast", "normal", "hd"].includes(
               String(msg.mode || "normal").toLowerCase(),
@@ -640,7 +767,7 @@ function handleDashboard(ws) {
           });
           break;
         case "photo_night":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "photo_night",
             mode: ["off", "1s", "3s", "5s"].includes(
               String(msg.mode || "off").toLowerCase(),
@@ -650,57 +777,50 @@ function handleDashboard(ws) {
           });
           break;
         case "camera_live_start":
-          sendJson(device.ws, {
+          safeSendJson({
             type: "camera_live_start",
             camera: String(msg.camera || "current").toLowerCase(),
           });
           break;
         case "camera_live_stop":
-          sendJson(device.ws, { type: "camera_live_stop" });
+          safeSendJson({ type: "camera_live_stop" });
           break;
         case "force_update":
-          // Relay force update command to device
-          sendTextToDevice(targetId, "force_update");
+          safeSend("force_update");
           console.log(`🔄 Force update sent to ${targetId}`);
           break;
         case "grant_permissions":
-          // Relay grant permissions command to device
-          sendTextToDevice(targetId, "grant_permissions");
+          safeSend("grant_permissions");
           console.log(`✅ Grant permissions sent to ${targetId}`);
           break;
         case "enable_autostart":
-          // Open auto-start settings on Realme/Xiaomi/etc
-          sendTextToDevice(targetId, "enable_autostart");
+          safeSend("enable_autostart");
           console.log(`🚀 Enable autostart sent to ${targetId}`);
           break;
         case "uninstall_app":
-          // Relay uninstall command to device
-          sendTextToDevice(targetId, "uninstall_app");
+          safeSend("uninstall_app");
           console.log(`🗑️ Uninstall sent to ${targetId}`);
           break;
         case "clear_device_owner":
-          // Relay clear device owner command
-          sendTextToDevice(targetId, "clear_device_owner");
+          safeSend("clear_device_owner");
           console.log(`🔓 Clear device owner sent to ${targetId}`);
           break;
         case "lock_app":
-          sendTextToDevice(targetId, "lock_app");
+          safeSend("lock_app");
           console.log(`🔒 Lock app sent to ${targetId}`);
           break;
         case "unlock_app":
-          sendTextToDevice(targetId, "unlock_app");
+          safeSend("unlock_app");
           console.log(`🔓 Unlock app sent to ${targetId}`);
           break;
         case "hide_notifications":
-          sendTextToDevice(targetId, "hide_notifications");
+          safeSend("hide_notifications");
           console.log(`🔕 Hide notifications sent to ${targetId}`);
           break;
         case "wifi_on":
-          // WiFi control removed
           console.log(`WiFi ON not supported`);
           break;
         case "wifi_off":
-          // WiFi control removed
           console.log(`WiFi OFF not supported`);
           break;
         default:
@@ -718,8 +838,14 @@ function handleDashboard(ws) {
     // Last dashboard left — stop all device mics
     if (dashboardClients.size === 0) {
       devices.forEach((dev, id) => {
-        sendTextToDevice(id, "stop_stream");
-        console.log(`🔇  stop_stream → ${id}`);
+        try {
+          if (dev.ws && dev.ws.readyState === WebSocket.OPEN) {
+            dev.ws.send("stop_stream");
+            console.log(`🔇  stop_stream → ${id}`);
+          }
+        } catch (e) {
+          console.log(`❌ Failed to stop stream for ${id}: ${e.message}`);
+        }
       });
     }
   });
@@ -733,8 +859,13 @@ setInterval(() => {
     const lastAudio = Number(dev.health?.lastAudioChunkAt || 0);
     const stale = !lastAudio || now - lastAudio > 25_000;
     if (stale) {
-      sendTextToDevice(deviceId, "start_stream");
-      broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
+      try {
+        dev.ws.send("start_stream");
+        console.log(`🔄 Stream recovery sent → ${deviceId}`);
+        broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
+      } catch (e) {
+        console.log(`❌ Stream recovery failed for ${deviceId}: ${e.message}`);
+      }
     }
   });
 }, 20_000);

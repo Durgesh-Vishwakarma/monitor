@@ -1504,6 +1504,12 @@
       let rnnoiseWasmPromise = null;
       const rnnoiseWorkletLoadedContexts = new WeakSet();
 
+      // Normalize device ID - trim + remove hidden characters
+      function normalizeDeviceId(id) {
+        if (!id) return "";
+        return String(id).trim().replace(/[\r\n\t\0]/g, "");
+      }
+
       function enqueueCmd(payload) {
         if (!payload) return;
         if (pendingCmdQueue.length >= MAX_PENDING_CMDS) {
@@ -1516,14 +1522,26 @@
         if (!controlWs || controlWs.readyState !== WebSocket.OPEN) return;
         if (pendingCmdQueue.length === 0) return;
         const queued = pendingCmdQueue.splice(0, pendingCmdQueue.length);
+        let sent = 0;
+        let dropped = 0;
         queued.forEach((payload) => {
           try {
+            // Only send commands for devices that still exist in our state
+            // or if no deviceId is specified (global commands)
+            const devId = payload.deviceId;
+            if (devId && !deviceState[devId]) {
+              // Device no longer exists - drop this command
+              dropped++;
+              return;
+            }
             controlWs.send(JSON.stringify(payload));
+            sent++;
           } catch (_) {
             enqueueCmd(payload);
           }
         });
-        log(`Sent ${queued.length} queued command(s)`, "info");
+        if (sent > 0) log(`Sent ${sent} queued command(s)`, "info");
+        if (dropped > 0) log(`Dropped ${dropped} stale command(s) for disconnected devices`, "warn");
       }
 
       function initNetworkMode() {
@@ -1914,14 +1932,23 @@
             );
             break;
           case "error":
-            handleServerError(msg.message);
+            handleServerError(msg);
             break;
         }
       }
 
-      function handleServerError(message) {
+      function handleServerError(msg) {
+        const message = typeof msg === 'string' ? msg : (msg.message || 'Unknown error');
+        const availableDevices = (typeof msg === 'object' && msg.availableDevices) ? msg.availableDevices : [];
+        
         log(`Error: ${message}`, "err");
-        const m = /Device\s+([a-f0-9\-]+)\s+not found/i.exec(
+        
+        // Log available devices if provided
+        if (availableDevices.length > 0) {
+          log(`Available devices: [${availableDevices.join(', ')}]`, "info");
+        }
+        
+        const m = /Device\s+([a-f0-9_\-]+)\s+not found/i.exec(
           String(message || ""),
         );
         if (!m) return;
@@ -2033,7 +2060,14 @@
         return sample / 32768;
       }
 
-      function addDeviceCard(deviceId, model, health, appVersionName, appVersionCode) {
+      function addDeviceCard(rawDeviceId, model, health, appVersionName, appVersionCode) {
+        // NORMALIZE device ID
+        const deviceId = normalizeDeviceId(rawDeviceId);
+        if (!deviceId) {
+          console.warn("addDeviceCard: empty deviceId after normalization");
+          return;
+        }
+        
         if (
           deviceState[deviceId] &&
           document.getElementById(`card_${deviceId}`)
@@ -2502,7 +2536,8 @@
         }, 350);
       }
 
-      function removeDeviceCard(deviceId) {
+      function removeDeviceCard(rawDeviceId) {
+        const deviceId = normalizeDeviceId(rawDeviceId);
         stopWebRtc(deviceId, false);
         const state = deviceState[deviceId];
         if (state?.liveCameraActive) {
@@ -2525,7 +2560,8 @@
           document.getElementById("noDevices").style.display = "block";
       }
 
-      function updateDeviceMeta(deviceId, model, sdk, appVersionName, appVersionCode) {
+      function updateDeviceMeta(rawDeviceId, model, sdk, appVersionName, appVersionCode) {
+        const deviceId = normalizeDeviceId(rawDeviceId);
         const el = document.getElementById(`meta_${deviceId}`);
         if (!el) return;
         const state = deviceState[deviceId];
@@ -2543,7 +2579,8 @@
         el.textContent = `${model} · Android SDK ${sdk}${verText}`;
       }
 
-      function renderDeviceHealth(deviceId, health) {
+      function renderDeviceHealth(rawDeviceId, health) {
+        const deviceId = normalizeDeviceId(rawDeviceId);
         const state = deviceState[deviceId];
         if (!state) return;
         if (health) state.health = { ...state.health, ...health };
@@ -2722,13 +2759,15 @@
       }
 
       function sendCmd(deviceId, cmd, extra = null) {
-        const payload = { cmd, deviceId, ...(extra || {}) };
+        // NORMALIZE deviceId before sending
+        const normalizedId = normalizeDeviceId(deviceId);
+        const payload = { cmd, deviceId: normalizedId, ...(extra || {}) };
         if (controlWs && controlWs.readyState === WebSocket.OPEN) {
           controlWs.send(JSON.stringify(payload));
           return;
         }
         enqueueCmd(payload);
-        log(`Queued command (${cmd}) for ${deviceId} until reconnect`, "warn");
+        log(`Queued command (${cmd}) for ${normalizedId} until reconnect`, "warn");
       }
 
       async function toggleLive(deviceId) {
