@@ -1079,9 +1079,9 @@ class MicService : Service() {
         stopMicWatchdog()
         stopAudioCapture()
 
-        // Configure WebRTC audio based on voice profile
-        // "far" mode: disable all processing for raw high-quality capture (like PCM far mode)
-        // "near"/"room": keep light processing for clean close-range audio
+        // Configure WebRTC audio based on voice profile.
+        // Far mode keeps AGC off (avoid pumping/distortion) but enables light NS/HPF
+        // to reduce steady background noise and rumble.
         val isFarMode = voiceProfile == "far"
         
         val constraints = MediaConstraints().apply {
@@ -1089,22 +1089,21 @@ class MicService : Service() {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
             
-            // Far mode: disable ALL processing for raw mic capture (max sensitivity)
-            // Near/Room: keep light NS + AGC for clean audio
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", if (isFarMode) "false" else "true"))
+            // Keep NS on for all profiles to reduce constant room noise.
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (isFarMode) "false" else "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", if (isFarMode) "false" else "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
             
             // Audio network adaptor: keep enabled for adaptive bitrate
             optional.add(MediaConstraints.KeyValuePair("googAudioNetworkAdaptor", "true"))
         }
         
-        Log.i(TAG, "WebRTC audio constraints: far_mode=$isFarMode, NS=${!isFarMode}, AGC=${!isFarMode}")
+        Log.i(TAG, "WebRTC audio constraints: far_mode=$isFarMode, NS=true, AGC=${!isFarMode}, HPF=true")
         localAudioSource = factory.createAudioSource(constraints)
         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
         localAudioTrack?.setEnabled(true)
@@ -2482,14 +2481,13 @@ class MicService : Service() {
                         // are captured equally instead of favouring near/front speech.
                         try { rec.setPreferredMicrophoneDirection(0) } catch (_: Exception) {}
                     }
-                    // AI mode: enable hardware NS/AGC for better environmental noise cleanup.
-                    // Natural mode: keep effects disabled for a more raw capture profile.
+                    // Keep hardware processing conservative to avoid over-processed artifacts.
+                    // Far profile benefits from hardware NS to suppress steady background noise.
                     val sid = rec.audioSessionId
                     if (NoiseSuppressor.isAvailable()) {
                         try {
                             NoiseSuppressor.create(sid)?.let { e ->
-                                // Keep hardware audio effects disabled for far-voice clarity.
-                                e.enabled = false
+                                e.enabled = voiceProfile == "far"
                                 e.release()
                             }
                         } catch (_: Exception) {}
@@ -2525,7 +2523,8 @@ class MicService : Service() {
     private fun resetEnhancerState() {
         hpfPrevX = 0.0; hpfPrevY = 0.0
         eq1X1 = 0.0; eq1X2 = 0.0; eq1Y1 = 0.0; eq1Y2 = 0.0
-        smoothedGain = if (voiceProfile == "far") 5.5 else 3.5  // INCREASED: Higher baseline for far voice in noisy environments
+        // Keep far baseline moderate to avoid startup clipping/pumping artifacts.
+        smoothedGain = if (voiceProfile == "far") 3.2 else 3.0
         spectralDenoiser.reset()
     }
 
@@ -2558,11 +2557,11 @@ class MicService : Service() {
             work[i] = ((hi shl 8) or lo).toShort().toDouble()
         }
 
-        // ── Pre-gain mic boost (strong lift to fix low input level) ───────────
+        // ── Pre-gain mic boost (moderate lift to protect headroom) ─────────────
         val micBoost = when (p) {
-            "near" -> 2.80  // Increased from 1.60 for better ~1m voice capture
-            "far" -> 3.50   // For distant voices
-            else -> 2.40    // Room mode
+            "near" -> 1.85
+            "far" -> 2.25
+            else -> 1.70
         }
         for (i in 0 until samples) work[i] *= micBoost
 
@@ -2597,21 +2596,21 @@ class MicService : Service() {
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
-            "near" -> if (strongAi) 4.5 else 3.8  // Increased for better ~1m capture
-            "far" -> if (strongAi) 8.0 else 7.0   // INCREASED: For distant voices in noisy environments
-            else -> if (strongAi) 4.0 else 3.5
+            "near" -> if (strongAi) 3.2 else 2.8
+            "far" -> if (strongAi) 4.2 else 3.6
+            else -> if (strongAi) 3.0 else 2.6
         }
         val gainTarget = when (p) {
-            "near" -> if (strongAi) 14000.0 else 12000.0  // Much higher target for near
-            "far" -> if (strongAi) 22000.0 else 19000.0   // INCREASED: For distant voices in noisy environments
-            else -> if (strongAi) 13000.0 else 11000.0
+            "near" -> if (strongAi) 9000.0 else 8200.0
+            "far" -> if (strongAi) 12000.0 else 10200.0
+            else -> if (strongAi) 8600.0 else 7600.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Slow, smooth attack/release for natural dynamics.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.85 + rawGain * 0.15
+            smoothedGain * 0.90 + rawGain * 0.10
         else
-            smoothedGain * 0.97 + rawGain * 0.03
+            smoothedGain * 0.985 + rawGain * 0.015
         for (i in 0 until samples) work[i] *= smoothedGain
 
         // ── Stage 4: Gentle presence boost @ 2.2 kHz ───────────────────────
@@ -2629,9 +2628,9 @@ class MicService : Service() {
             eq1Y2 = eq1Y1
             eq1Y1 = y
             val wet = when (p) {
-                "near" -> if (strongAi) 0.40 else 0.30  // Strong EQ for near voice too
-                "far" -> if (strongAi) 0.55 else 0.45   // VERY strong EQ for far voices
-                else -> if (strongAi) 0.25 else 0.18
+                "near" -> if (strongAi) 0.22 else 0.16
+                "far" -> if (strongAi) 0.28 else 0.20
+                else -> if (strongAi) 0.16 else 0.12
             }
             work[i] = x * (1.0 - wet) + y * wet
         }
@@ -2641,9 +2640,9 @@ class MicService : Service() {
             // Simple 1-pole high-shelf approximation for consonant clarity
             var prevOut = 0.0
             val hfGain = when (p) {
-                "far" -> if (strongAi) 1.8 else 1.5   // +5dB to +8dB for far
-                "near" -> if (strongAi) 1.5 else 1.3  // +3dB to +5dB for near
-                else -> 1.2
+                "far" -> if (strongAi) 1.25 else 1.15
+                "near" -> if (strongAi) 1.18 else 1.10
+                else -> 1.08
             }
             val hfAlpha = 0.15  // Crossover around 3kHz
             for (i in 0 until samples) {
@@ -2659,11 +2658,11 @@ class MicService : Service() {
             val abs = kotlin.math.abs(v)
             if (abs > peakAbs) peakAbs = abs
         }
-        val loudnessTarget = 31500.0  // Very loud output target
+        val loudnessTarget = 25500.0
         val maxNorm = when (p) {
-            "near" -> 5.5  // Strong normalization for ~1m voice
-            "far" -> 7.0   // VERY aggressive normalization for far voice
-            else -> 4.5
+            "near" -> 2.4
+            "far" -> 2.8
+            else -> 2.2
         }
         val norm = (loudnessTarget / peakAbs).coerceIn(1.0, maxNorm)
         for (i in 0 until samples) work[i] *= norm
