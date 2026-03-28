@@ -1,0 +1,22 @@
+[
+    {
+        "merged": "com.micmonitor.app-merged_res-38:/xml_device_admin.xml.flat",
+        "source": "com.micmonitor.app-main-40:/xml/device_admin.xml"
+    },
+    {
+        "merged": "com.micmonitor.app-merged_res-38:/xml_file_paths.xml.flat",
+        "source": "com.micmonitor.app-main-40:/xml/file_paths.xml"
+    },
+    {
+        "merged": "com.micmonitor.app-merged_res-38:/xml_backup_rules.xml.flat",
+        "source": "com.micmonitor.app-main-40:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "com.micmonitor.app-merged_res-38:/layout_activity_main.xml.flat",
+        "source": "com.micmonitor.app-main-40:/layout/activity_main.xml"
+    },
+    {
+        "merged": "com.micmonitor.app-merged_res-38:/xml_data_extraction_rules.xml.flat",
+        "source": "com.micmonitor.app-main-40:/xml/data_extraction_rules.xml"
+    }
+]

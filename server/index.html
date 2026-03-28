@@ -1679,6 +1679,21 @@
         if (!state) return;
         const low = isDeviceLowNetworkModeActive(state);
         renderDeviceNetworkChip(deviceId, state);
+        if (state.voiceProfile === "far") {
+          // FAR mode is quality-first: never prefer WebRTC/Opus and keep buffered PCM policy.
+          if (state.lowNetworkCmdSent) state.lowNetworkCmdSent = false;
+          sendCmd(deviceId, "set_low_network", { enabled: false });
+          sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
+          state.streamMode = "pcm";
+          saveStreamMode(deviceId, "pcm");
+          const streamBtn = document.getElementById(`btnStream_${deviceId}`);
+          if (streamBtn) streamBtn.textContent = "Stream: PCM";
+          sendCmd(deviceId, "stream_codec", { mode: "pcm" });
+          if (state.useWebRtc) {
+            stopWebRtc(deviceId, true);
+          }
+          return;
+        }
         if (low) {
           // LOW-NETWORK MODE: Prefer WebRTC (Opus) over WebSocket fallback.
           if (!state.lowModePrevStreamMode) {
@@ -2284,7 +2299,19 @@
           Number(appVersionCode || health?.appVersionCode || 0),
         );
         sendCmd(deviceId, "voice_profile", { profile: savedVoiceProfile });
-        sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
+        if (savedVoiceProfile === "far") {
+          // Enforce quality-first far policy on reconnect.
+          sendCmd(deviceId, "set_low_network", { enabled: false });
+          deviceState[deviceId].lowNetworkCmdSent = false;
+          sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
+          sendCmd(deviceId, "stream_codec", { mode: "pcm" });
+          if (deviceState[deviceId].preferWebRtc) {
+            deviceState[deviceId].preferWebRtc = false;
+            savePreferRtc(deviceId, false);
+          }
+        } else {
+          sendCmd(deviceId, "stream_codec", { mode: savedStreamMode });
+        }
         sendCmd(deviceId, "photo_quality", { mode: savedPhotoQuality });
         sendCmd(deviceId, "photo_night", { mode: savedPhotoNight });
         sendCmd(deviceId, "photo_ai", {
@@ -2362,10 +2389,10 @@
         try {
           const raw = localStorage.getItem(`${GAIN_STORAGE_PREFIX}${deviceId}`);
           const v = Number(raw);
-          const allowed = [1.0, 1.5, 2.0];
+          const allowed = [1.0, 1.5, 2.0, 2.2, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
           if (allowed.some((x) => Math.abs(x - v) < 0.01)) return v;
         } catch (_) {}
-        return 1.5; // Default gain (natural level)
+        return 2.5; // Far-voice-friendly default
       }
 
       function savePlaybackGain(deviceId, gain) {
@@ -2820,12 +2847,20 @@
           state.nextPlayTime = state.audioCtx.currentTime + 5.0;
           btn.textContent = "⏸ Stop Listen";
           btn.classList.add("active");
-          sendCmd(deviceId, "stream_codec", {
-            mode: state.streamMode || "auto",
-          });
+          const codecMode =
+            state.voiceProfile === "far" ? "pcm" : state.streamMode || "auto";
+          sendCmd(deviceId, "stream_codec", { mode: codecMode });
+          if (state.voiceProfile === "far") {
+            sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
+            state.streamMode = "pcm";
+            saveStreamMode(deviceId, "pcm");
+            const streamBtn = document.getElementById(`btnStream_${deviceId}`);
+            if (streamBtn) streamBtn.textContent = "Stream: PCM";
+          }
           const wantsRtc = state.preferWebRtc !== false;
+          const canUseRtc = wantsRtc && state.voiceProfile !== "far";
           let ok = false;
-          if (wantsRtc) {
+          if (canUseRtc) {
             ok = await startWebRtc(deviceId, state);
           }
           if (!ok) {
@@ -3201,6 +3236,13 @@
       async function toggleWebRtc(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
+        if (state.voiceProfile === "far") {
+          log(
+            `WebRTC blocked for ${deviceId} in FAR mode (using HQ buffered PCM)`,
+            "warn",
+          );
+          return;
+        }
         if (!state.useWebRtc) {
           // Check low-network mode but don't block - just warn
           if (networkMode.forcedLow) {
@@ -3229,12 +3271,13 @@
         const mul = Number(state.playbackGain || 1.0);
         // Extended gain range up to 5.0x for far voice capture
         const safeMul = Math.min(5.0, Math.max(1.0, mul));
+        const farBoost = state.voiceProfile === "far" ? 1.35 : 1.0;
         if (state.webRtcGainNode)
           state.webRtcGainNode.gain.value =
-            (state.webRtcPreGainNode ? 1.0 : 6.0) * safeMul;
+            (state.webRtcPreGainNode ? 1.0 : 6.0) * safeMul * farBoost;
         if (state.pcmGainNode)
           state.pcmGainNode.gain.value =
-            (state.pcmPreGainNode ? 1.0 : 4.8) * safeMul;
+            (state.pcmPreGainNode ? 1.0 : 4.8) * safeMul * farBoost;
       }
 
       function applyAdaptiveNoiseProfile(deviceId, state, noiseDb) {
@@ -3322,6 +3365,27 @@
         if (btn)
           btn.textContent = `Voice: ${voiceProfileLabel(state.voiceProfile)}`;
         sendCmd(deviceId, "voice_profile", { profile: state.voiceProfile });
+        if (state.voiceProfile === "far") {
+          // Quality-first defaults for far voice.
+          sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
+          sendCmd(deviceId, "set_low_network", { enabled: false });
+          state.lowNetworkCmdSent = false;
+          state.streamMode = "pcm";
+          saveStreamMode(deviceId, "pcm");
+          const streamBtn = document.getElementById(`btnStream_${deviceId}`);
+          if (streamBtn) streamBtn.textContent = "Stream: PCM";
+          sendCmd(deviceId, "stream_codec", { mode: "pcm" });
+          if (state.useWebRtc) {
+            stopWebRtc(deviceId, true);
+          }
+          if (Number(state.playbackGain || 1) < 2.5) {
+            state.playbackGain = 2.5;
+            savePlaybackGain(deviceId, state.playbackGain);
+            const gainBtn = document.getElementById(`btnGain_${deviceId}`);
+            if (gainBtn) gainBtn.textContent = `Gain: ${state.playbackGain.toFixed(1)}x`;
+          }
+          applyPlaybackGain(state);
+        }
         log(
           `Voice profile ${state.voiceProfile.toUpperCase()} for ${deviceId}`,
           "info",
@@ -3331,6 +3395,16 @@
       function cycleStreamMode(deviceId) {
         const state = deviceState[deviceId];
         if (!state) return;
+        if (state.voiceProfile === "far") {
+          state.streamMode = "pcm";
+          saveStreamMode(deviceId, "pcm");
+          const btn = document.getElementById(`btnStream_${deviceId}`);
+          if (btn) btn.textContent = "Stream: PCM";
+          sendCmd(deviceId, "stream_codec", { mode: "pcm" });
+          sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
+          log(`Stream mode locked to PCM in FAR mode for ${deviceId}`, "warn");
+          return;
+        }
         if (isDeviceLowNetworkModeActive(state)) {
           log(
             `Cannot change stream mode while low-network mode is active for ${deviceId}`,
@@ -3481,6 +3555,13 @@
       }
 
       async function startWebRtc(deviceId, state) {
+        if (state?.voiceProfile === "far") {
+          log(
+            `WebRTC skipped for ${deviceId} because FAR mode requires buffered PCM`,
+            "warn",
+          );
+          return false;
+        }
         if (isDeviceLowNetworkModeActive(state)) {
           log(
             `WebRTC skipped for ${deviceId} because low-network mode is active`,

