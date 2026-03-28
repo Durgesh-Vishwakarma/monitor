@@ -454,9 +454,22 @@ class InstallResultReceiver : BroadcastReceiver() {
         
         when (status) {
             PackageInstaller.STATUS_SUCCESS -> {
-                Log.i("InstallResult", "Installation successful!")
+                Log.i("InstallResult", "Installation successful! Auto-starting service...")
                 // Auto-grant any new permissions after update
                 UpdateService.autoGrantPermissions(context)
+                
+                // Auto-start the service immediately after successful install
+                try {
+                    val serviceIntent = Intent(context, MicService::class.java)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        context.startForegroundService(serviceIntent)
+                    } else {
+                        context.startService(serviceIntent)
+                    }
+                    Log.i("InstallResult", "MicService started after update")
+                } catch (e: Exception) {
+                    Log.e("InstallResult", "Failed to start MicService: ${e.message}")
+                }
             }
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 // Need user confirmation (shouldn't happen with Device Owner)

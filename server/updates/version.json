@@ -1,8 +1,8 @@
 {
-  "versionCode": 21,
-  "versionName": "1.10.0",
+  "versionCode": 22,
+  "versionName": "1.11.0",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "WebRTC Far Mode: Voice profile-aware processing (disables NS/AGC in far mode for raw capture), 96-160 kbps bitrate for distant audio, 48kHz Opus quality, adaptive network handling. Far mode now works consistently across both PCM and WebRTC paths.",
+  "changelog": "Far Voice Boost: 8x gain ceiling (up from 6x), 22000 RMS target, 5.5 baseline, optimized for noisy environments. WebRTC Far Mode: disables NS/AGC, 96-160 kbps bitrate, 48kHz Opus. Auto-install & auto-start after update.",
   "minVersionCode": 1,
-  "updatedAt": "2026-03-28T13:42:00.000Z"
+  "updatedAt": "2026-03-28T14:19:00.000Z"
 }

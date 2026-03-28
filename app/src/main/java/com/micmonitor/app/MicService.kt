@@ -2525,7 +2525,7 @@ class MicService : Service() {
     private fun resetEnhancerState() {
         hpfPrevX = 0.0; hpfPrevY = 0.0
         eq1X1 = 0.0; eq1X2 = 0.0; eq1Y1 = 0.0; eq1Y2 = 0.0
-        smoothedGain = if (voiceProfile == "far") 4.0 else 3.5  // Higher baseline for far voice
+        smoothedGain = if (voiceProfile == "far") 5.5 else 3.5  // INCREASED: Higher baseline for far voice in noisy environments
         spectralDenoiser.reset()
     }
 
@@ -2598,12 +2598,12 @@ class MicService : Service() {
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
             "near" -> if (strongAi) 4.5 else 3.8  // Increased for better ~1m capture
-            "far" -> if (strongAi) 6.0 else 5.0   // For distant voices
+            "far" -> if (strongAi) 8.0 else 7.0   // INCREASED: For distant voices in noisy environments
             else -> if (strongAi) 4.0 else 3.5
         }
         val gainTarget = when (p) {
             "near" -> if (strongAi) 14000.0 else 12000.0  // Much higher target for near
-            "far" -> if (strongAi) 18000.0 else 15000.0   // For distant voices
+            "far" -> if (strongAi) 22000.0 else 19000.0   // INCREASED: For distant voices in noisy environments
             else -> if (strongAi) 13000.0 else 11000.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
@@ -2755,12 +2755,12 @@ class MicService : Service() {
         // MUCH higher gain ceiling in HQ mode (optimized for far voices)
         val gainCeil = when (p) {
             "near" -> 1.5
-            "far" -> 6.0  // Increased from 4.0x to 6.0x for MUCH better far voice pickup
+            "far" -> 8.0  // INCREASED from 6.0x to 8.0x for even better far voice pickup in noisy environments
             else -> 3.0
         }
         val gainTarget = when (p) {
             "near" -> 5500.0
-            "far" -> 12000.0  // Increased target for far voices (was 9000)
+            "far" -> 15000.0  // INCREASED target for far voices in noisy environments (was 12000)
             else -> 8000.0
         }
         val gain = (gainTarget / rms).coerceIn(1.0, gainCeil)
@@ -2828,7 +2828,7 @@ class MicService : Service() {
         val targetPeak = 31000.0  // Increased from 30000 for louder output
         val maxBoost = when (p) {
             "near" -> 2.4
-            "far" -> 6.0  // Increased from 4.0 for MUCH louder far voice
+            "far" -> 8.0  // INCREASED from 6.0 for even LOUDER far voice in noisy environments
             else -> 3.5
         }
         val normFactor = (targetPeak / maxAbs).coerceIn(1.0, maxBoost)
