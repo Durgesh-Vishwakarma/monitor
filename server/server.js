@@ -30,8 +30,11 @@ const QRCode = require("qrcode");
 const AUDIO_MAGIC_0 = 0x4d;
 const AUDIO_MAGIC_1 = 0x4d;
 const AUDIO_HEADER_VERSION = 0x01;
+const AUDIO_HEADER_VERSION_HQ = 0x02;  // HQ buffered mode version
 const AUDIO_CODEC_PCM16_16K = 0x00;
 const AUDIO_CODEC_MULAW_8K = 0x01;
+const AUDIO_CODEC_HQ_PCM16_16K = 0x10;  // HQ mode PCM
+const AUDIO_CODEC_HQ_MULAW = 0x11;      // HQ mode compressed
 
 try {
   // Local development convenience. On Render, env vars are injected by platform.
@@ -727,6 +730,14 @@ function handleDashboard(ws) {
             profile: String(msg.profile || "room").toLowerCase(),
           });
           break;
+        case "streaming_mode":
+          // Switch between realtime (20ms chunks) and HQ buffered (10-sec buffer)
+          safeSendJson({
+            type: "streaming_mode",
+            mode: String(msg.mode || "realtime").toLowerCase(),
+          });
+          console.log(`🎵 Streaming mode set to ${msg.mode} for ${targetId}`);
+          break;
         case "take_photo":
           if (safeSendJson({
             type: "take_photo",
@@ -1340,6 +1351,7 @@ function pcmToMp3(pcmBuffer, sampleRate = 16000) {
 }
 
 function parseAudioPayload(buffer) {
+  // Check for standard audio header (version 0x01)
   if (
     buffer.length >= 4 &&
     buffer[0] === AUDIO_MAGIC_0 &&
@@ -1353,6 +1365,7 @@ function parseAudioPayload(buffer) {
         forwardPayload: buffer,
         pcm16: audioData,
         sampleRate: 16000,
+        isHqMode: false,
       };
     }
     if (codec === AUDIO_CODEC_MULAW_8K) {
@@ -1360,14 +1373,51 @@ function parseAudioPayload(buffer) {
         forwardPayload: buffer,
         pcm16: muLawToPcm16Buffer(audioData),
         sampleRate: 8000,
+        isHqMode: false,
+      };
+    }
+  }
+  
+  // Check for HQ buffered mode header (version 0x02)
+  // Format: [0x4D][0x4D][0x02][codec][4-byte length][payload]
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === AUDIO_MAGIC_0 &&
+    buffer[1] === AUDIO_MAGIC_1 &&
+    buffer[2] === AUDIO_HEADER_VERSION_HQ
+  ) {
+    const codec = buffer[3];
+    const payloadLen = (buffer[4] << 24) | (buffer[5] << 16) | (buffer[6] << 8) | buffer[7];
+    const audioData = buffer.subarray(8, 8 + payloadLen);
+    
+    console.log(`📦 HQ audio packet: codec=${codec.toString(16)}, len=${payloadLen} bytes`);
+    
+    if (codec === AUDIO_CODEC_HQ_PCM16_16K) {
+      // HQ mode PCM - high quality, large buffer
+      return {
+        forwardPayload: buffer,
+        pcm16: audioData,
+        sampleRate: 16000,
+        isHqMode: true,
+      };
+    }
+    if (codec === AUDIO_CODEC_HQ_MULAW) {
+      // HQ mode µ-law compressed
+      return {
+        forwardPayload: buffer,
+        pcm16: muLawToPcm16Buffer(audioData),
+        sampleRate: 8000,  // µ-law is 8kHz
+        isHqMode: true,
       };
     }
   }
 
+  // Fallback: treat as raw PCM
   return {
     forwardPayload: buffer,
     pcm16: buffer,
     sampleRate: 16000,
+    isHqMode: false,
   };
 }
 
