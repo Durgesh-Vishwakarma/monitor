@@ -2006,17 +2006,20 @@
         const payload = new Uint8Array(data, 2 + idLen);
         let float32 = new Float32Array(0);
         let playbackSampleRate = 16000;
-        if (
-          payload.length >= 4 &&
-          payload[0] === 0x4d &&
-          payload[1] === 0x4d &&
-          payload[2] === 0x01
-        ) {
+        
+        // Check for audio header: [0x4D][0x4D][version][codec]...
+        const hasMagic = payload.length >= 4 && payload[0] === 0x4d && payload[1] === 0x4d;
+        const version = hasMagic ? payload[2] : 0;
+        
+        if (hasMagic && version === 0x01) {
+          // Standard realtime mode: [0x4D][0x4D][0x01][codec][audio...]
           const codec = payload[3];
           if (codec === 0x01) {
+            // MuLaw 8kHz
             float32 = decodeMuLaw8k(payload.subarray(4));
             playbackSampleRate = 8000;
           } else {
+            // PCM 16kHz
             const pcm = payload.subarray(4);
             const int16 = new Int16Array(
               pcm.buffer,
@@ -2028,7 +2031,31 @@
               float32[i] = int16[i] / 32768.0;
             playbackSampleRate = 16000;
           }
+        } else if (hasMagic && version === 0x02 && payload.length >= 8) {
+          // HQ Buffered mode: [0x4D][0x4D][0x02][codec][4-byte len][audio...]
+          const codec = payload[3];
+          const payloadLen = (payload[4] << 24) | (payload[5] << 16) | (payload[6] << 8) | payload[7];
+          const audioData = payload.subarray(8, 8 + payloadLen);
+          
+          if (codec === 0x11) {
+            // HQ MuLaw (0x11)
+            float32 = decodeMuLaw8k(audioData);
+            playbackSampleRate = 8000;
+          } else {
+            // HQ PCM (0x10) - high quality far voice
+            const int16 = new Int16Array(
+              audioData.buffer,
+              audioData.byteOffset,
+              audioData.byteLength >> 1,
+            );
+            float32 = new Float32Array(int16.length);
+            for (let i = 0; i < int16.length; i++)
+              float32[i] = int16[i] / 32768.0;
+            playbackSampleRate = 16000;
+          }
+          console.log(`📦 HQ audio received: ${payloadLen} bytes, codec=0x${codec.toString(16)}`);
         } else {
+          // Raw PCM fallback
           const int16 = new Int16Array(
             payload.buffer,
             payload.byteOffset,
