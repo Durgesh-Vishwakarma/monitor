@@ -134,13 +134,13 @@ class MicService : Service() {
     // When enabled: accumulate 10-sec buffer → heavy processing → PCM send
     // This trades latency (5-15s) for better far-voice clarity on weak networks
     @Volatile private var hqBufferedMode = true // default HQ buffered for far-voice clarity
-    private val hqBufferSeconds = 10 // 10-second buffer for HQ mode
-    private val hqBufferSize by lazy { sampleRate * 2 * hqBufferSeconds } // 320KB for 16kHz mono PCM16
+    private val hqBufferSeconds = 5 // 5-second buffer for HQ mode (reduced from 10 for faster response)
+    private val hqBufferSize by lazy { sampleRate * 2 * hqBufferSeconds } // 160KB for 16kHz mono PCM16
     private var hqBuffer = ByteArray(0) // lazily initialized when HQ mode enabled
     @Volatile private var hqBufferOffset = 0
     @Volatile private var hqAggressiveDenoise = false // keep denoise moderate for far voice detail
-    private val hqSilenceThreshold = 150 // RMS below this = silence (very low for far voice sensitivity)
-    private val hqSilencePercent = 0.95 // Buffer must be 95% silent to skip (very strict)
+    private val hqSilenceThreshold = 50 // RMS below this = silence (very low for far voice - reduced from 150)
+    private val hqSilencePercent = 0.98 // Buffer must be 98% silent to skip (more strict - send most audio)
     private val hqChunkSize = 64 * 1024 // Split large buffers into 64KB chunks for reliable transmission
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
@@ -168,7 +168,7 @@ class MicService : Service() {
     private var eq1X2 = 0.0         // EQ stage1 biquad +6dB@1500Hz: x[n-2]
     private var eq1Y1 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-1]
     private var eq1Y2 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-2]
-    private var smoothedGain = 2.5  // Temporally-smoothed gain (anti-pumping), far-voice baseline
+    private var smoothedGain = 3.5  // Temporally-smoothed gain (anti-pumping), far-voice baseline - increased
     @Volatile private var ourAudioMode = false  // true while we own MODE_IN_COMMUNICATION
     // Overlap-add FFT spectral denoiser — shared instance, reset each capture session.
     private val spectralDenoiser = SpectralDenoiser()
@@ -2496,7 +2496,7 @@ class MicService : Service() {
     private fun resetEnhancerState() {
         hpfPrevX = 0.0; hpfPrevY = 0.0
         eq1X1 = 0.0; eq1X2 = 0.0; eq1Y1 = 0.0; eq1Y2 = 0.0
-        smoothedGain = if (voiceProfile == "far") 3.0 else 2.5
+        smoothedGain = if (voiceProfile == "far") 4.0 else 3.5  // Higher baseline for far voice
         spectralDenoiser.reset()
     }
 
@@ -2508,7 +2508,7 @@ class MicService : Service() {
      *
     *  Stage 1 — HPF @ 120 Hz            removes sub-bass rumble
     *  Stage 2 — Spectral denoiser       suppresses steady fan/AC noise
-    *  Stage 3 — Adaptive gain (up 3.2x) lifts far voice without hard pumping
+    *  Stage 3 — Adaptive gain (up 5x)   lifts far voice without hard pumping
     *  Stage 4 — Gentle presence boost   improves intelligibility
     *  Stage 5 — Soft peak limiter       prevents digital clipping
      *
@@ -2532,8 +2532,8 @@ class MicService : Service() {
         // ── Pre-gain mic boost (strong lift to fix low input level) ───────────
         val micBoost = when (p) {
             "near" -> 1.60
-            "far" -> 2.60
-            else -> 2.00
+            "far" -> 3.50  // Increased from 2.60 for MUCH louder far voice
+            else -> 2.20
         }
         for (i in 0 until samples) work[i] *= micBoost
 
@@ -2549,12 +2549,13 @@ class MicService : Service() {
         }
 
         // ── Stage 2: FFT Spectral denoiser ───────────────────────────────────
-        // For far profile keep denoise lighter to avoid suppressing weak speech.
+        // For far profile keep denoise MUCH lighter to preserve weak speech.
         val preDenoise = if (p == "far") work.copyOf() else null
         spectralDenoiser.denoise(work)
         if (p == "far" && preDenoise != null) {
             for (i in 0 until samples) {
-                work[i] = preDenoise[i] * 0.55 + work[i] * 0.45
+                // Keep 65% original, 35% denoised for better far voice preservation
+                work[i] = preDenoise[i] * 0.65 + work[i] * 0.35
             }
         }
 
@@ -2564,13 +2565,13 @@ class MicService : Service() {
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
             "near" -> if (strongAi) 2.4 else 2.0
-            "far" -> if (strongAi) 4.6 else 4.0
-            else -> if (strongAi) 3.2 else 2.8
+            "far" -> if (strongAi) 6.0 else 5.0  // Increased from 4.6 for MUCH louder far voice
+            else -> if (strongAi) 3.5 else 3.0
         }
         val gainTarget = when (p) {
             "near" -> if (strongAi) 9000.0 else 7600.0
-            "far" -> if (strongAi) 15000.0 else 13000.0
-            else -> if (strongAi) 11500.0 else 9800.0
+            "far" -> if (strongAi) 18000.0 else 15000.0  // Increased from 15000 for louder output
+            else -> if (strongAi) 12500.0 else 10500.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Slow, smooth attack/release for natural dynamics.
@@ -2596,8 +2597,8 @@ class MicService : Service() {
             eq1Y1 = y
             val wet = when (p) {
                 "near" -> if (strongAi) 0.10 else 0.06
-                "far" -> if (strongAi) 0.25 else 0.18  // More EQ processing for far voices
-                else -> if (strongAi) 0.14 else 0.09
+                "far" -> if (strongAi) 0.45 else 0.35  // MUCH more EQ processing for far voices
+                else -> if (strongAi) 0.18 else 0.12
             }
             work[i] = x * (1.0 - wet) + y * wet
         }
@@ -2608,11 +2609,11 @@ class MicService : Service() {
             val abs = kotlin.math.abs(v)
             if (abs > peakAbs) peakAbs = abs
         }
-        val loudnessTarget = 30000.0
+        val loudnessTarget = 31000.0  // Increased from 30000 for louder output
         val maxNorm = when (p) {
             "near" -> 2.6
-            "far" -> 4.2
-            else -> 3.2
+            "far" -> 5.5  // Increased from 4.2 for MUCH louder far voice
+            else -> 3.6
         }
         val norm = (loudnessTarget / peakAbs).coerceIn(1.0, maxNorm)
         for (i in 0 until samples) work[i] *= norm
@@ -2690,8 +2691,8 @@ class MicService : Service() {
         }
         if (p == "far" && preDenoise != null) {
             for (i in 0 until samples) {
-                // Keep weak speech transients by blending back some pre-denoise signal.
-                work[i] = preDenoise[i] * 0.50 + work[i] * 0.50
+                // Keep more weak speech transients by blending back pre-denoise signal (60% original, 40% denoised).
+                work[i] = preDenoise[i] * 0.60 + work[i] * 0.40
             }
         }
         
@@ -2704,13 +2705,13 @@ class MicService : Service() {
         // MUCH higher gain ceiling in HQ mode (optimized for far voices)
         val gainCeil = when (p) {
             "near" -> 1.5
-            "far" -> 4.0  // Increased from 3.2x to 4.0x for better far voice pickup
-            else -> 2.5
+            "far" -> 6.0  // Increased from 4.0x to 6.0x for MUCH better far voice pickup
+            else -> 3.0
         }
         val gainTarget = when (p) {
             "near" -> 5500.0
-            "far" -> 9000.0  // Increased target for far voices (was 8000)
-            else -> 7000.0
+            "far" -> 12000.0  // Increased target for far voices (was 9000)
+            else -> 8000.0
         }
         val gain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         Log.d(TAG, "HQ gain: ${String.format("%.2f", gain)}x (RMS: ${rms.toInt()}, profile: $p)")
@@ -2731,8 +2732,8 @@ class MicService : Service() {
         
         val wetMix = when (p) {
             "near" -> 0.18
-            "far" -> 0.50   // Increased from 0.40 for stronger far voice EQ
-            else -> 0.30
+            "far" -> 0.65   // Increased from 0.50 for MUCH stronger far voice EQ
+            else -> 0.35
         }
         
         for (i in 0 until samples) {
@@ -2756,8 +2757,8 @@ class MicService : Service() {
         
         val wet2 = when (p) {
             "near" -> 0.10
-            "far" -> 0.30   // Increased from 0.25 for better consonant clarity
-            else -> 0.18
+            "far" -> 0.45   // Increased from 0.30 for MUCH better consonant clarity
+            else -> 0.22
         }
         
         for (i in 0 until samples) {
@@ -2774,11 +2775,11 @@ class MicService : Service() {
             val abs = kotlin.math.abs(v)
             if (abs > maxAbs) maxAbs = abs
         }
-        val targetPeak = 30000.0
+        val targetPeak = 31000.0  // Increased from 30000 for louder output
         val maxBoost = when (p) {
             "near" -> 2.4
-            "far" -> 4.0
-            else -> 3.0
+            "far" -> 6.0  // Increased from 4.0 for MUCH louder far voice
+            else -> 3.5
         }
         val normFactor = (targetPeak / maxAbs).coerceIn(1.0, maxBoost)
         for (i in 0 until samples) work[i] *= normFactor

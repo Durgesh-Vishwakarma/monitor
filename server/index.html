@@ -4332,38 +4332,39 @@
 
       function _buildPcmStaticGraph(state) {
         const ctx = state.audioCtx;
+        const isFarMode = state.voiceProfile === "far";
 
         // ── Stage 1: Fixed pre-amplifier ─────────────────────────────────────
-        // Balanced pre-gain for adequate level without distortion
+        // Higher pre-gain for far voice mode to compensate for quiet distant speakers
         state.pcmPreGainNode = ctx.createGain();
-        state.pcmPreGainNode.gain.value = 1.2;
+        state.pcmPreGainNode.gain.value = isFarMode ? 2.0 : 1.2;  // 2.0x for far voice
 
         // ── Stage 2: User-controlled gain ─────────────────────────────────────
-        // Simple multiplier (no channel-count hacks). 1.0–2.0 range.
+        // Extended range up to 5.0x for far voice capture
         state.pcmGainNode = ctx.createGain();
-        state.pcmGainNode.gain.value = Number(state.playbackGain || 1.0);
+        state.pcmGainNode.gain.value = Number(state.playbackGain || (isFarMode ? 2.0 : 1.0));
 
         // ── Stage 3: Voice EQ for clarity ────────────────────────────────────
         state.pcmHighPassNode = ctx.createBiquadFilter();
         state.pcmHighPassNode.type = "highpass";
-        state.pcmHighPassNode.frequency.value = 120; // Minimal bass filter
+        state.pcmHighPassNode.frequency.value = isFarMode ? 100 : 120;  // Lower cutoff for far voice (preserve more bass)
         state.pcmHighPassNode.Q.value = 0.7;
 
         state.pcmWarmthNode = ctx.createBiquadFilter();
         state.pcmWarmthNode.type = "lowshelf";
         state.pcmWarmthNode.frequency.value = 300;
-        state.pcmWarmthNode.gain.value = -1.2;
+        state.pcmWarmthNode.gain.value = isFarMode ? 0 : -1.2;  // No bass cut for far voice
 
         state.pcmPresenceNode = ctx.createBiquadFilter();
         state.pcmPresenceNode.type = "peaking";
         state.pcmPresenceNode.frequency.value = 2500; // Speech clarity
-        state.pcmPresenceNode.Q.value = 0.8;
-        state.pcmPresenceNode.gain.value = 0.6;
+        state.pcmPresenceNode.Q.value = isFarMode ? 1.0 : 0.8;  // Sharper peak for far voice
+        state.pcmPresenceNode.gain.value = isFarMode ? 4.0 : 0.6;  // MUCH more presence boost for far voice
 
         state.pcmClarityNode = ctx.createBiquadFilter();
         state.pcmClarityNode.type = "highshelf";
         state.pcmClarityNode.frequency.value = 4000;
-        state.pcmClarityNode.gain.value = 0.2;
+        state.pcmClarityNode.gain.value = isFarMode ? 3.0 : 0.2;  // Much more high-freq boost for far voice
 
         // ── Stage 4: Explicit mono→stereo (ChannelMerger) ─────────────────────
         // Physically routes channel 0 to BOTH L (input 0) and R (input 1).
@@ -4372,16 +4373,39 @@
         // OEM Chromium builds (Realme ColorOS, Xiaomi MIUI, etc.).
         state.pcmMergerNode = ctx.createChannelMerger(2);
 
+        // ── Stage 5: Compressor for far voice (lifts quiet parts, limits peaks) ──
+        if (isFarMode) {
+          state.pcmCompressorNode = ctx.createDynamicsCompressor();
+          state.pcmCompressorNode.threshold.value = -30;  // Start compressing at -30dB
+          state.pcmCompressorNode.knee.value = 20;        // Soft knee for natural sound
+          state.pcmCompressorNode.ratio.value = 4;        // 4:1 compression ratio
+          state.pcmCompressorNode.attack.value = 0.003;   // Fast attack (3ms)
+          state.pcmCompressorNode.release.value = 0.25;   // 250ms release
+          
+          // Post-compressor makeup gain
+          state.pcmMakeupGainNode = ctx.createGain();
+          state.pcmMakeupGainNode.gain.value = 2.5;  // +8dB makeup gain for louder output
+        }
+
         // ── Wire static chain ─────────────────────────────────────────────────
-        // preGain → gain → HP → warmth → presence → clarity → merger → dest
+        // preGain → gain → HP → warmth → presence → clarity → [compressor → makeup] → merger → dest
         state.pcmPreGainNode.connect(state.pcmGainNode);
         state.pcmGainNode.connect(state.pcmHighPassNode);
         state.pcmHighPassNode.connect(state.pcmWarmthNode);
         state.pcmWarmthNode.connect(state.pcmPresenceNode);
         state.pcmPresenceNode.connect(state.pcmClarityNode);
-        // clarity → mergerNode (input 0 = L, input 1 = R) → destination
-        state.pcmClarityNode.connect(state.pcmMergerNode, 0, 0);
-        state.pcmClarityNode.connect(state.pcmMergerNode, 0, 1);
+        
+        if (isFarMode && state.pcmCompressorNode && state.pcmMakeupGainNode) {
+          // Far mode: clarity → compressor → makeup → merger → dest
+          state.pcmClarityNode.connect(state.pcmCompressorNode);
+          state.pcmCompressorNode.connect(state.pcmMakeupGainNode);
+          state.pcmMakeupGainNode.connect(state.pcmMergerNode, 0, 0);
+          state.pcmMakeupGainNode.connect(state.pcmMergerNode, 0, 1);
+        } else {
+          // Normal mode: clarity → merger (input 0 = L, input 1 = R) → destination
+          state.pcmClarityNode.connect(state.pcmMergerNode, 0, 0);
+          state.pcmClarityNode.connect(state.pcmMergerNode, 0, 1);
+        }
         state.pcmMergerNode.connect(ctx.destination);
 
         // ── Wire RNNoise if enabled ───────────────────────────────────────────
@@ -4457,9 +4481,9 @@
 
           // BUFFERED PLAYBACK: Different strategy for HQ vs realtime
           const isHqMode = state.voiceProfile === "far";
-          const targetLeadSec = isHqMode ? 1.0 : 5.0;  // HQ chunks are pre-buffered, lower lead
-          const maxLeadSec = isHqMode ? 3.0 : 8.0;     // Tighter for HQ to avoid runaway delay
-          const resyncThreshold = isHqMode ? 2.0 : 6.0; // More aggressive resync for HQ
+          const targetLeadSec = isHqMode ? 0.5 : 5.0;  // HQ: 0.5s lead (reduced from 1.0 for faster response)
+          const maxLeadSec = isHqMode ? 8.0 : 8.0;     // Allow more buffer for HQ (5-second chunks)
+          const resyncThreshold = isHqMode ? 1.0 : 6.0; // Fast resync for HQ
 
           // Initialize or resync playback time if too far behind
           if (!state.nextPlayTime || state.nextPlayTime < now - resyncThreshold) {
