@@ -2875,20 +2875,29 @@
           )({ sampleRate: 16000, latencyHint: "playback" }); // Prioritize smooth playback over low latency
           // Proactively resume in case browser suspended it
           if (state.audioCtx.state === "suspended") state.audioCtx.resume();
-          // Initialize with 5-second buffer lead time for smooth, complete word playback
-          state.nextPlayTime = state.audioCtx.currentTime + 5.0;
+          // For HQ buffered mode (10-sec chunks), use shorter lead time since chunks are already buffered
+          const leadTime = state.voiceProfile === "far" ? 1.0 : 5.0;
+          state.nextPlayTime = state.audioCtx.currentTime + leadTime;
           btn.textContent = "⏸ Stop Listen";
           btn.classList.add("active");
           const codecMode =
             state.voiceProfile === "far" ? "pcm" : state.streamMode || "auto";
-          sendCmd(deviceId, "stream_codec", { mode: codecMode });
+          
+          // CRITICAL: For FAR mode, configure streaming_mode BEFORE starting capture
           if (state.voiceProfile === "far") {
             sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
+            sendCmd(deviceId, "stream_codec", { mode: "pcm" });
+            sendCmd(deviceId, "set_low_network", { enabled: false });
             state.streamMode = "pcm";
             saveStreamMode(deviceId, "pcm");
             const streamBtn = document.getElementById(`btnStream_${deviceId}`);
             if (streamBtn) streamBtn.textContent = "Stream: PCM";
+            // Wait 100ms for commands to be processed before starting stream
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } else {
+            sendCmd(deviceId, "stream_codec", { mode: codecMode });
           }
+          
           const wantsRtc = state.preferWebRtc !== false;
           const canUseRtc = wantsRtc && state.voiceProfile !== "far";
           let ok = false;
@@ -2898,7 +2907,7 @@
           if (!ok) {
             sendCmd(deviceId, "start_stream");
             log(
-              `Live listen started for ${deviceId} (PCM mode)`,
+              `Live listen started for ${deviceId} (${state.voiceProfile === "far" ? "HQ buffered" : "PCM"} mode)`,
               wantsRtc ? "warn" : "ok",
             );
           } else {
@@ -3420,6 +3429,14 @@
             if (gainBtn) gainBtn.textContent = `Gain: ${state.playbackGain.toFixed(1)}x`;
           }
           applyPlaybackGain(state);
+          // If live, restart to apply HQ buffered mode
+          if (state.isLive) {
+            log(`Restarting stream to apply FAR mode settings...`, "info");
+            sendCmd(deviceId, "stop_stream");
+            setTimeout(() => {
+              sendCmd(deviceId, "start_stream");
+            }, 300);
+          }
         }
         log(
           `Voice profile ${state.voiceProfile.toUpperCase()} for ${deviceId}`,
@@ -4438,18 +4455,21 @@
           }
           const now = state.audioCtx.currentTime;
 
-          // BUFFERED PLAYBACK: Prioritize complete words over low latency
-          // ~5 second delay is acceptable for clear, uninterrupted audio
-          const targetLeadSec = 5.0;  // Start with 5 seconds of buffer
-          const maxLeadSec = 8.0;     // Allow up to 8 seconds before dropping
-          const resyncThreshold = 6.0; // Very high tolerance - avoid choppy resyncs
+          // BUFFERED PLAYBACK: Different strategy for HQ vs realtime
+          const isHqMode = state.voiceProfile === "far";
+          const targetLeadSec = isHqMode ? 1.0 : 5.0;  // HQ chunks are pre-buffered, lower lead
+          const maxLeadSec = isHqMode ? 3.0 : 8.0;     // Tighter for HQ to avoid runaway delay
+          const resyncThreshold = isHqMode ? 2.0 : 6.0; // More aggressive resync for HQ
 
           // Initialize or resync playback time if too far behind
           if (!state.nextPlayTime || state.nextPlayTime < now - resyncThreshold) {
             state.nextPlayTime = now + targetLeadSec;
           }
           // Drop audio if buffer is too full (prevent runaway delay)
-          if (state.nextPlayTime > now + maxLeadSec) return;
+          if (state.nextPlayTime > now + maxLeadSec) {
+            console.log(`⏩ Skipping audio chunk - buffer too full (${(state.nextPlayTime - now).toFixed(1)}s ahead)`);
+            return;
+          }
           
           source.start(state.nextPlayTime);
           state.nextPlayTime += buffer.duration;

@@ -139,8 +139,8 @@ class MicService : Service() {
     private var hqBuffer = ByteArray(0) // lazily initialized when HQ mode enabled
     @Volatile private var hqBufferOffset = 0
     @Volatile private var hqAggressiveDenoise = false // keep denoise moderate for far voice detail
-    private val hqSilenceThreshold = 500 // RMS below this = silence (increased from 200 for better detection)
-    private val hqSilencePercent = 0.85 // Buffer must be 85% silent to skip
+    private val hqSilenceThreshold = 150 // RMS below this = silence (very low for far voice sensitivity)
+    private val hqSilencePercent = 0.95 // Buffer must be 95% silent to skip (very strict)
     private val hqChunkSize = 64 * 1024 // Split large buffers into 64KB chunks for reliable transmission
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
@@ -1004,6 +1004,8 @@ class MicService : Service() {
                         else -> false  // "realtime", "live", or default
                     }
                     hqBufferedMode = if (voiceProfile == "far") true else requestedHqMode
+                    
+                    Log.i(TAG, "streaming_mode command: mode=$mode, requestedHq=$requestedHqMode, voiceProfile=$voiceProfile, finalHqMode=$hqBufferedMode, isWebRtcStreaming=$isWebRtcStreaming")
                     
                     // If mode changed, restart audio capture to apply new settings
                     if (wasHqMode != hqBufferedMode && isCapturing) {
@@ -2259,6 +2261,9 @@ class MicService : Service() {
                         // ══════════════════════════════════════════════════════════════════
                         if (hqBufferedMode && !isWebRtcStreaming) {
                             // ── HQ BUFFERED MODE: Accumulate audio, process in chunks ────
+                            if (hqBufferOffset == 0) {
+                                Log.d(TAG, "HQ buffered mode active - accumulating audio (hqBufferedMode=$hqBufferedMode, isWebRtcStreaming=$isWebRtcStreaming)")
+                            }
                             // Copy raw audio to HQ buffer
                             val copyLen = min(read, hqBufferSize - hqBufferOffset)
                             System.arraycopy(chunk, 0, hqBuffer, hqBufferOffset, copyLen)
@@ -2309,6 +2314,9 @@ class MicService : Service() {
                             }
                         } else {
                             // ── REALTIME MODE: Original streaming behavior ───────────────
+                            if (System.currentTimeMillis() % 10000 < 100) {
+                                Log.d(TAG, "Realtime mode active (hqBufferedMode=$hqBufferedMode, isWebRtcStreaming=$isWebRtcStreaming)")
+                            }
                             // Trick 2 + 3: adaptive upward gain for far voices + soft peak limiter
                             val pcmData = applyFarVoiceGain(chunk, read)
 
