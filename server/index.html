@@ -1681,7 +1681,10 @@
         renderDeviceNetworkChip(deviceId, state);
         if (state.voiceProfile === "far") {
           // FAR mode is quality-first: never prefer WebRTC/Opus and keep buffered PCM policy.
-          if (state.lowNetworkCmdSent) state.lowNetworkCmdSent = false;
+          // Only send commands ONCE per session to avoid command spam
+          if (state.farModeApplied) return;
+          state.farModeApplied = true;
+          state.lowNetworkCmdSent = false;
           sendCmd(deviceId, "set_low_network", { enabled: false });
           sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
           state.streamMode = "pcm";
@@ -1694,6 +1697,8 @@
           }
           return;
         }
+        // Reset far mode flag when not in far mode
+        state.farModeApplied = false;
         if (low) {
           // LOW-NETWORK MODE: Prefer WebRTC (Opus) over WebSocket fallback.
           if (!state.lowModePrevStreamMode) {
@@ -3387,6 +3392,8 @@
         const cur = String(state.voiceProfile || "room");
         const idx = levels.indexOf(cur);
         state.voiceProfile = levels[(idx + 1 + levels.length) % levels.length];
+        // Reset far mode flag so applyNetworkModeToDevice will apply settings
+        state.farModeApplied = false;
         saveVoiceProfile(deviceId, state.voiceProfile);
         const btn = document.getElementById(`btnVoice_${deviceId}`);
         if (btn)
@@ -3394,6 +3401,7 @@
         sendCmd(deviceId, "voice_profile", { profile: state.voiceProfile });
         if (state.voiceProfile === "far") {
           // Quality-first defaults for far voice.
+          state.farModeApplied = true; // Mark as applied
           sendCmd(deviceId, "streaming_mode", { mode: "hq_buffered" });
           sendCmd(deviceId, "set_low_network", { enabled: false });
           state.lowNetworkCmdSent = false;

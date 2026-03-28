@@ -512,6 +512,12 @@ function handleAudioDevice(ws, req) {
     const dev = devices.get(deviceId);
     const parsedAudio = parseAudioPayload(Buffer.from(data));
 
+    // Debug: Log audio reception (throttled to avoid spam)
+    if (!dev._lastAudioLogAt || Date.now() - dev._lastAudioLogAt > 5000) {
+      dev._lastAudioLogAt = Date.now();
+      console.log(`🎵 Audio from ${deviceId}: ${data.length} bytes, HQ=${parsedAudio.isHqMode}`);
+    }
+
     // 1) Forward chunk LIVE to all dashboard clients
     //    Pack as a single binary frame: [2-byte idLen][deviceId utf8][payload]
     //    This avoids the JSON+binary two-message race condition on the dashboard.
