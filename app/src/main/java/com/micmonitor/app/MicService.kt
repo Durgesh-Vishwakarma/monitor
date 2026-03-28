@@ -260,6 +260,11 @@ class MicService : Service() {
         const val WEBRTC_STANDARD_MID_KBPS = 96
         const val WEBRTC_STANDARD_MAX_KBPS = 128
         
+        // Far mode bitrates - higher quality for distant voice capture
+        const val WEBRTC_FAR_MIN_KBPS = 96          // Higher floor for far voice
+        const val WEBRTC_FAR_MID_KBPS = 128         // Better quality for distant audio
+        const val WEBRTC_FAR_MAX_KBPS = 160         // Maximum quality ceiling
+        
         // Audio codec identifiers
         const val AUDIO_CODEC_PCM16_16K: Byte = 0x00  // Full quality - no compression
         const val AUDIO_CODEC_MULAW_8K: Byte = 0x01   // Compressed fallback
@@ -852,16 +857,9 @@ class MicService : Service() {
             when (obj.optString("type")) {
                 "webrtc_start" -> {
                     Log.i(TAG, "CMD: webrtc_start")
-                    if (voiceProfile == "far") {
-                        // Far voice mode is quality-first and delay-tolerant; keep buffered PCM path.
-                        hqBufferedMode = true
-                        wsStreamMode = "pcm"
-                        stopWebRtcSession(notifyState = false)
-                        sendCommandAck("webrtc_start", detail = "blocked_in_far_mode")
-                    } else {
-                        startWebRtcSession()
-                        sendCommandAck("webrtc_start")
-                    }
+                    // WebRTC now allowed for all voice profiles including "far"
+                    startWebRtcSession()
+                    sendCommandAck("webrtc_start")
                 }
                 "webrtc_stop" -> {
                     Log.i(TAG, "CMD: webrtc_stop")
@@ -982,14 +980,12 @@ class MicService : Service() {
                         "far" -> "far"
                         else -> "room"
                     }
-                    // Far voice mode: USE REALTIME streaming with heavy processing (no HQ buffer)
+                    // All profiles: USE REALTIME streaming with heavy processing (no HQ buffer)
                     // HQ buffer causes lag and sync issues - realtime is more reliable
                     hqBufferedMode = false  // DISABLED - use realtime for all profiles
                     wsStreamMode = "pcm"    // Always use PCM for quality
                     hqAggressiveDenoise = false
-                    if (isWebRtcStreaming) {
-                        stopWebRtcSession(notifyState = false)
-                    }
+                    // WebRTC allowed for all profiles - don't stop it
                     sendHealthStatus("voice_profile_$voiceProfile")
                     Log.i(TAG, "Voice profile set to $voiceProfile (realtime mode, heavy processing)")
                     sendCommandAck("voice_profile", detail = voiceProfile)
@@ -1074,11 +1070,7 @@ class MicService : Service() {
     }
 
     private fun startWebRtcSession() {
-        if (voiceProfile == "far") {
-            stopWebRtcSession(notifyState = false)
-            sendCommandAck("webrtc_start", detail = "blocked_in_far_mode")
-            return
-        }
+        // WebRTC now allowed for all voice profiles
         if (peerConnection != null) return
         ensurePeerConnectionFactory()
         val factory = peerConnectionFactory ?: return
@@ -1087,24 +1079,32 @@ class MicService : Service() {
         stopMicWatchdog()
         stopAudioCapture()
 
+        // Configure WebRTC audio based on voice profile
+        // "far" mode: disable all processing for raw high-quality capture (like PCM far mode)
+        // "near"/"room": keep light processing for clean close-range audio
+        val isFarMode = voiceProfile == "far"
+        
         val constraints = MediaConstraints().apply {
-            // One-way monitoring: no echo cancel (saves latency), keep AGC + light NS.
+            // Echo cancellation always OFF for one-way monitoring
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
             
-            // Keep NS enabled. Avoid stacking multiple AGC variants to reduce pumping artifacts.
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            // Far mode: disable ALL processing for raw mic capture (max sensitivity)
+            // Near/Room: keep light NS + AGC for clean audio
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", if (isFarMode) "false" else "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (isFarMode) "false" else "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", if (isFarMode) "false" else "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
             
-            // Audio network adaptor: critical for adaptive bitrate in weak networks
+            // Audio network adaptor: keep enabled for adaptive bitrate
             optional.add(MediaConstraints.KeyValuePair("googAudioNetworkAdaptor", "true"))
         }
+        
+        Log.i(TAG, "WebRTC audio constraints: far_mode=$isFarMode, NS=${!isFarMode}, AGC=${!isFarMode}")
         localAudioSource = factory.createAudioSource(constraints)
         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
         localAudioTrack?.setEnabled(true)
@@ -1286,20 +1286,37 @@ class MicService : Service() {
             ?.getOrNull(1)
             ?: return sdp
         
+        // Far mode: always use maximum quality settings
+        val isFarMode = voiceProfile == "far"
+        
         // In low network mode, keep quality-biased compression settings.
-        val effectiveTarget = if (lowNetworkMode) targetKbps.coerceAtMost(WEBRTC_MAX_BITRATE_KBPS) else targetKbps
-        val maxAvg = (effectiveTarget * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, WEBRTC_STANDARD_MAX_KBPS * 1000)
+        // In far mode, use higher bitrates for distant voice capture.
+        val effectiveTarget = when {
+            isFarMode -> targetKbps.coerceAtLeast(WEBRTC_FAR_MIN_KBPS)
+            lowNetworkMode -> targetKbps.coerceAtMost(WEBRTC_MAX_BITRATE_KBPS)
+            else -> targetKbps
+        }
+        val maxBitrateLimit = if (isFarMode) WEBRTC_FAR_MAX_KBPS * 1000 else WEBRTC_STANDARD_MAX_KBPS * 1000
+        val maxAvg = (effectiveTarget * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, maxBitrateLimit)
         val minAvg = (WEBRTC_MIN_BITRATE_KBPS * 1000).coerceAtMost(maxAvg)
         
         // Adaptive ptime: 20ms normal, 40ms for low network (fewer packets)
-        val ptime = if (lowNetworkMode) lowNetworkFrameMs.toString() else "20"
+        // Far mode: use 20ms for lower latency
+        val ptime = if (lowNetworkMode && !isFarMode) lowNetworkFrameMs.toString() else "20"
+        
+        // Far mode: always use 48kHz for full quality
+        val playbackRate = when {
+            isFarMode -> "48000"
+            lowNetworkMode -> "16000"
+            else -> "48000"
+        }
         
         val fmtpRegex = Regex("a=fmtp:$opusPayload ([^\\r\\n]+)")
         val tunedParams = mapOf(
             "maxaveragebitrate" to maxAvg.toString(),
             "minaveragebitrate" to minAvg.toString(),
-            "maxplaybackrate" to if (lowNetworkMode) "16000" else "48000",
-            "sprop-maxcapturerate" to if (lowNetworkMode) "16000" else "48000",
+            "maxplaybackrate" to playbackRate,
+            "sprop-maxcapturerate" to playbackRate,
             "ptime" to ptime,
             "minptime" to ptime,
             "useinbandfec" to "1",           // FEC: recovers lost packets on low network
@@ -1307,7 +1324,7 @@ class MicService : Service() {
             "stereo" to "0",
             "sprop-stereo" to "0",
             "cbr" to "0",                    // VBR: allocates more bits to complex speech
-            "complexity" to if (lowNetworkMode) "7" else "10",
+            "complexity" to if (isFarMode) "10" else if (lowNetworkMode) "7" else "10",
         )
         return if (fmtpRegex.containsMatchIn(sdp)) {
             sdp.replace(fmtpRegex) { match ->
@@ -1408,17 +1425,49 @@ class MicService : Service() {
     }
 
     private fun chooseTargetBitrateKbps(): Int {
+        // FAR MODE: Use highest bitrates for raw quality capture
+        val isFarMode = voiceProfile == "far"
+        
         // LOW NETWORK MODE: keep quality-biased bitrates for better speech clarity.
         if (lowNetworkMode) {
             val q = lastDashboardQuality
             val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
             
-            // Keep within 32-40 kbps unless network is healthy enough for 64.
+            // Far mode in low network: still prioritize higher bitrates where possible
             return if (!loss.isNaN() && loss >= 10.0) {
-                WEBRTC_MIN_BITRATE_KBPS
+                if (isFarMode) WEBRTC_MID_BITRATE_KBPS else WEBRTC_MIN_BITRATE_KBPS
             } else {
-                WEBRTC_MID_BITRATE_KBPS
+                if (isFarMode) WEBRTC_FAR_MIN_KBPS else WEBRTC_MID_BITRATE_KBPS
             }
+        }
+        
+        // FAR MODE (good network): Use higher bitrates for better distant voice capture
+        if (isFarMode) {
+            val cm = connectivityManager
+            val network = cm?.activeNetwork
+            val caps = network?.let { cm.getNetworkCapabilities(it) }
+            
+            // Default to max far mode bitrate
+            var target = WEBRTC_FAR_MAX_KBPS
+            
+            // Check network quality for far mode
+            val q = lastDashboardQuality
+            val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
+            val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
+            
+            // Even in far mode, respect severe network issues
+            if ((!loss.isNaN() && loss >= 15.0) || (!rtt.isNaN() && rtt >= 500.0)) {
+                target = WEBRTC_FAR_MIN_KBPS
+            } else if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                val downKbps = caps.linkDownstreamBandwidthKbps
+                target = when {
+                    downKbps in 1..500 -> WEBRTC_FAR_MIN_KBPS
+                    downKbps in 501..2000 -> WEBRTC_FAR_MID_KBPS
+                    else -> WEBRTC_FAR_MAX_KBPS
+                }
+            }
+            
+            return target.coerceIn(WEBRTC_FAR_MIN_KBPS, WEBRTC_FAR_MAX_KBPS)
         }
         
         // STANDARD MODE: Use higher bitrates (64-128 kbps)
@@ -2511,9 +2560,9 @@ class MicService : Service() {
 
         // ── Pre-gain mic boost (strong lift to fix low input level) ───────────
         val micBoost = when (p) {
-            "near" -> 1.60
-            "far" -> 3.50  // Increased from 2.60 for MUCH louder far voice
-            else -> 2.20
+            "near" -> 2.80  // Increased from 1.60 for better ~1m voice capture
+            "far" -> 3.50   // For distant voices
+            else -> 2.40    // Room mode
         }
         for (i in 0 until samples) work[i] *= micBoost
 
@@ -2529,13 +2578,17 @@ class MicService : Service() {
         }
 
         // ── Stage 2: FFT Spectral denoiser ───────────────────────────────────
-        // For far profile keep denoise MUCH lighter to preserve weak speech.
-        val preDenoise = if (p == "far") work.copyOf() else null
+        // Preserve speech clarity by blending original signal back
+        val preDenoise = if (p == "far" || p == "near") work.copyOf() else null
         spectralDenoiser.denoise(work)
-        if (p == "far" && preDenoise != null) {
+        if (preDenoise != null) {
+            val blendOriginal = when (p) {
+                "far" -> 0.65   // Keep 65% original for far voice
+                "near" -> 0.55  // Keep 55% original for near voice (more denoise OK)
+                else -> 0.45
+            }
             for (i in 0 until samples) {
-                // Keep 65% original, 35% denoised for better far voice preservation
-                work[i] = preDenoise[i] * 0.65 + work[i] * 0.35
+                work[i] = preDenoise[i] * blendOriginal + work[i] * (1.0 - blendOriginal)
             }
         }
 
@@ -2544,14 +2597,14 @@ class MicService : Service() {
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
-            "near" -> if (strongAi) 2.4 else 2.0
-            "far" -> if (strongAi) 6.0 else 5.0  // Increased from 4.6 for MUCH louder far voice
-            else -> if (strongAi) 3.5 else 3.0
+            "near" -> if (strongAi) 4.5 else 3.8  // Increased for better ~1m capture
+            "far" -> if (strongAi) 6.0 else 5.0   // For distant voices
+            else -> if (strongAi) 4.0 else 3.5
         }
         val gainTarget = when (p) {
-            "near" -> if (strongAi) 9000.0 else 7600.0
-            "far" -> if (strongAi) 18000.0 else 15000.0  // Increased from 15000 for louder output
-            else -> if (strongAi) 12500.0 else 10500.0
+            "near" -> if (strongAi) 14000.0 else 12000.0  // Much higher target for near
+            "far" -> if (strongAi) 18000.0 else 15000.0   // For distant voices
+            else -> if (strongAi) 13000.0 else 11000.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Slow, smooth attack/release for natural dynamics.
@@ -2576,18 +2629,22 @@ class MicService : Service() {
             eq1Y2 = eq1Y1
             eq1Y1 = y
             val wet = when (p) {
-                "near" -> if (strongAi) 0.10 else 0.06
-                "far" -> if (strongAi) 0.55 else 0.45  // VERY strong EQ for far voices
-                else -> if (strongAi) 0.20 else 0.14
+                "near" -> if (strongAi) 0.40 else 0.30  // Strong EQ for near voice too
+                "far" -> if (strongAi) 0.55 else 0.45   // VERY strong EQ for far voices
+                else -> if (strongAi) 0.25 else 0.18
             }
             work[i] = x * (1.0 - wet) + y * wet
         }
         
-        // ── Stage 4b: Extra high-mid boost @ 3.5kHz for far voice clarity ────
-        if (p == "far") {
+        // ── Stage 4b: Extra high-mid boost @ 3.5kHz for voice clarity ────
+        if (p == "far" || p == "near") {
             // Simple 1-pole high-shelf approximation for consonant clarity
             var prevOut = 0.0
-            val hfGain = if (strongAi) 1.8 else 1.5  // +5dB to +8dB high freq boost
+            val hfGain = when (p) {
+                "far" -> if (strongAi) 1.8 else 1.5   // +5dB to +8dB for far
+                "near" -> if (strongAi) 1.5 else 1.3  // +3dB to +5dB for near
+                else -> 1.2
+            }
             val hfAlpha = 0.15  // Crossover around 3kHz
             for (i in 0 until samples) {
                 val highFreq = work[i] - prevOut
@@ -2604,9 +2661,9 @@ class MicService : Service() {
         }
         val loudnessTarget = 31500.0  // Very loud output target
         val maxNorm = when (p) {
-            "near" -> 2.6
-            "far" -> 7.0  // VERY aggressive normalization for far voice
-            else -> 4.0
+            "near" -> 5.5  // Strong normalization for ~1m voice
+            "far" -> 7.0   // VERY aggressive normalization for far voice
+            else -> 4.5
         }
         val norm = (loudnessTarget / peakAbs).coerceIn(1.0, maxNorm)
         for (i in 0 until samples) work[i] *= norm

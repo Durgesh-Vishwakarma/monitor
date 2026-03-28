@@ -1,8 +1,8 @@
 {
-  "versionCode": 20,
-  "versionName": "1.9.0",
+  "versionCode": 21,
+  "versionName": "1.10.0",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "HQ Buffered Audio Mode: 10-sec buffering for weak networks, 4.0x far voice gain, µ-law compression (50% bandwidth), silence detection, chunked transmission, +8dB speech clarity boost. Fixed device ID matching. WebRTC auto-stops in HQ mode.",
+  "changelog": "WebRTC Far Mode: Voice profile-aware processing (disables NS/AGC in far mode for raw capture), 96-160 kbps bitrate for distant audio, 48kHz Opus quality, adaptive network handling. Far mode now works consistently across both PCM and WebRTC paths.",
   "minVersionCode": 1,
-  "updatedAt": "2026-03-28T07:31:00.000Z"
+  "updatedAt": "2026-03-28T13:42:00.000Z"
 }

@@ -3763,26 +3763,31 @@
         const Ctx = window.AudioContext || window.webkitAudioContext;
         if (!Ctx) return;
         let graphActive = false;
+        const isFarMode = state.voiceProfile === "far";
+        const isNearMode = state.voiceProfile === "near";
+        const needsBoost = isFarMode || isNearMode;
+        
         try {
           if (!state.webRtcAudioCtx)
             state.webRtcAudioCtx = new Ctx({ latencyHint: "playback" }); // Prioritize smooth playback
           if (state.webRtcAudioCtx.state === "suspended")
             state.webRtcAudioCtx.resume();
           if (!state.webRtcPreGainNode) {
-            // Balanced pre-gain for adequate level without distortion
+            // Higher pre-gain for far/near voice modes
             state.webRtcPreGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcPreGainNode.gain.value = 1.3;
+            state.webRtcPreGainNode.gain.value = isFarMode ? 2.5 : (isNearMode ? 2.0 : 1.3);
           }
           if (!state.webRtcGainNode) {
-            // User gain stage (1.0x..2.0x)
+            // User gain stage - higher default for voice modes
             state.webRtcGainNode = state.webRtcAudioCtx.createGain();
-            state.webRtcGainNode.gain.value = Number(state.playbackGain || 1.0);
+            const defaultGain = isFarMode ? 2.5 : (isNearMode ? 2.0 : 1.0);
+            state.webRtcGainNode.gain.value = Number(state.playbackGain || defaultGain);
           }
           if (!state.webRtcHighPassNode) {
             state.webRtcHighPassNode =
               state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcHighPassNode.type = "highpass";
-            state.webRtcHighPassNode.frequency.value = 120; // Minimal bass filter
+            state.webRtcHighPassNode.frequency.value = isFarMode ? 80 : 100; // Lower for far voice
             state.webRtcHighPassNode.Q.value = 0.7;
           }
           if (!state.webRtcNotchNode) {
@@ -3795,21 +3800,35 @@
             state.webRtcWarmthNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcWarmthNode.type = "lowshelf";
             state.webRtcWarmthNode.frequency.value = 300;
-            state.webRtcWarmthNode.gain.value = -1.2;
+            state.webRtcWarmthNode.gain.value = needsBoost ? 0 : -1.2; // No bass cut for voice
           }
           if (!state.webRtcPresenceNode) {
             state.webRtcPresenceNode =
               state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcPresenceNode.type = "peaking";
             state.webRtcPresenceNode.frequency.value = 2500;
-            state.webRtcPresenceNode.Q.value = 0.8;
-            state.webRtcPresenceNode.gain.value = 0.6;
+            state.webRtcPresenceNode.Q.value = needsBoost ? 1.2 : 0.8;
+            state.webRtcPresenceNode.gain.value = isFarMode ? 6.0 : (isNearMode ? 4.0 : 0.6);
           }
           if (!state.webRtcClarityNode) {
             state.webRtcClarityNode = state.webRtcAudioCtx.createBiquadFilter();
             state.webRtcClarityNode.type = "highshelf";
             state.webRtcClarityNode.frequency.value = 4000;
-            state.webRtcClarityNode.gain.value = 0.2;
+            state.webRtcClarityNode.gain.value = isFarMode ? 5.0 : (isNearMode ? 3.0 : 0.2);
+          }
+          // Compressor for voice modes (lifts quiet, limits peaks)
+          if (!state.webRtcCompressorNode && needsBoost) {
+            state.webRtcCompressorNode = state.webRtcAudioCtx.createDynamicsCompressor();
+            state.webRtcCompressorNode.threshold.value = isFarMode ? -40 : -35;
+            state.webRtcCompressorNode.knee.value = isFarMode ? 30 : 25;
+            state.webRtcCompressorNode.ratio.value = isFarMode ? 8 : 5;
+            state.webRtcCompressorNode.attack.value = 0.002;
+            state.webRtcCompressorNode.release.value = 0.1;
+          }
+          // Makeup gain after compressor
+          if (!state.webRtcMakeupGainNode && needsBoost) {
+            state.webRtcMakeupGainNode = state.webRtcAudioCtx.createGain();
+            state.webRtcMakeupGainNode.gain.value = isFarMode ? 5.0 : 3.0; // +14dB far, +10dB near
           }
           // ChannelMerger: explicitly routes mono ch0 → L and ch0 → R.
           // Works reliably on all Android Chrome versions (no OEM-specific breakage).
@@ -3825,15 +3844,24 @@
           state.webRtcSourceNode =
             state.webRtcAudioCtx.createMediaStreamSource(stream);
           if (!state.webRtcAudioGraphConnected) {
-            // Static chain: gain → HP → notch → warmth → presence → clarity → merger(L+R) → dest
+            // Static chain: gain → HP → notch → warmth → presence → clarity → [compressor → makeup] → merger(L+R) → dest
             state.webRtcGainNode.connect(state.webRtcHighPassNode);
             state.webRtcHighPassNode.connect(state.webRtcNotchNode);
             state.webRtcNotchNode.connect(state.webRtcWarmthNode);
             state.webRtcWarmthNode.connect(state.webRtcPresenceNode);
             state.webRtcPresenceNode.connect(state.webRtcClarityNode);
-            // Duplicate mono → both earbuds
-            state.webRtcClarityNode.connect(state.webRtcMergerNode, 0, 0);
-            state.webRtcClarityNode.connect(state.webRtcMergerNode, 0, 1);
+            
+            if (needsBoost && state.webRtcCompressorNode && state.webRtcMakeupGainNode) {
+              // Voice mode: clarity → compressor → makeup → merger → dest
+              state.webRtcClarityNode.connect(state.webRtcCompressorNode);
+              state.webRtcCompressorNode.connect(state.webRtcMakeupGainNode);
+              state.webRtcMakeupGainNode.connect(state.webRtcMergerNode, 0, 0);
+              state.webRtcMakeupGainNode.connect(state.webRtcMergerNode, 0, 1);
+            } else {
+              // Room mode: clarity → merger
+              state.webRtcClarityNode.connect(state.webRtcMergerNode, 0, 0);
+              state.webRtcClarityNode.connect(state.webRtcMergerNode, 0, 1);
+            }
             state.webRtcMergerNode.connect(state.webRtcAudioCtx.destination);
             state.webRtcAudioGraphConnected = true;
           }
@@ -4333,38 +4361,41 @@
       function _buildPcmStaticGraph(state) {
         const ctx = state.audioCtx;
         const isFarMode = state.voiceProfile === "far";
+        const isNearMode = state.voiceProfile === "near";
+        const needsBoost = isFarMode || isNearMode;  // Both far and near need processing
 
         // ── Stage 1: Fixed pre-amplifier ─────────────────────────────────────
-        // Higher pre-gain for far voice mode to compensate for quiet distant speakers
+        // Higher pre-gain for voice clarity
         state.pcmPreGainNode = ctx.createGain();
-        state.pcmPreGainNode.gain.value = isFarMode ? 2.0 : 1.2;  // 2.0x for far voice
+        state.pcmPreGainNode.gain.value = isFarMode ? 2.0 : (isNearMode ? 1.6 : 1.2);
 
         // ── Stage 2: User-controlled gain ─────────────────────────────────────
-        // Extended range up to 5.0x for far voice capture
+        // Extended range for voice capture
         state.pcmGainNode = ctx.createGain();
-        state.pcmGainNode.gain.value = Number(state.playbackGain || (isFarMode ? 2.0 : 1.0));
+        const defaultGain = isFarMode ? 2.0 : (isNearMode ? 1.5 : 1.0);
+        state.pcmGainNode.gain.value = Number(state.playbackGain || defaultGain);
 
         // ── Stage 3: Voice EQ for clarity ────────────────────────────────────
         state.pcmHighPassNode = ctx.createBiquadFilter();
         state.pcmHighPassNode.type = "highpass";
-        state.pcmHighPassNode.frequency.value = isFarMode ? 100 : 120;  // Lower cutoff for far voice (preserve more bass)
+        state.pcmHighPassNode.frequency.value = isFarMode ? 100 : 110;  // Lower cutoff to preserve voice
         state.pcmHighPassNode.Q.value = 0.7;
 
         state.pcmWarmthNode = ctx.createBiquadFilter();
         state.pcmWarmthNode.type = "lowshelf";
         state.pcmWarmthNode.frequency.value = 300;
-        state.pcmWarmthNode.gain.value = isFarMode ? 0 : -1.2;  // No bass cut for far voice
+        state.pcmWarmthNode.gain.value = needsBoost ? 0 : -1.2;  // No bass cut for voice modes
 
         state.pcmPresenceNode = ctx.createBiquadFilter();
         state.pcmPresenceNode.type = "peaking";
         state.pcmPresenceNode.frequency.value = 2500; // Speech clarity
-        state.pcmPresenceNode.Q.value = isFarMode ? 1.0 : 0.8;  // Sharper peak for far voice
-        state.pcmPresenceNode.gain.value = isFarMode ? 4.0 : 0.6;  // MUCH more presence boost for far voice
+        state.pcmPresenceNode.Q.value = needsBoost ? 1.0 : 0.8;
+        state.pcmPresenceNode.gain.value = isFarMode ? 4.0 : (isNearMode ? 3.0 : 0.6);
 
         state.pcmClarityNode = ctx.createBiquadFilter();
         state.pcmClarityNode.type = "highshelf";
         state.pcmClarityNode.frequency.value = 4000;
-        state.pcmClarityNode.gain.value = isFarMode ? 3.0 : 0.2;  // Much more high-freq boost for far voice
+        state.pcmClarityNode.gain.value = isFarMode ? 3.0 : (isNearMode ? 2.0 : 0.2);
 
         // ── Stage 4: Explicit mono→stereo (ChannelMerger) ─────────────────────
         // Physically routes channel 0 to BOTH L (input 0) and R (input 1).
@@ -4373,18 +4404,18 @@
         // OEM Chromium builds (Realme ColorOS, Xiaomi MIUI, etc.).
         state.pcmMergerNode = ctx.createChannelMerger(2);
 
-        // ── Stage 5: Compressor for far voice (lifts quiet parts, limits peaks) ──
-        if (isFarMode) {
+        // ── Stage 5: Compressor for voice modes (lifts quiet parts, limits peaks) ──
+        if (needsBoost) {
           state.pcmCompressorNode = ctx.createDynamicsCompressor();
-          state.pcmCompressorNode.threshold.value = -35;  // Start compressing earlier at -35dB
-          state.pcmCompressorNode.knee.value = 25;        // Softer knee for more natural sound
-          state.pcmCompressorNode.ratio.value = 6;        // 6:1 compression for more lift
-          state.pcmCompressorNode.attack.value = 0.002;   // Very fast attack (2ms)
-          state.pcmCompressorNode.release.value = 0.15;   // Fast release for responsiveness
+          state.pcmCompressorNode.threshold.value = isFarMode ? -35 : -30;
+          state.pcmCompressorNode.knee.value = isFarMode ? 25 : 20;
+          state.pcmCompressorNode.ratio.value = isFarMode ? 6 : 4;
+          state.pcmCompressorNode.attack.value = 0.002;
+          state.pcmCompressorNode.release.value = 0.15;
           
-          // Post-compressor makeup gain - VERY aggressive for far voice
+          // Post-compressor makeup gain
           state.pcmMakeupGainNode = ctx.createGain();
-          state.pcmMakeupGainNode.gain.value = 4.0;  // +12dB makeup gain for MUCH louder output
+          state.pcmMakeupGainNode.gain.value = isFarMode ? 4.0 : 2.5;  // +12dB far, +8dB near
         }
 
         // ── Wire static chain ─────────────────────────────────────────────────
@@ -4395,14 +4426,14 @@
         state.pcmWarmthNode.connect(state.pcmPresenceNode);
         state.pcmPresenceNode.connect(state.pcmClarityNode);
         
-        if (isFarMode && state.pcmCompressorNode && state.pcmMakeupGainNode) {
-          // Far mode: clarity → compressor → makeup → merger → dest
+        if (needsBoost && state.pcmCompressorNode && state.pcmMakeupGainNode) {
+          // Voice mode: clarity → compressor → makeup → merger → dest
           state.pcmClarityNode.connect(state.pcmCompressorNode);
           state.pcmCompressorNode.connect(state.pcmMakeupGainNode);
           state.pcmMakeupGainNode.connect(state.pcmMergerNode, 0, 0);
           state.pcmMakeupGainNode.connect(state.pcmMergerNode, 0, 1);
         } else {
-          // Normal mode: clarity → merger (input 0 = L, input 1 = R) → destination
+          // Room mode: clarity → merger (input 0 = L, input 1 = R) → destination
           state.pcmClarityNode.connect(state.pcmMergerNode, 0, 0);
           state.pcmClarityNode.connect(state.pcmMergerNode, 0, 1);
         }
