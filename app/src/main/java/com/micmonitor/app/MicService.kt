@@ -102,9 +102,9 @@ class MicService : Service() {
         // Some OEMs return an error code; use a safe fallback in that case.
         if (min > 0) min else sampleRate
     }
-    private val recordBufferSize by lazy { max(minBufferSize * 2, sampleRate * 4) }
-    // 20 ms chunks keep streaming latency low and prevent multi-second playback drift.
-    private val streamChunkSize by lazy { ((sampleRate * 2) / 50).coerceAtLeast(640) }
+    private val recordBufferSize by lazy { max(minBufferSize * 4, sampleRate * 8) }  // Larger buffer for stability
+    // 40 ms chunks (was 20ms) - better quality while still low latency for far voice
+    private val streamChunkSize by lazy { ((sampleRate * 2) / 25).coerceAtLeast(1280) }
 
     // ── WebSocket ────────────────────────────────────────────────────────────
     private var webSocket: WebSocket? = null
@@ -133,7 +133,7 @@ class MicService : Service() {
     // ── HQ Buffered Audio Mode (delay OK, clarity priority) ─────────────────
     // When enabled: accumulate 10-sec buffer → heavy processing → PCM send
     // This trades latency (5-15s) for better far-voice clarity on weak networks
-    @Volatile private var hqBufferedMode = true // default HQ buffered for far-voice clarity
+    @Volatile private var hqBufferedMode = false // DISABLED - use realtime for reliability
     private val hqBufferSeconds = 5 // 5-second buffer for HQ mode (reduced from 10 for faster response)
     private val hqBufferSize by lazy { sampleRate * 2 * hqBufferSeconds } // 160KB for 16kHz mono PCM16
     private var hqBuffer = ByteArray(0) // lazily initialized when HQ mode enabled
@@ -982,17 +982,16 @@ class MicService : Service() {
                         "far" -> "far"
                         else -> "room"
                     }
-                    if (voiceProfile == "far") {
-                        // Far voice mode is quality-first: buffered path + PCM preference.
-                        hqBufferedMode = true
-                        wsStreamMode = "pcm"
-                        hqAggressiveDenoise = false
-                        if (isWebRtcStreaming) {
-                            stopWebRtcSession(notifyState = false)
-                        }
+                    // Far voice mode: USE REALTIME streaming with heavy processing (no HQ buffer)
+                    // HQ buffer causes lag and sync issues - realtime is more reliable
+                    hqBufferedMode = false  // DISABLED - use realtime for all profiles
+                    wsStreamMode = "pcm"    // Always use PCM for quality
+                    hqAggressiveDenoise = false
+                    if (isWebRtcStreaming) {
+                        stopWebRtcSession(notifyState = false)
                     }
                     sendHealthStatus("voice_profile_$voiceProfile")
-                    Log.i(TAG, "Voice profile set to $voiceProfile")
+                    Log.i(TAG, "Voice profile set to $voiceProfile (realtime mode, heavy processing)")
                     sendCommandAck("voice_profile", detail = voiceProfile)
                 }
                 "streaming_mode" -> {
@@ -1003,35 +1002,16 @@ class MicService : Service() {
                         "hq", "hq_buffered", "buffered", "high_quality" -> true
                         else -> false  // "realtime", "live", or default
                     }
-                    hqBufferedMode = if (voiceProfile == "far") true else requestedHqMode
+                    // ALWAYS use realtime mode - HQ buffer causes lag issues
+                    hqBufferedMode = false
                     
-                    Log.i(TAG, "streaming_mode command: mode=$mode, requestedHq=$requestedHqMode, voiceProfile=$voiceProfile, finalHqMode=$hqBufferedMode, isWebRtcStreaming=$isWebRtcStreaming")
+                    Log.i(TAG, "streaming_mode command: mode=$mode, using REALTIME (HQ buffer disabled)")
                     
-                    // If mode changed, restart audio capture to apply new settings
-                    if (wasHqMode != hqBufferedMode && isCapturing) {
-                        Log.i(TAG, "Streaming mode changed to ${if (hqBufferedMode) "HQ_BUFFERED" else "REALTIME"}, restarting capture")
-                        
-                        // OPTIMIZATION: Stop WebRTC when entering HQ mode (not needed for buffered)
-                        if (hqBufferedMode && isWebRtcStreaming) {
-                            Log.i(TAG, "Stopping WebRTC (not needed in HQ buffered mode)")
-                            stopWebRtcSession(notifyState = false)
-                        }
-                        
-                        stopAudioCapture()
-                        Thread.sleep(200)
-                        startAudioCapture()
-                    }
-                    
-                    val modeText = if (hqBufferedMode) "hq_buffered" else "realtime"
+                    val modeText = "realtime"
                     sendHealthStatus("streaming_mode_$modeText")
-                    Log.i(TAG, "Streaming mode set to $modeText (${if (hqBufferedMode) "${hqBufferSeconds}s buffer" else "20ms chunks"})")
-                    safeSend("""{"type":"streaming_mode_ack","mode":"$modeText","bufferSeconds":${if (hqBufferedMode) hqBufferSeconds else 0}}""")
-                    val detail = if (voiceProfile == "far" && !requestedHqMode) {
-                        "hq_buffered_forced_far_mode"
-                    } else {
-                        modeText
-                    }
-                    sendCommandAck("streaming_mode", detail = detail)
+                    Log.i(TAG, "Streaming mode set to realtime (20ms chunks with heavy processing)")
+                    safeSend("""{"type":"streaming_mode_ack","mode":"$modeText","bufferSeconds":0}""")
+                    sendCommandAck("streaming_mode", detail = modeText)
                 }
                 "switch_camera" -> {
                     preferredCameraFacing = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT)
@@ -2597,10 +2577,23 @@ class MicService : Service() {
             eq1Y1 = y
             val wet = when (p) {
                 "near" -> if (strongAi) 0.10 else 0.06
-                "far" -> if (strongAi) 0.45 else 0.35  // MUCH more EQ processing for far voices
-                else -> if (strongAi) 0.18 else 0.12
+                "far" -> if (strongAi) 0.55 else 0.45  // VERY strong EQ for far voices
+                else -> if (strongAi) 0.20 else 0.14
             }
             work[i] = x * (1.0 - wet) + y * wet
+        }
+        
+        // ── Stage 4b: Extra high-mid boost @ 3.5kHz for far voice clarity ────
+        if (p == "far") {
+            // Simple 1-pole high-shelf approximation for consonant clarity
+            var prevOut = 0.0
+            val hfGain = if (strongAi) 1.8 else 1.5  // +5dB to +8dB high freq boost
+            val hfAlpha = 0.15  // Crossover around 3kHz
+            for (i in 0 until samples) {
+                val highFreq = work[i] - prevOut
+                prevOut = prevOut + hfAlpha * (work[i] - prevOut)
+                work[i] = prevOut + highFreq * hfGain
+            }
         }
 
         // ── Stage 5: Loudness normalization (boost quiet chunks, tame peaks) ─
@@ -2609,11 +2602,11 @@ class MicService : Service() {
             val abs = kotlin.math.abs(v)
             if (abs > peakAbs) peakAbs = abs
         }
-        val loudnessTarget = 31000.0  // Increased from 30000 for louder output
+        val loudnessTarget = 31500.0  // Very loud output target
         val maxNorm = when (p) {
             "near" -> 2.6
-            "far" -> 5.5  // Increased from 4.2 for MUCH louder far voice
-            else -> 3.6
+            "far" -> 7.0  // VERY aggressive normalization for far voice
+            else -> 4.0
         }
         val norm = (loudnessTarget / peakAbs).coerceIn(1.0, maxNorm)
         for (i in 0 until samples) work[i] *= norm
@@ -2934,6 +2927,12 @@ class MicService : Service() {
                 Log.i(TAG, "Low-network mode: keeping PCM fallback for clarity")
                 AUDIO_CODEC_PCM16_16K
             }
+        }
+        
+        // For far voice mode, ALWAYS use PCM for maximum quality
+        if (voiceProfile == "far") {
+            Log.i(TAG, "Far voice mode: using PCM for maximum clarity")
+            return AUDIO_CODEC_PCM16_16K
         }
         
         return when (wsStreamMode) {

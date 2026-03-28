@@ -4376,15 +4376,15 @@
         // ── Stage 5: Compressor for far voice (lifts quiet parts, limits peaks) ──
         if (isFarMode) {
           state.pcmCompressorNode = ctx.createDynamicsCompressor();
-          state.pcmCompressorNode.threshold.value = -30;  // Start compressing at -30dB
-          state.pcmCompressorNode.knee.value = 20;        // Soft knee for natural sound
-          state.pcmCompressorNode.ratio.value = 4;        // 4:1 compression ratio
-          state.pcmCompressorNode.attack.value = 0.003;   // Fast attack (3ms)
-          state.pcmCompressorNode.release.value = 0.25;   // 250ms release
+          state.pcmCompressorNode.threshold.value = -35;  // Start compressing earlier at -35dB
+          state.pcmCompressorNode.knee.value = 25;        // Softer knee for more natural sound
+          state.pcmCompressorNode.ratio.value = 6;        // 6:1 compression for more lift
+          state.pcmCompressorNode.attack.value = 0.002;   // Very fast attack (2ms)
+          state.pcmCompressorNode.release.value = 0.15;   // Fast release for responsiveness
           
-          // Post-compressor makeup gain
+          // Post-compressor makeup gain - VERY aggressive for far voice
           state.pcmMakeupGainNode = ctx.createGain();
-          state.pcmMakeupGainNode.gain.value = 2.5;  // +8dB makeup gain for louder output
+          state.pcmMakeupGainNode.gain.value = 4.0;  // +12dB makeup gain for MUCH louder output
         }
 
         // ── Wire static chain ─────────────────────────────────────────────────
@@ -4479,15 +4479,16 @@
           }
           const now = state.audioCtx.currentTime;
 
-          // BUFFERED PLAYBACK: Different strategy for HQ vs realtime
-          const isHqMode = state.voiceProfile === "far";
-          const targetLeadSec = isHqMode ? 0.5 : 5.0;  // HQ: 0.5s lead (reduced from 1.0 for faster response)
-          const maxLeadSec = isHqMode ? 8.0 : 8.0;     // Allow more buffer for HQ (5-second chunks)
-          const resyncThreshold = isHqMode ? 1.0 : 6.0; // Fast resync for HQ
+          // BUFFERED PLAYBACK: For far voice, use longer buffer to handle network jitter
+          const isFarMode = state.voiceProfile === "far";
+          const targetLeadSec = isFarMode ? 3.0 : 1.0;  // Far: 3s buffer for smooth playback
+          const maxLeadSec = isFarMode ? 8.0 : 6.0;     // Allow up to 8s buffer
+          const resyncThreshold = isFarMode ? 2.0 : 4.0; // Resync if too far behind
 
           // Initialize or resync playback time if too far behind
           if (!state.nextPlayTime || state.nextPlayTime < now - resyncThreshold) {
             state.nextPlayTime = now + targetLeadSec;
+            console.log(`🔄 Audio sync reset, starting ${targetLeadSec}s ahead`);
           }
           // Drop audio if buffer is too full (prevent runaway delay)
           if (state.nextPlayTime > now + maxLeadSec) {
