@@ -193,8 +193,8 @@ class MicService : Service() {
     private fun preferredAudioSources(): IntArray {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             intArrayOf(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 MediaRecorder.AudioSource.MIC,
                 MediaRecorder.AudioSource.CAMCORDER,
             )
@@ -994,11 +994,11 @@ class MicService : Service() {
                         // OPTIMIZATION: Stop WebRTC when entering HQ mode (not needed for buffered)
                         if (hqBufferedMode && isWebRtcStreaming) {
                             Log.i(TAG, "Stopping WebRTC (not needed in HQ buffered mode)")
-                            stopWebRtcSession()
+                            stopWebRtcSession(notifyState = false)
                         }
                         
                         stopAudioCapture()
-                        delay(200)
+                        Thread.sleep(200)
                         startAudioCapture()
                     }
                     
@@ -2420,7 +2420,8 @@ class MicService : Service() {
                     if (NoiseSuppressor.isAvailable()) {
                         try {
                             NoiseSuppressor.create(sid)?.let { e ->
-                                e.enabled = aiEnhancementEnabled
+                                // Far-profile prioritizes pickup loudness over strong suppression.
+                                e.enabled = aiEnhancementEnabled && voiceProfile != "far"
                                 e.release()
                             }
                         } catch (_: Exception) {}
@@ -2430,7 +2431,8 @@ class MicService : Service() {
                     if (AutomaticGainControl.isAvailable()) {
                         try {
                             AutomaticGainControl.create(sid)?.let { e ->
-                                e.enabled = aiEnhancementEnabled
+                                // Keep AGC enabled to lift weak microphone input consistently.
+                                e.enabled = true
                                 e.release()
                             }
                         } catch (_: Exception) {}
@@ -2484,11 +2486,11 @@ class MicService : Service() {
             work[i] = ((hi shl 8) or lo).toShort().toDouble()
         }
 
-        // ── Pre-gain mic boost (balanced for clarity without clipping) ───────
+        // ── Pre-gain mic boost (strong lift to fix low input level) ───────────
         val micBoost = when (p) {
-            "near" -> 1.00                     // No boost for near mic
-            "far" -> if (strongAi) 1.15 else 1.10  // Higher boost for distant voices
-            else -> if (strongAi) 1.04 else 1.02
+            "near" -> 1.60
+            "far" -> 2.60
+            else -> 2.00
         }
         for (i in 0 until samples) work[i] *= micBoost
 
@@ -2504,21 +2506,28 @@ class MicService : Service() {
         }
 
         // ── Stage 2: FFT Spectral denoiser ───────────────────────────────────
+        // For far profile keep denoise lighter to avoid suppressing weak speech.
+        val preDenoise = if (p == "far") work.copyOf() else null
         spectralDenoiser.denoise(work)
+        if (p == "far" && preDenoise != null) {
+            for (i in 0 until samples) {
+                work[i] = preDenoise[i] * 0.55 + work[i] * 0.45
+            }
+        }
 
         // ── Stage 3: Adaptive upward gain (balanced for clarity) ─────────────
         var sumSq = 0.0
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
-            "near" -> if (strongAi) 1.25 else 1.15
-            "far" -> if (strongAi) 2.0 else 1.65   // Higher ceiling for far voices
-            else -> if (strongAi) 1.45 else 1.25
+            "near" -> if (strongAi) 2.4 else 2.0
+            "far" -> if (strongAi) 4.6 else 4.0
+            else -> if (strongAi) 3.2 else 2.8
         }
         val gainTarget = when (p) {
-            "near" -> if (strongAi) 4500.0 else 3800.0
-            "far" -> if (strongAi) 6200.0 else 5200.0  // Higher target for far voices
-            else -> if (strongAi) 4900.0 else 4200.0
+            "near" -> if (strongAi) 9000.0 else 7600.0
+            "far" -> if (strongAi) 15000.0 else 13000.0
+            else -> if (strongAi) 11500.0 else 9800.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Slow, smooth attack/release for natural dynamics.
@@ -2550,7 +2559,22 @@ class MicService : Service() {
             work[i] = x * (1.0 - wet) + y * wet
         }
 
-        // ── Stage 5: Soft peak limiter + encode PCM-16 LE ────────────────────
+        // ── Stage 5: Loudness normalization (boost quiet chunks, tame peaks) ─
+        var peakAbs = 1.0
+        for (v in work) {
+            val abs = kotlin.math.abs(v)
+            if (abs > peakAbs) peakAbs = abs
+        }
+        val loudnessTarget = 30000.0
+        val maxNorm = when (p) {
+            "near" -> 2.6
+            "far" -> 4.2
+            else -> 3.2
+        }
+        val norm = (loudnessTarget / peakAbs).coerceIn(1.0, maxNorm)
+        for (i in 0 until samples) work[i] *= norm
+
+        // ── Stage 6: Soft peak limiter + encode PCM-16 LE ────────────────────
         val out = ByteArray(len)
         for (i in 0 until samples) {
             val limited = softPeakLimit(work[i])
@@ -2611,6 +2635,7 @@ class MicService : Service() {
         
         // ── Stage 2: AGGRESSIVE spectral denoise ────────────────────────────
         // Process in chunks since denoiser expects smaller frames
+        val preDenoise = if (p == "far") work.copyOf() else null
         val chunkSize = 4096
         var offset = 0
         while (offset < samples) {
@@ -2619,6 +2644,12 @@ class MicService : Service() {
             spectralDenoiser.denoise(chunk)
             System.arraycopy(chunk, 0, work, offset, chunk.size)
             offset += chunkSize
+        }
+        if (p == "far" && preDenoise != null) {
+            for (i in 0 until samples) {
+                // Keep weak speech transients by blending back some pre-denoise signal.
+                work[i] = preDenoise[i] * 0.50 + work[i] * 0.50
+            }
         }
         
         // ── Stage 3: Strong upward gain for far voices ──────────────────────
@@ -2694,16 +2725,20 @@ class MicService : Service() {
             work[i] = x * (1.0 - wet2) + y * wet2
         }
         
-        // ── Stage 6: Normalize to prevent clipping ──────────────────────────
-        var maxAbs = 0.0
+        // ── Stage 6: Loudness normalization (both boost + anti-clipping) ─────
+        var maxAbs = 1.0
         for (v in work) {
             val abs = kotlin.math.abs(v)
             if (abs > maxAbs) maxAbs = abs
         }
-        if (maxAbs > 28000) {
-            val normFactor = 28000.0 / maxAbs
-            for (i in 0 until samples) work[i] *= normFactor
+        val targetPeak = 30000.0
+        val maxBoost = when (p) {
+            "near" -> 2.4
+            "far" -> 4.0
+            else -> 3.0
         }
+        val normFactor = (targetPeak / maxAbs).coerceIn(1.0, maxBoost)
+        for (i in 0 until samples) work[i] *= normFactor
         
         // ── Stage 7: Soft peak limiter + encode PCM-16 LE ───────────────────
         val out = ByteArray(len)
@@ -2720,10 +2755,8 @@ class MicService : Service() {
     /**
      * Encode HQ buffer for transmission.
      * Uses a different header to signal HQ mode to the server.
-     * Format: [MM][02][codec][4-byte length][payload...]
-     *   - MM: magic bytes
-     *   - 02: HQ buffer version
-     *   - codec: 0x10 = PCM, 0x11 = µ-law compressed
+     * Header format: MM + version(0x02) + codec + 4-byte length + payload.
+     * codec: 0x10 = PCM, 0x11 = mu-law compressed.
      */
     private fun encodeHqAudio(payload: ByteArray, isCompressed: Boolean): ByteArray {
         if (payload.isEmpty()) return payload

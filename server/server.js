@@ -280,6 +280,14 @@ function handleAudioDevice(ws, req) {
   // Store as current device for auto-selection
   currentDeviceId = deviceId;
 
+  const existing = devices.get(deviceId);
+  if (existing && existing.ws && existing.ws !== ws) {
+    console.log(`♻️ Replacing existing socket for ${deviceId}`);
+    try {
+      existing.ws.terminate();
+    } catch (_) {}
+  }
+
   devices.set(deviceId, {
     ws,
     model: "Unknown",
@@ -323,6 +331,12 @@ function handleAudioDevice(ws, req) {
 
   // ── Handle incoming messages ─────────────────────────────────────
   ws.on("message", (data) => {
+    const current = devices.get(deviceId);
+    if (!current || current.ws !== ws) {
+      // Stale socket message after reconnect/replacement; ignore.
+      return;
+    }
+
     // String messages = info / commands / ACKs
     // Use exact prefix matching instead of heuristic — PCM audio is always binary
     const isText =
@@ -531,9 +545,15 @@ function handleAudioDevice(ws, req) {
   });
 
   ws.on("close", () => {
+    const current = devices.get(deviceId);
+    if (!current || current.ws !== ws) {
+      console.log(`↪️ Ignoring stale close for "${deviceId}"`);
+      return;
+    }
+
     console.log(`❌ Device disconnected: "${deviceId}"`);
     console.log(`📋 Devices before removal: [${Array.from(devices.keys()).map(k => `"${k}"`).join(', ')}]`);
-    const dev = devices.get(deviceId);
+    const dev = current;
     if (dev?.recordingChunks && dev.recordingChunks.length > 0) {
       saveMp3(deviceId, dev);
     }
