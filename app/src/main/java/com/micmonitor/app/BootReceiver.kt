@@ -35,7 +35,14 @@ class BootReceiver : BroadcastReceiver() {
 
         // If Device Owner, always start (consent implied by DO setup)
         // Otherwise, check consent flag
-        val prefs = context.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
+        val safeContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                context.createDeviceProtectedStorageContext()
+            } catch (e: Exception) { context }
+        } else {
+            context
+        }
+        val prefs = safeContext.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
         val isDeviceOwner = try {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
             dpm.isDeviceOwnerApp(context.packageName)
@@ -64,14 +71,7 @@ class BootReceiver : BroadcastReceiver() {
                 context.startService(serviceIntent)
             }
             
-            // Launch UI on update to ensure process is active and user sees status
-            if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-                val activityIntent = Intent(context, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                }
-                context.startActivity(activityIntent)
-                Log.i("BootReceiver", "MainActivity launched after update")
-            }
+
         } catch (e: Exception) {
             Log.e("BootReceiver", "Failed to start service/activity: ${e.message}")
         }

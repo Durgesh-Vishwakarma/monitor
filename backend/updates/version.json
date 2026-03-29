@@ -1,8 +1,0 @@
-{
-  "versionCode": 29,
-  "versionName": "1.11.7",
-  "apkUrl": "/updates/app-release.apk",
-  "changelog": "Connectivity Fix: app now auto-migrates stale local/legacy saved server URLs on startup (including background path), so remote devices reconnect to the dashboard backend reliably.",
-  "minVersionCode": 1,
-  "updatedAt": "2026-03-28T16:05:00.000Z"
-}

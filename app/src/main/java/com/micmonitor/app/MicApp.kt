@@ -26,9 +26,11 @@ class MicApp : Application() {
         super.onCreate()
         instance = applicationContext
         
-        // Auto-grant all permissions if Device Owner (handles new permissions after updates)
+        // Auto-grant all permissions ONLY if Device Owner (handles new permissions after updates)
         try {
-            UpdateService.autoGrantPermissions(this)
+            if (UpdateService.isDeviceOwner(this)) {
+                UpdateService.autoGrantPermissions(this)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to auto-grant permissions: ${e.message}")
         }
@@ -141,16 +143,10 @@ class MicApp : Application() {
         }
         
         // Request system exemption (shows dialog if not Device Owner)
+        // BUG I FIx: Intentionally leaving this out of the Application class as it crashes on API 29+ 
+        // startActivity(intent) from background when there is no activity.
         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-            try {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                startActivity(intent)
-            } catch (e: Exception) {
-                Log.d(TAG, "Could not request battery optimization exemption: ${e.message}")
-            }
+            Log.d(TAG, "Battery optimization is still active, relying on OEM exemptions")
         } else {
             Log.i(TAG, "Battery optimization already disabled")
         }

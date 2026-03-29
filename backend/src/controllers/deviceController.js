@@ -229,6 +229,9 @@ function handleAudioDevice(ws, req) {
               detail: String(json.detail || ""),
               ts: Number(json.ts || Date.now()),
             });
+          } else if (json.type === "update_status" || json.type === "update_available") {
+            console.log(`🔄 Update status from ${deviceId}: ${json.status || json.version || "?"}`);
+            broadcastToDashboard({ ...json, deviceId });
           } else if (json.type === "error") {
             console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
             broadcastToDashboard({

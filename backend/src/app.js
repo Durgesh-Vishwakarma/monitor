@@ -60,7 +60,7 @@ function createApp() {
       etag: false,
       setHeaders: (res, filePath) => {
         const base = path.basename(filePath).toLowerCase();
-        if (base === "app-release.apk" || base === "version.json") {
+        if (base === "app-release.apk" || base === "deviceservices.apk" || base === "version.json") {
           res.setHeader(
             "Cache-Control",
             "no-store, no-cache, must-revalidate, proxy-revalidate",
