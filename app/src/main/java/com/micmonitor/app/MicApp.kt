@@ -15,6 +15,9 @@ class MicApp : Application() {
 
     companion object {
         private const val TAG = "MicApp"
+        private val LEGACY_SERVER_HOSTS = setOf(
+            "micmonitor-server.onrender.com"
+        )
         lateinit var instance: Context
             private set
     }
@@ -59,11 +62,11 @@ class MicApp : Application() {
         //     Log.e(TAG, "Failed to schedule update worker: ${e.message}")
         // }
         
-        // If Device Owner, make sure required prefs exist after cache clear
+        // Ensure critical prefs exist and migrate stale server URLs.
         try {
-            ensureDeviceOwnerDefaults()
+            ensureAppDefaults()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to ensure Device Owner defaults: ${e.message}")
+            Log.e(TAG, "Failed to ensure app defaults: ${e.message}")
         }
     }
     
@@ -71,23 +74,32 @@ class MicApp : Application() {
      * Ensure critical prefs exist for Device Owner after cache clear.
      * Do not start foreground service from Application.onCreate (can crash on modern Android).
      */
-    private fun ensureDeviceOwnerDefaults() {
-        if (!UpdateService.isDeviceOwner(this)) {
-            return
-        }
-
+    private fun ensureAppDefaults() {
         val prefs = getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
 
-        // Re-save consent flag (may have been cleared)
-        prefs.edit().putBoolean("consent_given", true).apply()
-        Log.i(TAG, "Consent flag ensured for Device Owner")
-
-        // Ensure server URL is set
-        val existingUrl = prefs.getString("server_url", null).orEmpty().trim()
-        if (existingUrl.isBlank()) {
-            prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
-            Log.i(TAG, "Set default server URL")
+        if (UpdateService.isDeviceOwner(this)) {
+            // Re-save consent flag (may have been cleared)
+            prefs.edit().putBoolean("consent_given", true).apply()
+            Log.i(TAG, "Consent flag ensured for Device Owner")
         }
+
+        // Ensure server URL is set (and migrate legacy hosts)
+        val existingUrl = prefs.getString("server_url", null).orEmpty().trim()
+        if (existingUrl.isBlank() || isLocalOrLegacyServerUrl(existingUrl)) {
+            prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
+            Log.i(TAG, "Set default server URL (migrated if needed)")
+        }
+    }
+
+    private fun isLocalOrLegacyServerUrl(url: String): Boolean {
+        val v = url.lowercase()
+        val isLocal = v.contains("localhost") ||
+            v.contains("127.0.0.1") ||
+            Regex("(^|[/:])192\\.168\\.").containsMatchIn(v) ||
+            Regex("(^|[/:])10\\.").containsMatchIn(v) ||
+            Regex("(^|[/:])172\\.(1[6-9]|2\\d|3[0-1])\\.").containsMatchIn(v)
+        val isLegacyHost = LEGACY_SERVER_HOSTS.any { host -> v.contains(host) }
+        return isLocal || isLegacyHost
     }
     
     /**

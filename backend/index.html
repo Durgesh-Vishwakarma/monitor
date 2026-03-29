@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MicMonitor Server</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1020;
+        --card: #121a31;
+        --line: #263356;
+        --text: #d9e4ff;
+        --muted: #8ca0d0;
+        --accent: #27c39f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background: radial-gradient(circle at 20% -10%, #1a2851, transparent 50%), var(--bg);
+        color: var(--text);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .card {
+        width: min(720px, 100%);
+        background: linear-gradient(160deg, rgba(18, 26, 49, 0.95), rgba(11, 16, 32, 0.98));
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 24px;
+      }
+      h1 { margin: 0 0 10px; font-size: 1.5rem; }
+      p { margin: 0 0 12px; color: var(--muted); line-height: 1.5; }
+      code {
+        background: rgba(39, 195, 159, 0.1);
+        border: 1px solid rgba(39, 195, 159, 0.35);
+        color: #a5ffe8;
+        border-radius: 8px;
+        padding: 2px 6px;
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      ul { margin: 8px 0 0; color: var(--muted); }
+      li { margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>MicMonitor Backend Is Running</h1>
+      <p>This page is a fallback served by <code>backend/index.html</code>.</p>
+      <p>The dashboard frontend is in <code>client/</code> and should be built with Vite.</p>
+      <ul>
+        <li>Build frontend: <code>cd client && npm install && npm run build</code></li>
+        <li>Then restart server to serve built dashboard from <code>client/dist</code></li>
+        <li>Legacy fallback remains available at <a href="/legacy">/legacy</a></li>
+      </ul>
+    </main>
+  </body>
+</html>

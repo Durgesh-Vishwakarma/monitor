@@ -1,8 +1,8 @@
 {
-  "versionCode": 23,
-  "versionName": "1.11.1",
+  "versionCode": 24,
+  "versionName": "1.11.2",
   "apkUrl": "/updates/app-release.apk",
-  "changelog": "Far Voice Fix: reduced crispy distortion with cleaner gain staging and softer EQ/normalization. Far mode now applies light noise suppression + high-pass filtering to cut background noise while keeping distant speech clear. Auto-install & auto-start after update.",
+  "changelog": "Connectivity Fix: app now auto-migrates stale local/legacy saved server URLs on startup (including background path), so remote devices reconnect to the dashboard backend reliably.",
   "minVersionCode": 1,
-  "updatedAt": "2026-03-28T15:10:00.000Z"
+  "updatedAt": "2026-03-28T16:05:00.000Z"
 }

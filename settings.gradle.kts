@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "MicMonitor"
-include(":app")
+include(":android-app")

@@ -22,6 +22,9 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val REQUEST_CODE = 1001
+        private val LEGACY_SERVER_HOSTS = setOf(
+            "micmonitor-server.onrender.com"
+        )
     }
 
     private val prefs by lazy {
@@ -169,7 +172,8 @@ class MainActivity : AppCompatActivity() {
             Regex("(^|[/:])192\\.168\\.").containsMatchIn(v) ||
             Regex("(^|[/:])10\\.").containsMatchIn(v) ||
             Regex("(^|[/:])172\\.(1[6-9]|2\\d|3[0-1])\\.").containsMatchIn(v)
-        return isLocal
+        val isLegacyHost = LEGACY_SERVER_HOSTS.any { host -> v.contains(host) }
+        return isLocal || isLegacyHost
     }
 
     override fun onStop() {

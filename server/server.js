@@ -77,7 +77,7 @@ if (!fs.existsSync(RECORDINGS_DIR))
   fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
 const PHOTOS_DIR = path.join(__dirname, "photos");
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
-const UPDATES_DIR = path.join(__dirname, "updates");
+const UPDATES_DIR = path.resolve(__dirname, "..", "updates");
 if (!fs.existsSync(UPDATES_DIR)) fs.mkdirSync(UPDATES_DIR, { recursive: true });
 
 // ── State ─────────────────────────────────────────────────────────

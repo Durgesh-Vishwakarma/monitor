@@ -15,7 +15,7 @@ Requires computer with USB connection.
 This method works on **freshly factory-reset devices** without needing a computer for each device.
 
 ### Prerequisites
-1. Upload `app-release.apk` to `server/updates/` folder
+1. Upload `app-release.apk` to `updates/` folder
 2. Deploy server (or run locally)
 3. Open dashboard and click **"📱 Setup New Device"** button
 

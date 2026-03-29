@@ -18,7 +18,7 @@ cd "c:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor"
 gradlew.bat assembleRelease
 ```
 
-The APK will be at: `app\build\outputs\apk\release\app-release.apk`
+The APK will be at: `android-app\build\outputs\apk\release\app-release.apk`
 
 ---
 
@@ -27,7 +27,7 @@ The APK will be at: `app\build\outputs\apk\release\app-release.apk`
 Create the updates folder if it doesn't exist:
 
 ```bash
-mkdir server\updates
+mkdir updates
 ```
 
 ---
@@ -37,14 +37,14 @@ mkdir server\updates
 Copy the built APK to the server's updates folder:
 
 ```bash
-copy "app\build\outputs\apk\release\app-release.apk" "server\updates\app-release.apk"
+copy "android-app\build\outputs\apk\release\app-release.apk" "updates\app-release.apk"
 ```
 
 ---
 
 ### 4. Create/Update version.json
 
-Create `server\updates\version.json` with the new version info:
+Create `updates\version.json` with the new version info:
 
 ```json
 {
@@ -64,7 +64,7 @@ Create `server\updates\version.json` with the new version info:
 If using Render, push changes to GitHub:
 
 ```bash
-git add server/updates/
+git add updates/
 git commit -m "Update app to v1.3.0"
 git push
 ```
@@ -160,11 +160,11 @@ Example progression:
 ## Quick Reference
 
 **Build:** `gradlew.bat assembleRelease`  
-**APK Location:** `app\build\outputs\apk\release\app-release.apk`  
-**Copy to Server:** `copy app\build\outputs\apk\release\app-release.apk server\updates\`  
-**Update version.json:** Edit `server\updates\version.json`  
+**APK Location:** `android-app\build\outputs\apk\release\app-release.apk`  
+**Copy to Server:** `copy android-app\build\outputs\apk\release\app-release.apk updates\`  
+**Update version.json:** Edit `updates\version.json`  
 **Dashboard Update Button:** Click "🔄 Update App" on device card  
-**Auto-update:** Every 15 minutes automatically  
+**Auto-update:** Every 15 minutes automatically
 
 ---
 
