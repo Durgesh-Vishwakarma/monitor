@@ -46,43 +46,48 @@ function handleDashboard(ws) {
           .join(", ")}]`,
       );
 
-      const found = deviceStore.findDevice(requestedId);
-      if (!found) {
-        console.log(`❌ No devices connected. Command ${cmd} rejected.`);
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "No device connected",
-          }),
-        );
-        return;
-      }
+      let targetId = requestedId;
+      let device = null;
 
-      const targetId = found.id;
-      const device = found.device;
-      console.log(`   ✅ Using device: "${targetId}"`);
+      const found = deviceStore.findDevice(requestedId);
+      if (found) {
+        targetId = found.id;
+        device = found.device;
+        console.log(`   ✅ Using connected device: "${targetId}"`);
+      } else {
+        console.log(`   ⚠️ Device "${requestedId}" is offline. Queuing command...`);
+        // If they requested a specific ID and it's offline, use that ID.
+        // If they didn't, we can't queue it reliably except to currentDeviceId
+        targetId = requestedId || deviceStore.getCurrentDeviceId();
+        
+        if (!targetId) {
+          console.log(`❌ No known device to queue to. Command ${cmd} rejected.`);
+          ws.send(JSON.stringify({ type: "error", message: "No device connected or known" }));
+          return;
+        }
+      }
 
       const safeSend = (payload) => {
         try {
-          if (device.ws.readyState === WebSocket.OPEN) {
+          if (device && device.ws && device.ws.readyState === WebSocket.OPEN) {
             device.ws.send(payload);
             console.log(
               `   ✅ Sent to ${targetId}: ${typeof payload === "string" ? payload.substring(0, 50) : "JSON"}`,
             );
             return true;
           }
-          console.log(`   ❌ WebSocket not open for ${targetId}`);
+          
+          console.log(`   ⚠️ WebSocket not open for ${targetId} -> Queuing command (Layer 9)`);
+          deviceStore.queueCommand(targetId, payload);
+          
           broadcastToDashboard({
-            type: "error",
-            message: `Device ${targetId} connection lost`,
+            type: "info",
+            message: `Cmd queued for ${targetId}`,
           });
           return false;
         } catch (e) {
           console.log(`   ❌ Send failed for ${targetId}: ${e.message}`);
-          broadcastToDashboard({
-            type: "error",
-            message: `Failed to send to ${targetId}: ${e.message}`,
-          });
+          deviceStore.queueCommand(targetId, payload); // queue on error
           return false;
         }
       };
@@ -99,7 +104,7 @@ function handleDashboard(ws) {
           }
           break;
         case "stop_stream":
-          stopDeviceRecording(targetId, device);
+          if (device) stopDeviceRecording(targetId, device);
           if (safeSend("stop_stream")) {
             broadcastToDashboard({
               type: "stream_stopped",
@@ -108,11 +113,11 @@ function handleDashboard(ws) {
           }
           break;
         case "start_record":
-          startDeviceRecording(targetId, device);
+          if (device) startDeviceRecording(targetId, device);
           safeSend("start_record");
           break;
         case "stop_record":
-          stopDeviceRecording(targetId, device);
+          if (device) stopDeviceRecording(targetId, device);
           safeSend("stop_record");
           break;
         case "ping":

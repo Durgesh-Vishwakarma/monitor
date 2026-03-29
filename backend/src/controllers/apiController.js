@@ -13,6 +13,40 @@ function health(req, res) {
   res.json({ status: "ok", devices: deviceStore.size(), ts: Date.now() });
 }
 
+// ── Layer 2 & 12: HTTP Fallback & Heartbeat ──
+
+function sync(req, res) {
+  const deviceId = req.query.deviceId || req.headers["x-device-id"];
+  if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
+  
+  // Register heartbeat since they reached out
+  deviceStore.updateHeartbeat(deviceId);
+  
+  // Get queued commands (Layer 9)
+  const commands = deviceStore.popQueuedCommands(deviceId);
+  
+  // Sync state (Layer 10)
+  const sessionState = deviceStore.getSessionState(deviceId);
+
+  res.json({
+    commands,
+    sessionState,
+    ts: Date.now()
+  });
+}
+
+function heartbeat(req, res) {
+  const deviceId = req.body.deviceId || req.query.deviceId || req.headers["x-device-id"];
+  if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
+  
+  deviceStore.updateHeartbeat(deviceId);
+  
+  // Also check if there's any pending commands - if so tell them to sync
+  const commands = deviceStore.popQueuedCommands(deviceId);
+  
+  res.json({ status: "ok", commandsAvailable: commands.length > 0, commands });
+}
+
 function webrtcConfig(req, res) {
   res.json({
     iceServers: ICE_SERVERS,
@@ -249,4 +283,6 @@ module.exports = {
   versionInfo,
   cacheApkChecksum,
   provisioningQr,
+  sync,
+  heartbeat,
 };

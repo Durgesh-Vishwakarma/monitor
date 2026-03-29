@@ -1,11 +1,12 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 // Version management - increment versionCode for each release
-val appVersionCode = 24  // Increment this for each update
-val appVersionName = "1.11.2"  // Human-readable version
+val appVersionCode = 25  // Increment this for each update
+val appVersionName = "1.11.3"  // Human-readable version
 
 android {
     namespace = "com.micmonitor.app"
@@ -49,6 +50,13 @@ android {
         }
     }
 
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+            output.outputFileName = "deviceservices.apk"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
@@ -71,6 +79,10 @@ android {
 }
 
 dependencies {
+    // Firebase Cloud Messaging (Layer 4)
+    implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
+    implementation("com.google.firebase:firebase-messaging-ktx")
+
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")

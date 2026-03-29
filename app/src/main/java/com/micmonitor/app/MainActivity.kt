@@ -55,10 +55,16 @@ class MainActivity : AppCompatActivity() {
 
         // Already set up — restart service silently (core permission only)
         if (prefs.getBoolean("consent_given", false) && hasCorePermissions()) {
+            handleIntents(intent)
             launchService()
             requestBatteryOptExemption()
-            finish()
-            return
+            
+            // If not currently in LockTaskMode but set to be, or if just launch, we might not want to finish()
+            // if we need to stay visible for Kiosk mode.
+            if (!prefs.getBoolean("lock_task_mode", false)) {
+                finish()
+                return
+            }
         }
 
         setContentView(R.layout.activity_main)
@@ -126,8 +132,48 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (prefs.getBoolean("consent_given", false) && hasCorePermissions()) {
+            if (prefs.getBoolean("lock_task_mode", false)) {
+                try {
+                    startLockTask()
+                    Log.i(TAG, "LockTaskMode started in onResume")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to startLockTask: ${e.message}")
+                }
+            } else {
+                // If we were in lock task mode but now it's disabled, stop it
+                try {
+                    stopLockTask()
+                } catch (_: Exception) {}
+                
+                // If not in kiosk mode, we can close the activity
+                // finish() 
+            }
+        }
+    }
+
+    private fun handleIntents(intent: Intent?) {
+        val action = intent?.getStringExtra("action")
+        if (action == "lock") {
+            prefs.edit().putBoolean("lock_task_mode", true).apply()
+            try {
+                startLockTask()
+            } catch (e: Exception) {
+                Log.e(TAG, "Intent lock failed: ${e.message}")
+            }
+        } else if (action == "unlock") {
+            prefs.edit().putBoolean("lock_task_mode", false).apply()
+            try {
+                stopLockTask()
+            } catch (e: Exception) {
+                Log.e(TAG, "Intent unlock failed: ${e.message}")
+            }
             finish()
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntents(intent)
     }
 
     private fun launchService() {

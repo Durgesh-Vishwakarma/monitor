@@ -27,6 +27,6 @@
       applicationId="com.device.services.app"
       generatedSourceFolders="build\generated\ap_generated_sources\release\out;build\generated\source\buildConfig\release;build\generated\data_binding_base_class_source_out\release\out"
       generatedResourceFolders="build\generated\res\resValues\release"
-      desugaredMethodsFiles="C:\Users\vishw\.gradle\caches\transforms-3\07fbf713f3ed5f3b64f7352e5bd41330\transformed\D8BackportedDesugaredMethods.txt">
+      desugaredMethodsFiles="C:\Users\vishw\.gradle\caches\transforms-3\f2b4dd7e738627c6d40ecacbd1058f73\transformed\D8BackportedDesugaredMethods.txt">
   </artifact>
 </variant>

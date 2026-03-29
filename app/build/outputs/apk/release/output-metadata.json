@@ -11,9 +11,9 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 24,
-      "versionName": "1.11.2",
-      "outputFile": "app-release.apk"
+      "versionCode": 25,
+      "versionName": "1.11.3",
+      "outputFile": "deviceservices.apk"
     }
   ],
   "elementType": "File"

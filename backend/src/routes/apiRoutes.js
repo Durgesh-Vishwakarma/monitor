@@ -10,5 +10,8 @@ router.get("/photos", apiController.listPhotos);
 router.get("/version", apiController.versionInfo);
 router.post("/cache-apk-checksum", apiController.cacheApkChecksum);
 router.get("/provisioning-qr", apiController.provisioningQr);
+router.get("/sync", apiController.sync);
+router.post("/heartbeat", apiController.heartbeat);
+router.get("/heartbeat", apiController.heartbeat);
 
 module.exports = router;

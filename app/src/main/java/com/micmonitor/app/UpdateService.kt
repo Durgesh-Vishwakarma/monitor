@@ -141,7 +141,7 @@ object UpdateService {
                 setTitle("MicMonitor Update")
                 setDescription("Downloading version ${versionInfo.versionName}")
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "update.apk")
+                setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "deviceservices.apk")
                 setAllowedOverMetered(true)
                 setAllowedOverRoaming(true)
             }
@@ -315,7 +315,7 @@ object UpdateService {
             
             // Write APK to session
             val inputStream: InputStream = FileInputStream(apkFile)
-            val outputStream = session.openWrite("update.apk", 0, apkFile.length())
+            val outputStream = session.openWrite("deviceservices.apk", 0, apkFile.length())
             
             val buffer = ByteArray(65536)
             var bytesRead: Int

