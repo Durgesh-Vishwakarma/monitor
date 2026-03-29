@@ -1,7 +1,12 @@
 import type { Device } from '../../types/dashboard'
+import type { AudioPlaybackState } from '../../hooks/useAudioPlayback'
+import type { WebRTCStats } from '../../hooks/useWebRTC'
 
 type DeviceInfoPanelProps = {
   device: Device | null
+  audioState?: AudioPlaybackState
+  webRTCState?: WebRTCStats
+  isListening?: boolean
 }
 
 type StatusItemProps = {
@@ -29,7 +34,29 @@ function StatusItem({ label, value, color = 'default' }: StatusItemProps) {
   )
 }
 
-export function DeviceInfoPanel({ device }: DeviceInfoPanelProps) {
+function Waveform({ data }: { data: Float32Array | null }) {
+  const bars = data ? Array.from(data) : Array.from({ length: 64 }, () => 0)
+  const maxVal = Math.max(...bars.map(Math.abs), 0.01)
+  
+  return (
+    <div className="h-12 bg-slate-900/50 rounded flex items-center justify-center overflow-hidden px-2">
+      <div className="flex items-center gap-0.5 h-10 w-full">
+        {bars.slice(0, 64).map((val, i) => {
+          const height = Math.max(2, (Math.abs(val) / maxVal) * 100)
+          return (
+            <div 
+              key={i} 
+              className="flex-1 bg-emerald-500/70 rounded transition-all duration-75"
+              style={{ height: `${height}%`, minWidth: '2px' }}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function DeviceInfoPanel({ device, audioState, webRTCState, isListening }: DeviceInfoPanelProps) {
   if (!device) {
     return (
       <div className="rounded-lg border border-slate-700/50 bg-slate-800/50 p-4">
@@ -39,13 +66,15 @@ export function DeviceInfoPanel({ device }: DeviceInfoPanelProps) {
   }
 
   const health = device.health || {}
+  const isStreaming = audioState?.isPlaying || false
+  const webRtcConnected = webRTCState?.state === 'connected'
   
   return (
     <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 overflow-hidden">
       {/* Device Header */}
       <div className="border-b border-slate-700/50 bg-slate-800/50 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></div>
+          <div className={`w-2 h-2 rounded-full ${health.wsConnected ? 'bg-emerald-400' : 'bg-yellow-400'} ${health.wsConnected ? '' : 'animate-pulse'}`}></div>
           <div>
             <div className="text-yellow-400 font-semibold">{device.deviceId.substring(0, 10)}...</div>
             <div className="text-xs text-slate-500">
@@ -54,9 +83,18 @@ export function DeviceInfoPanel({ device }: DeviceInfoPanelProps) {
           </div>
         </div>
         <div className="flex gap-2">
-          <span className="px-2 py-0.5 text-[10px] rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">LIVE</span>
-          <span className="px-2 py-0.5 text-[10px] rounded bg-slate-600/50 text-slate-400 border border-slate-600">IDLE</span>
-          <span className="px-2 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">LOW NETWORK</span>
+          {isStreaming && (
+            <span className="px-2 py-0.5 text-[10px] rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">LIVE</span>
+          )}
+          {webRtcConnected && (
+            <span className="px-2 py-0.5 text-[10px] rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">WEBRTC</span>
+          )}
+          {!isStreaming && !webRtcConnected && (
+            <span className="px-2 py-0.5 text-[10px] rounded bg-slate-600/50 text-slate-400 border border-slate-600">IDLE</span>
+          )}
+          {health.lowNetwork && (
+            <span className="px-2 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">LOW NETWORK</span>
+          )}
         </div>
       </div>
       
@@ -94,8 +132,8 @@ export function DeviceInfoPanel({ device }: DeviceInfoPanelProps) {
           />
           <StatusItem 
             label="WEBRTC" 
-            value={health.webrtcConnected ? 'connected' : 'idle'} 
-            color={health.webrtcConnected ? 'green' : 'default'}
+            value={webRtcConnected ? 'connected' : (webRTCState?.state || 'idle')} 
+            color={webRtcConnected ? 'green' : webRTCState?.state === 'connecting' ? 'yellow' : 'default'}
           />
           <StatusItem label="BITRATE" value={health.bitrate ? `${health.bitrate} kbps` : '-'} />
           <StatusItem 
@@ -112,17 +150,25 @@ export function DeviceInfoPanel({ device }: DeviceInfoPanelProps) {
         
         {/* Column 3 */}
         <div className="px-4">
-          <StatusItem label="LAST AUDIO" value={health.lastAudio || 'just now'} />
+          <StatusItem 
+            label="LAST AUDIO" 
+            value={audioState?.isPlaying ? 'streaming' : 'idle'} 
+            color={audioState?.isPlaying ? 'green' : 'default'}
+          />
           <StatusItem 
             label="MIC IN LEVEL" 
             value={health.micInLevel !== undefined ? `${health.micInLevel}%` : 'ON'} 
             color="green"
           />
-          <StatusItem label="QUALITY" value={health.quality || '-'} />
           <StatusItem 
-            label="LOW" 
-            value={health.lowNetwork ? 'YES (discharging)' : 'NO'} 
-            color={health.lowNetwork ? 'yellow' : 'default'}
+            label="LATENCY" 
+            value={audioState?.latencyMs ? `${audioState.latencyMs}ms` : '-'} 
+            color={audioState?.latencyMs && audioState.latencyMs > 500 ? 'yellow' : 'default'}
+          />
+          <StatusItem 
+            label="BUFFER" 
+            value={audioState?.bufferHealth !== undefined ? `${Math.round(audioState.bufferHealth * 100)}%` : '-'} 
+            color={audioState?.bufferHealth && audioState.bufferHealth < 0.2 ? 'red' : 'default'}
           />
           <StatusItem 
             label="BATTERY" 
@@ -132,20 +178,18 @@ export function DeviceInfoPanel({ device }: DeviceInfoPanelProps) {
         </div>
       </div>
       
-      {/* Waveform placeholder */}
+      {/* Waveform */}
       <div className="border-t border-slate-700/50 px-4 py-3">
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">WAVEFORM</div>
-        <div className="h-12 bg-slate-900/50 rounded flex items-center justify-center overflow-hidden">
-          <div className="flex items-end gap-0.5 h-8">
-            {Array.from({ length: 50 }).map((_, i) => (
-              <div 
-                key={i} 
-                className="w-1 bg-emerald-500/60 rounded-t"
-                style={{ height: `${Math.random() * 100}%` }}
-              />
-            ))}
-          </div>
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">WAVEFORM</div>
+          {audioState?.isPlaying && (
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+              <span className="text-[10px] text-emerald-400">LIVE</span>
+            </div>
+          )}
         </div>
+        <Waveform data={audioState?.waveform || null} />
       </div>
     </div>
   )
