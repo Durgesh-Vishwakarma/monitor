@@ -22,12 +22,12 @@ function App() {
   // Audio data callback - receives binary audio from WebSocket
   const handleAudioData = useCallback((data: ArrayBuffer, deviceId: string) => {
     audioPlayback.feedAudio(data, deviceId)
-  }, [audioPlayback])
+  }, [audioPlayback.feedAudio])
 
   // WebRTC message callback - handles signaling messages
   const handleWebRTCMessage = useCallback((msg: Record<string, unknown>) => {
     webRTC.handleMessage(msg)
-  }, [webRTC])
+  }, [webRTC.handleMessage])
 
   // Camera frame callback
   const handleCameraFrame = useCallback((frame: CameraFrame) => {
@@ -74,14 +74,14 @@ function App() {
       setIsRecording(false)
     }
     sendCommand(cmd, extra)
-  }, [audioPlayback, webRTC, sendCommand])
+  }, [audioPlayback.start, audioPlayback.stop, webRTC.start, webRTC.stop, sendCommand])
 
   // Auto-start audio playback when device connects and we're in listening mode
   useEffect(() => {
     if (isListening && !audioPlayback.state.isPlaying) {
       audioPlayback.start()
     }
-  }, [isListening, audioPlayback])
+  }, [isListening, audioPlayback.state.isPlaying, audioPlayback.start])
 
   // Clear camera frame when stream stops
   useEffect(() => {
