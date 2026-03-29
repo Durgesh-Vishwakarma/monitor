@@ -197,7 +197,6 @@ export function useDashboard(
 
           // Handle photo saved
           if (type === 'photo_saved') {
-            const deviceId = String(msg.deviceId || '')
             const photo: Photo = {
               id: String(msg.filename || Date.now()),
               filename: String(msg.filename || ''),
