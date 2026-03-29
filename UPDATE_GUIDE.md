@@ -18,7 +18,7 @@ cd "c:\Users\vishw\OneDrive\Desktop\New folder\MicMonitor"
 gradlew.bat assembleRelease
 ```
 
-The APK will be at: `android-app\build\outputs\apk\release\app-release.apk`
+The APK will be at: `app\build\outputs\apk\release\app-release.apk`
 
 ---
 
@@ -37,7 +37,7 @@ mkdir updates
 Copy the built APK to the server's updates folder:
 
 ```bash
-copy "android-app\build\outputs\apk\release\app-release.apk" "updates\app-release.apk"
+copy "app\build\outputs\apk\release\app-release.apk" "backend\updates\app-release.apk"
 ```
 
 ---
@@ -159,9 +159,9 @@ Example progression:
 
 ## Quick Reference
 
-**Build:** `gradlew.bat assembleRelease`  
-**APK Location:** `android-app\build\outputs\apk\release\app-release.apk`  
-**Copy to Server:** `copy android-app\build\outputs\apk\release\app-release.apk updates\`  
+**Build:** `gradlew.bat :app:assembleRelease`  
+**APK Location:** `app\build\outputs\apk\release\app-release.apk`  
+**Copy to Server:** `copy app\build\outputs\apk\release\app-release.apk backend\updates\`  
 **Update version.json:** Edit `updates\version.json`  
 **Dashboard Update Button:** Click "🔄 Update App" on device card  
 **Auto-update:** Every 15 minutes automatically
