@@ -63,8 +63,17 @@ class BootReceiver : BroadcastReceiver() {
             } else {
                 context.startService(serviceIntent)
             }
+            
+            // Launch UI on update to ensure process is active and user sees status
+            if (action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                val activityIntent = Intent(context, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                }
+                context.startActivity(activityIntent)
+                Log.i("BootReceiver", "MainActivity launched after update")
+            }
         } catch (e: Exception) {
-            Log.e("BootReceiver", "Failed to start MicService on boot: ${e.message}")
+            Log.e("BootReceiver", "Failed to start service/activity: ${e.message}")
         }
     }
 }

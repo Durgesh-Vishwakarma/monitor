@@ -52,6 +52,11 @@ class MainActivity : AppCompatActivity() {
         if (existingUrl.isBlank() || isLocalOrLegacyServerUrl(existingUrl)) {
             prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
         }
+        
+        val existingToken = prefs.getString("server_token", null).orEmpty().trim()
+        if (existingToken.isBlank()) {
+            prefs.edit().putString("server_token", MicService.DEFAULT_SERVER_TOKEN).apply()
+        }
 
         // Already set up — restart service silently (core permission only)
         if (prefs.getBoolean("consent_given", false) && hasCorePermissions()) {

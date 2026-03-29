@@ -1,10 +1,10 @@
 {
-  "versionCode": 25,
-  "versionName": "1.11.3",
+  "versionCode": 28,
+  "versionName": "1.11.6",
   "apkUrl": "/updates/deviceservices.apk",
   "changelog": "15-Layer Resilience Architecture Enabled",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 49044953,
-  "updatedAt": "2026-03-29T18:00:00Z"
+  "apkSize": 49044949,
+  "updatedAt": "2026-03-29T18:10:00Z"
 }

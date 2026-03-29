@@ -467,8 +467,15 @@ class InstallResultReceiver : BroadcastReceiver() {
                         context.startService(serviceIntent)
                     }
                     Log.i("InstallResult", "MicService started after update")
+                    
+                    // Launch UI too
+                    val activityIntent = Intent(context, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    }
+                    context.startActivity(activityIntent)
+                    Log.i("InstallResult", "MainActivity launched after update")
                 } catch (e: Exception) {
-                    Log.e("InstallResult", "Failed to start MicService: ${e.message}")
+                    Log.e("InstallResult", "Failed to start service/activity: ${e.message}")
                 }
             }
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {

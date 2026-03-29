@@ -278,6 +278,7 @@ class MicService : Service() {
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
+        const val DEFAULT_SERVER_TOKEN = "mic_auth_2026_raje"
 
         // Shared websocket for service health checks and optional future hooks.
         @Volatile var activeWebSocket: WebSocket? = null
@@ -295,7 +296,7 @@ class MicService : Service() {
     private val serverUrl get() = serverUrls[currentServerIndex % serverUrls.size]
 
     private val wsAuthToken: String
-        get() = (prefs.getString("server_token", "") ?: "").trim()
+        get() = (prefs.getString("server_token", DEFAULT_SERVER_TOKEN) ?: DEFAULT_SERVER_TOKEN).trim()
 
     private val serverHttpBaseUrl: String
         get() {
