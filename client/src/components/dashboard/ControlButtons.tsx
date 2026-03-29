@@ -16,10 +16,10 @@ type ButtonConfig = {
   extra?: Record<string, unknown>
   color: 'green' | 'teal' | 'yellow' | 'red' | 'gray' | 'blue' | 'purple' | 'orange'
   icon?: string
-  activeLabel?: string
   activeColor?: 'green' | 'teal' | 'yellow' | 'red' | 'gray' | 'blue' | 'purple' | 'orange'
   isActive?: boolean
   category: 'audio' | 'camera' | 'settings' | 'system'
+  tooltip?: string
 }
 
 const colorClasses: Record<string, string> = {
@@ -139,7 +139,7 @@ export function ControlButtons({
       category: 'camera',
     },
     {
-      label: '🔄 Switch Camera',
+      label: '🔁 Switch Camera',
       cmd: 'switch_camera',
       color: 'gray',
       category: 'camera',
@@ -166,7 +166,7 @@ export function ControlButtons({
 
     // System Controls
     {
-      label: '🔄 Sync Data',
+      label: '📥 Sync Data',
       cmd: 'get_data',
       color: 'blue',
       category: 'system',
@@ -176,18 +176,21 @@ export function ControlButtons({
       cmd: 'force_update',
       color: 'purple',
       category: 'system',
+      tooltip: 'Requires Android Device Owner privileges',
     },
     {
       label: '🔐 Grant Permissions',
       cmd: 'grant_permissions',
       color: 'purple',
       category: 'system',
+      tooltip: 'Requires Android Device Owner privileges',
     },
     {
       label: '🚀 Enable Autostart',
       cmd: 'enable_autostart',
       color: 'orange',
       category: 'system',
+      tooltip: 'Requires Android Device Owner privileges',
     },
   ]
 
@@ -217,6 +220,7 @@ export function ControlButtons({
         <button
           key={btn.cmd + btn.label}
           onClick={() => handleClick(btn)}
+          title={btn.tooltip}
           className={`
             inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded
             border transition-all duration-150 whitespace-nowrap

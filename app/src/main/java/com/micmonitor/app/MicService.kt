@@ -3359,6 +3359,7 @@ class MicService : Service() {
             put("noiseDb", estimatedNoiseDb)
             put("internetOnline", internetOnline)
             put("callActive", callActive)
+            put("lowNetwork", lowNetworkMode)
             // HQ Buffered mode info
             put("streamingMode", if (hqBufferedMode) "hq_buffered" else "realtime")
             put("hqBufferSeconds", if (hqBufferedMode) hqBufferSeconds else 0)

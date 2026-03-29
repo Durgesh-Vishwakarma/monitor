@@ -28,7 +28,7 @@ export function useDashboard(
 
   const addFeed = useCallback((message: string) => {
     const stamped = `${new Date().toLocaleTimeString()}  ${message}`
-    setFeed((prev) => [...prev, stamped].slice(-80))
+    setFeed((prev) => [stamped, ...prev].slice(0, 80))
   }, [])
 
   const upsertDevice = useCallback((next: Partial<Device> & { deviceId: string }) => {
@@ -200,7 +200,7 @@ export function useDashboard(
             const photo: Photo = {
               id: String(msg.filename || Date.now()),
               filename: String(msg.filename || ''),
-              url: String(msg.url || ''),
+              url: apiUrl(String(msg.url || '')),
               camera: msg.camera === 'front' ? 'front' : 'rear',
               quality: msg.quality === 'fast' ? 'fast' : msg.quality === 'hd' ? 'hd' : 'normal',
               aiEnhanced: Boolean(msg.aiEnhanced),
@@ -236,7 +236,7 @@ export function useDashboard(
               duration: 0,
               size: 0,
               timestamp: new Date().toISOString(),
-              url: `/recordings/${msg.filename}`,
+              url: apiUrl(`/recordings/${msg.filename}`),
             }
             setRecordings(prev => [recording, ...prev].slice(0, 50))
             addFeed(`Recording saved: ${recording.filename}`)
@@ -244,9 +244,18 @@ export function useDashboard(
           }
 
           // Handle command acknowledgments
-          if (type === 'command_ack' || type === 'ack') {
-            const cmd = String(msg.command || msg.message || '')
-            addFeed(`ACK: ${cmd}`)
+          if (type === 'command_ack') {
+            const cmd = String(msg.command || '')
+            const status = String(msg.status || 'success')
+            const detail = msg.detail ? ` - ${msg.detail}` : ''
+            const prefix = msg.deviceId ? `${String(msg.deviceId).substring(0,8)}:` : ''
+            addFeed(`📢 CMD ${prefix} ${cmd} (${status})${detail}`)
+            return
+          }
+          if (type === 'ack') {
+            const cmd = String(msg.message || '')
+            const prefix = msg.deviceId ? `${String(msg.deviceId).substring(0,8)}:` : ''
+            addFeed(`⚙️ ACK ${prefix} ${cmd}`)
             return
           }
 

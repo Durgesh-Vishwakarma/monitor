@@ -165,6 +165,7 @@ function handleAudioDevice(ws, req) {
                   ? Number(json.batteryPct)
                   : null,
                 charging: typeof json.charging === "boolean" ? json.charging : null,
+                lowNetwork: json.lowNetwork === true,
                 photoAi: json.photoAi !== false,
                 photoQuality: String(json.photoQuality || dev.health?.photoQuality || "normal"),
                 photoNight: String(json.photoNight || dev.health?.photoNight || "off"),

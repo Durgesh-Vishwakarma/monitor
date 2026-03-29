@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { Device } from '../../types/dashboard'
 import type { AudioPlaybackState } from '../../hooks/useAudioPlayback'
 import type { WebRTCStats } from '../../hooks/useWebRTC'
@@ -34,23 +35,90 @@ function StatusItem({ label, value, color = 'default' }: StatusItemProps) {
 }
 
 function Waveform({ data }: { data: Float32Array | null }) {
-  const bars = data ? Array.from(data) : Array.from({ length: 64 }, () => 0)
-  const maxVal = Math.max(...bars.map(Math.abs), 0.01)
-  
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    ctx.scale(dpr, dpr)
+
+    const width = rect.width
+    const height = rect.height
+    const centerY = height / 2
+
+    // Clear background
+    ctx.clearRect(0, 0, width, height)
+
+    if (!data || data.length === 0) {
+      // Draw flat line if no data
+      ctx.beginPath()
+      ctx.moveTo(0, centerY)
+      ctx.lineTo(width, centerY)
+      ctx.strokeStyle = 'rgba(52, 211, 153, 0.2)' // emerald-400 dim
+      ctx.lineWidth = 2
+      ctx.stroke()
+      return
+    }
+
+    // Draw waveform
+    ctx.beginPath()
+    const sliceWidth = width / data.length
+    let x = 0
+
+    // Find max amplitude to normalize
+    let maxAmp = 0.01
+    for (let i = 0; i < data.length; i++) {
+        const v = Math.abs(data[i])
+        if (v > maxAmp) maxAmp = v
+    }
+
+    // Oscilloscope style
+    ctx.moveTo(0, centerY)
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i] / maxAmp
+      const y = centerY - (v * centerY * 0.9)
+      
+      if (i === 0) {
+        ctx.moveTo(x, y)
+      } else {
+        ctx.lineTo(x, y)
+      }
+      x += sliceWidth
+    }
+
+    // Create gradient
+    const gradient = ctx.createLinearGradient(0, 0, width, 0)
+    gradient.addColorStop(0, 'rgba(52, 211, 153, 0.4)')
+    gradient.addColorStop(0.5, 'rgba(52, 211, 153, 1)')
+    gradient.addColorStop(1, 'rgba(52, 211, 153, 0.4)')
+
+    ctx.strokeStyle = gradient
+    ctx.lineWidth = 2
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.stroke()
+
+    // Fill underneath slightly
+    ctx.lineTo(width, centerY)
+    ctx.lineTo(0, centerY)
+    ctx.fillStyle = 'rgba(52, 211, 153, 0.05)'
+    ctx.fill()
+  }, [data])
+
   return (
-    <div className="h-12 bg-slate-900/50 rounded flex items-center justify-center overflow-hidden px-2">
-      <div className="flex items-center gap-0.5 h-10 w-full">
-        {bars.slice(0, 64).map((val, i) => {
-          const height = Math.max(2, (Math.abs(val) / maxVal) * 100)
-          return (
-            <div 
-              key={i} 
-              className="flex-1 bg-emerald-500/70 rounded transition-all duration-75"
-              style={{ height: `${height}%`, minWidth: '2px' }}
-            />
-          )
-        })}
-      </div>
+    <div className="h-16 bg-slate-900/50 rounded flex items-center justify-center overflow-hidden px-2">
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full"
+        style={{ display: 'block' }}
+      />
     </div>
   )
 }

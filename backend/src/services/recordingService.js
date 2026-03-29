@@ -52,7 +52,7 @@ function saveMp3(deviceId, device) {
     console.error(`❌ Failed to encode/save MP3 for ${deviceId}:`, err.message);
   }
 
-  broadcastToDashboard({ type: "recording_stopped", deviceId, filename });
+  broadcastToDashboard({ type: "recording_saved", deviceId, filename });
 }
 
 function pcmToMp3(pcmBuffer, sampleRate = DEFAULT_SAMPLE_RATE) {

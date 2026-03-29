@@ -11,6 +11,7 @@ type CameraLiveFeedProps = {
 
 export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onStopLive }: CameraLiveFeedProps) {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
+  const [rotation, setRotation] = useState<number>(0)
 
   return (
     <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 overflow-hidden">
@@ -39,6 +40,13 @@ export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onS
               🔄
             </button>
             <button
+              onClick={() => setRotation((r) => (r + 90) % 360)}
+              className="px-2 py-1 text-xs bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors"
+              title="Rotate 90°"
+            >
+              ↻
+            </button>
+            <button
               onClick={onStopLive}
               className="px-2 py-1 text-xs bg-red-600 hover:bg-red-500 text-white rounded transition-colors"
             >
@@ -52,12 +60,15 @@ export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onS
         {/* Live Feed */}
         {frame ? (
           <div className="relative">
-            <img
-              src={`data:${frame.mime};base64,${frame.data}`}
-              alt="Live camera feed"
-              className="w-full h-48 object-contain bg-black rounded"
-            />
-            <div className="absolute bottom-2 left-2 flex items-center gap-2">
+            <div className="w-full h-48 bg-black rounded overflow-hidden flex items-center justify-center">
+              <img
+                src={`data:${frame.mime};base64,${frame.data}`}
+                alt="Live camera feed"
+                className="max-w-full max-h-full object-contain transition-transform"
+                style={{ transform: `rotate(${rotation}deg)` }}
+              />
+            </div>
+            <div className="absolute bottom-2 left-2 flex items-center gap-2 z-10">
               <span className="px-1.5 py-0.5 text-[9px] bg-black/70 text-white rounded">
                 {frame.camera.toUpperCase()}
               </span>
