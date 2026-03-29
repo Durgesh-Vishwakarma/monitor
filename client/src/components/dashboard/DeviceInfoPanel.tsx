@@ -6,7 +6,6 @@ type DeviceInfoPanelProps = {
   device: Device | null
   audioState?: AudioPlaybackState
   webRTCState?: WebRTCStats
-  isListening?: boolean
 }
 
 type StatusItemProps = {
@@ -56,7 +55,7 @@ function Waveform({ data }: { data: Float32Array | null }) {
   )
 }
 
-export function DeviceInfoPanel({ device, audioState, webRTCState, isListening }: DeviceInfoPanelProps) {
+export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoPanelProps) {
   if (!device) {
     return (
       <div className="rounded-lg border border-slate-700/50 bg-slate-800/50 p-4">

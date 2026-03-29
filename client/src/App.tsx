@@ -153,7 +153,6 @@ function App() {
           device={selectedDevice} 
           audioState={audioPlayback.state}
           webRTCState={webRTC.stats}
-          isListening={isListening}
         />
 
         {/* Control Buttons */}
