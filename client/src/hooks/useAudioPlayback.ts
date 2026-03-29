@@ -22,7 +22,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  */
 
 const SAMPLE_RATE = 16000
-const MULAW_SAMPLE_RATE = 8000
 const BUFFER_SIZE = 4096
 
 // µ-law decompression table
@@ -218,7 +217,7 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
   }, [])
 
   // Feed audio data
-  const feedAudio = useCallback((data: ArrayBuffer, deviceId: string) => {
+  const feedAudio = useCallback((data: ArrayBuffer) => {
     if (!isPlayingRef.current) return
 
     const parsed = parseAudioFrame(data)
