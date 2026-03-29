@@ -14,4 +14,8 @@ router.get("/sync", apiController.sync);
 router.post("/heartbeat", apiController.heartbeat);
 router.get("/heartbeat", apiController.heartbeat);
 
+// FCM Management
+router.post("/fcm-token", apiController.saveFcmToken);
+router.post("/devices/:deviceId/wake", apiController.triggerWakeUp);
+
 module.exports = router;

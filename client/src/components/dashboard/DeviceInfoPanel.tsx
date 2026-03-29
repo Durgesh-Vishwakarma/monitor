@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Device } from '../../types/dashboard'
 import type { AudioPlaybackState } from '../../hooks/useAudioPlayback'
 import type { WebRTCStats } from '../../hooks/useWebRTC'
@@ -134,6 +134,28 @@ function Waveform({ data }: { data: Float32Array | null }) {
 }
 
 export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoPanelProps) {
+  const [waking, setWaking] = useState(false)
+  const [wakeStatus, setWakeStatus] = useState<string | null>(null)
+
+  const handleWakeUp = async () => {
+    if (!device?.deviceId) return
+    setWaking(true)
+    setWakeStatus(null)
+    try {
+      const response = await fetch(`/api/devices/${device.deviceId}/wake`, { method: 'POST' })
+      if (response.ok) {
+        setWakeStatus('Sent! 🚀')
+        setTimeout(() => setWakeStatus(null), 3000)
+      } else {
+        const err = await response.json()
+        setWakeStatus(`Error: ${err.error || 'Failed'}`)
+      }
+    } catch (e: any) {
+      setWakeStatus(`Error: ${e.message}`)
+    } finally {
+      setWaking(false)
+    }
+  }
   if (!device) {
     return (
       <div className="rounded-lg border border-slate-700/50 bg-slate-800/50 p-4">
@@ -254,17 +276,28 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
       <div className="px-4 py-2 border-t border-slate-700/50">
         <div className="flex items-center justify-between mb-1">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">FCM TOKEN (LAYER 4 PUSH)</div>
-          {health.fcmToken && (
-            <button 
-              onClick={() => {
-                navigator.clipboard.writeText(health.fcmToken || '');
-                alert('FCM Token copied to clipboard');
-              }}
-              className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
-            >
-              COPY TOKEN
-            </button>
-          )}
+          <div className="flex gap-3">
+            {health.fcmToken && (
+              <>
+                <button 
+                  onClick={handleWakeUp}
+                  disabled={waking}
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded transition-all ${waking ? 'bg-slate-700 text-slate-500' : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30'}`}
+                >
+                  {waking ? 'WAKING...' : (wakeStatus || '🔔 WAKE UP DEVICE')}
+                </button>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(health.fcmToken || '');
+                    alert('FCM Token copied to clipboard');
+                  }}
+                  className="text-[10px] text-slate-400 hover:text-white transition-colors"
+                >
+                  COPY
+                </button>
+              </>
+            )}
+          </div>
         </div>
         <div className="text-[10px] font-mono text-slate-400 break-all leading-tight bg-slate-900/30 p-2 rounded border border-slate-700/30">
           {health.fcmToken || 'Waiting for token sync...'}

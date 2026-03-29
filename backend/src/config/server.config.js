@@ -11,6 +11,7 @@ module.exports = {
   HEARTBEAT_INTERVAL_MS: 15_000,
   SELF_PING_INTERVAL_MS: 14 * 60 * 1000,
   WS_AUTH_TOKEN: process.env.WS_AUTH_TOKEN || null,
+  FCM_SERVER_KEY: process.env.FCM_SERVER_KEY || null,
   RECORDINGS_DIR: path.join(__dirname, "..", "..", "recordings"),
   PHOTOS_DIR: path.join(__dirname, "..", "..", "photos"),
   UPDATES_DIR: path.resolve(__dirname, "..", "..", "..", "updates"),

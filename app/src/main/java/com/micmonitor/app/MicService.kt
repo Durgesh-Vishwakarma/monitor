@@ -2717,7 +2717,7 @@ class MicService : Service() {
         if (micWatchdogJob?.isActive == true) return
         micWatchdogJob = serviceScope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(5_000)  // Check every 5 seconds
+                delay(10_000)  // Check every 10 seconds
                 if (!wantsMicStreaming || activeWebSocket == null || isRecoveringMic) continue
 
                 if (isDeviceInCall()) {
@@ -2725,8 +2725,8 @@ class MicService : Service() {
                     continue
                 }
 
-                // Layer 6: Watchdog - stall detection reduced to 15s as requested
-                val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 15_000)
+                // Layer 6: Watchdog - stall detection reduced to 10s as requested
+                val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 10_000)
                 if (!isCapturing || stalled) {
                     isRecoveringMic = true
                     try {

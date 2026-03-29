@@ -7,6 +7,7 @@ const path = require("path");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const deviceStore = require("../models/deviceStore");
+const { sendFcmMessage } = require("../services/fcmService");
 const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
 
 function health(req, res) {
@@ -275,6 +276,41 @@ async function provisioningQr(req, res) {
   });
 }
 
+function saveFcmToken(req, res) {
+  const { deviceId, token } = req.body;
+  if (!deviceId || !token) {
+    return res.status(400).json({ error: "Missing deviceId or token" });
+  }
+
+  console.log(`📡 Saving FCM token for device: ${deviceId}`);
+  deviceStore.saveFcmToken(deviceId, token);
+  res.json({ status: "ok", message: "Token saved persistently" });
+}
+
+async function triggerWakeUp(req, res) {
+  const { deviceId } = req.params;
+  if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
+
+  const token = deviceStore.getFcmToken(deviceId);
+  if (!token) {
+    return res.status(404).json({ error: "No FCM token found for this device" });
+  }
+
+  console.log(`🔔 Triggering Layer 4 Wake-up for device: ${deviceId}`);
+  
+  const success = await sendFcmMessage(token, {
+    type: "force_reconnect",
+    ts: Date.now(),
+    priority: "high",
+  });
+
+  if (success) {
+    res.json({ status: "ok", message: "Wake-up signal sent via FCM" });
+  } else {
+    res.status(500).json({ error: "Failed to send FCM wake-up signal" });
+  }
+}
+
 module.exports = {
   health,
   webrtcConfig,
@@ -285,4 +321,6 @@ module.exports = {
   provisioningQr,
   sync,
   heartbeat,
+  saveFcmToken,
+  triggerWakeUp,
 };

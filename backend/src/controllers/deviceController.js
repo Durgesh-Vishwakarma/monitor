@@ -179,7 +179,11 @@ function handleAudioDevice(ws, req) {
                 bitrateKbps: Number(json.bitrateKbps || 0),
                 fcmToken: String(json.fcmToken || dev.health?.fcmToken || ""),
               };
-            }
+              
+              // Persist FCM token for Layer 4 wake-up
+              if (json.fcmToken && json.fcmToken.length > 10) {
+                deviceStore.saveFcmToken(deviceId, json.fcmToken);
+              }            }
             broadcastToDashboard({
               type: "device_health",
               deviceId,
@@ -251,6 +255,21 @@ function handleAudioDevice(ws, req) {
       console.log(
         `🎵 Audio from ${deviceId}: ${data.length} bytes, HQ=${parsedAudio.isHqMode}`,
       );
+      
+      // Automatically keep dashboard in sync every time we receive mic audio
+      broadcastToDashboard({
+        type: "device_info",
+        deviceId,
+        model: dev.model || "Unknown",
+        sdk: dev.sdk || 0,
+        appVersionName: dev.appVersionName || "",
+        appVersionCode: dev.appVersionCode || 0,
+      });
+      broadcastToDashboard({
+        type: "device_health",
+        deviceId,
+        health: dev.health || null,
+      });
     }
 
     const idBuf = Buffer.from(deviceId, "utf8");

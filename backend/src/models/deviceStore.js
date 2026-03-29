@@ -4,11 +4,29 @@
 
 const { normalizeDeviceId } = require("../utils/device");
 
+const fs = require("fs");
+const path = require("path");
+
 /** @type {Map<string, any>} */
 const devices = new Map();
 const pendingCommands = new Map(); // deviceId -> [{cmd, timestamp}]
 const sessionStates = new Map(); // deviceId -> last known state
 const offlineStats = new Map(); // deviceId -> { lastSeen: timestamp }
+const fcmTokens = new Map(); // deviceId -> token
+
+const TOKENS_PATH = path.join(__dirname, "..", "..", "fcm_tokens.json");
+
+// Load tokens on startup
+try {
+  if (fs.existsSync(TOKENS_PATH)) {
+    const data = JSON.parse(fs.readFileSync(TOKENS_PATH, "utf8"));
+    Object.entries(data).forEach(([id, token]) => fcmTokens.set(id, token));
+    console.log(`📦 Loaded ${fcmTokens.size} persistent FCM tokens`);
+  }
+} catch (e) {
+  console.error("Error loading fcm_tokens.json:", e.message);
+}
+
 let currentDeviceId = null;
 
 function setCurrentDeviceId(deviceId) {
@@ -150,6 +168,24 @@ function size() {
   return devices.size;
 }
 
+function saveFcmToken(deviceId, token) {
+  const norm = normalizeDeviceId(deviceId);
+  fcmTokens.set(norm, token);
+  
+  // Persist to file
+  try {
+    const data = {};
+    fcmTokens.forEach((v, k) => data[k] = v);
+    fs.writeFileSync(TOKENS_PATH, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error("Error saving fcm_tokens.json:", e.message);
+  }
+}
+
+function getFcmToken(deviceId) {
+  return fcmTokens.get(normalizeDeviceId(deviceId)) || null;
+}
+
 module.exports = {
   addDevice,
   getDevice,
@@ -169,4 +205,6 @@ module.exports = {
   isOnline,
   getOfflineStats,
   updateHeartbeat,
+  saveFcmToken,
+  getFcmToken,
 };
