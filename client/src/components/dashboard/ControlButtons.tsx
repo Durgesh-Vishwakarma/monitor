@@ -33,6 +33,14 @@ const colorClasses: Record<string, string> = {
   orange: 'bg-orange-600 hover:bg-orange-500 border-orange-500 text-white',
 }
 
+const GAIN_LEVELS = [
+  { label: '1x Normal', value: 1.0, color: 'gray' as const },
+  { label: '1.5x Boost', value: 1.5, color: 'blue' as const },
+  { label: '2x Loud', value: 2.0, color: 'green' as const },
+  { label: '3x Max', value: 3.0, color: 'orange' as const },
+  { label: '4x Ultra', value: 4.0, color: 'red' as const },
+]
+
 export function ControlButtons({ 
   onCommand, 
   health,
@@ -47,6 +55,7 @@ export function ControlButtons({
   const [photoNight, setPhotoNight] = useState<'off' | '1s' | '3s' | '5s'>(
     (health?.photoNight as 'off' | '1s' | '3s' | '5s') || 'off'
   )
+  const [gainIndex, setGainIndex] = useState(0)
 
   const cycleVoiceProfile = () => {
     const profiles: Array<'near' | 'room' | 'far'> = ['near', 'room', 'far']
@@ -61,6 +70,14 @@ export function ControlButtons({
     setPhotoNight(next)
     onCommand('photo_night', { mode: next })
   }
+
+  const cycleGain = () => {
+    const nextIndex = (gainIndex + 1) % GAIN_LEVELS.length
+    setGainIndex(nextIndex)
+    onCommand('set_gain', { level: GAIN_LEVELS[nextIndex].value })
+  }
+
+  const currentGain = GAIN_LEVELS[gainIndex]
 
   const buttons: ButtonConfig[] = [
     // Audio Controls
@@ -87,6 +104,13 @@ export function ControlButtons({
       cmd: 'cycle_voice',
       color: voiceProfile === 'far' ? 'yellow' : 'gray',
       category: 'audio',
+    },
+    {
+      label: `🔊 Gain: ${currentGain.label}`,
+      cmd: 'cycle_gain',
+      color: currentGain.color,
+      category: 'audio',
+      tooltip: 'Cycle through volume gain levels (1x → 1.5x → 2x → 3x → 4x)',
     },
 
     // Camera Controls
@@ -152,6 +176,10 @@ export function ControlButtons({
     }
     if (btn.cmd === 'cycle_night') {
       cyclePhotoNight()
+      return
+    }
+    if (btn.cmd === 'cycle_gain') {
+      cycleGain()
       return
     }
     onCommand(btn.cmd, btn.extra)

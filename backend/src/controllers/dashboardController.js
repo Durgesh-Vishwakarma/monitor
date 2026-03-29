@@ -190,6 +190,13 @@ function handleDashboard(ws) {
           });
           console.log(`🎵 Streaming mode set to ${msg.mode} for ${targetId}`);
           break;
+        case "set_gain":
+          safeSendJson({
+            type: "set_gain",
+            level: parseFloat(msg.level) || 1.0,
+          });
+          console.log(`🔊 Gain set to ${msg.level}x for ${targetId}`);
+          break;
         case "take_photo":
           if (
             safeSendJson({

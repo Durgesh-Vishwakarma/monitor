@@ -177,6 +177,7 @@ function handleAudioDevice(ws, req) {
                 netUpKbps: Number(json.netUpKbps || 0),
                 netType: String(json.netType || "other"),
                 bitrateKbps: Number(json.bitrateKbps || 0),
+                fcmToken: String(json.fcmToken || dev.health?.fcmToken || ""),
               };
             }
             broadcastToDashboard({

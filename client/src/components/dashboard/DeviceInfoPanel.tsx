@@ -249,6 +249,27 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
           />
         </div>
       </div>
+
+      {/* FCM Token Section */}
+      <div className="px-4 py-2 border-t border-slate-700/50">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">FCM TOKEN (LAYER 4 PUSH)</div>
+          {health.fcmToken && (
+            <button 
+              onClick={() => {
+                navigator.clipboard.writeText(health.fcmToken || '');
+                alert('FCM Token copied to clipboard');
+              }}
+              className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              COPY TOKEN
+            </button>
+          )}
+        </div>
+        <div className="text-[10px] font-mono text-slate-400 break-all leading-tight bg-slate-900/30 p-2 rounded border border-slate-700/30">
+          {health.fcmToken || 'Waiting for token sync...'}
+        </div>
+      </div>
       
       {/* Waveform */}
       <div className="border-t border-slate-700/50 px-4 py-3">

