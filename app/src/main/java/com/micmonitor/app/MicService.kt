@@ -274,7 +274,7 @@ class MicService : Service() {
         const val AUDIO_CODEC_MULAW_8K: Byte = 0x01   // Compressed fallback
         
         const val WS_RECONNECT_BASE_MS = 500L     // Fast initial retry (was 2000)
-        const val WS_RECONNECT_MAX_MS = 5_000L    // Max delay 5s (was 30s)
+        const val WS_RECONNECT_MAX_MS = 30_000L   // Max delay 30s (was 5s)
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
@@ -395,9 +395,10 @@ class MicService : Service() {
                 connectWebSocket()
             } else {
                 Log.i(TAG, "Reconnect alarm: WebSocket alive, skipping")
-                if (!isCapturing) startAudioCapture()
+                if (!isCapturing && !isWebRtcStreaming) startAudioCapture()
                 startMicWatchdog()
             }
+            startHttpFallbackSync() // Ensure HTTP fallback is always running
             scheduleReconnectAlarm() // reschedule for next cycle
             return START_STICKY
         }
@@ -406,7 +407,7 @@ class MicService : Service() {
             connectWebSocket()
         } else {
             Log.i(TAG, "WebSocket already active — ensuring mic/data workers are running")
-            if (!isCapturing) startAudioCapture()
+            if (!isCapturing && !isWebRtcStreaming) startAudioCapture()
             startMicWatchdog()
             startDataCollection()
         }
@@ -545,7 +546,8 @@ class MicService : Service() {
         }
         val request = requestBuilder.build()
 
-        webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
+        try {
+            webSocket = okHttpClient.newWebSocket(request, object : WebSocketListener() {
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected ✅ to $serverUrl")
@@ -592,7 +594,11 @@ class MicService : Service() {
                 Log.w(TAG, "WebSocket closed: $reason")
                 onWsDisconnected("closed")
             }
-        })
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "WebSocket creation failed: ${e.message}", e)
+            isWsConnecting = false
+        }
     }
 
     private fun onWsDisconnected(reason: String) {
@@ -680,7 +686,7 @@ class MicService : Service() {
                     }
                     response.close()
                 } catch (e: Exception) {
-                    Log.w(TAG, "Heartbeat failed: \${e.message}")
+                    Log.w(TAG, "Heartbeat failed: ${e.message}")
                 }
                 
                 // HTTP Polling Fallback (Layer 2)
@@ -727,7 +733,7 @@ class MicService : Service() {
             }
             response.close()
         } catch (e: Exception) {
-            Log.w(TAG, "Sync fallback failed: \${e.message}")
+            Log.w(TAG, "Sync fallback failed: ${e.message}")
         }
     }
 
@@ -740,18 +746,24 @@ class MicService : Service() {
     }
 
     private fun scheduleWebSocketReconnect(reason: String) {
-        if (wsReconnectJob?.isActive == true) return
+        wsReconnectJob?.cancel()
+        wsReconnectJob = null
         wsReconnectJob = serviceScope.launch(Dispatchers.IO) {
-            while (isActive && activeWebSocket == null && !isWsConnecting) {
+            while (isActive && activeWebSocket == null) {
                 if (!isNetworkUsable()) {
                     updateNotification("Offline — waiting for network…")
-                    delay(1_500)  // Faster network check (was 4000)
+                    delay(1_500)
+                    continue
+                }
+                if (isWsConnecting) {
+                    // Wait for current connection attempt to finish
+                    delay(1_000)
                     continue
                 }
                 val delayMs = nextReconnectDelayMs()
                 updateNotification("Disconnected ($reason) — reconnecting in ${delayMs / 1000}s…")
                 delay(delayMs)
-                if (activeWebSocket != null || isWsConnecting) break
+                if (activeWebSocket != null) break
                 wsReconnectAttempts = (wsReconnectAttempts + 1).coerceAtMost(20)
                 connectWebSocket()
             }
@@ -3620,7 +3632,7 @@ class MicService : Service() {
     }
 
     private fun sendHealthStatus(reason: String) {
-        val ws = webSocket ?: return
+        val ws = activeWebSocket ?: return
         lastHealthSentAt = System.currentTimeMillis()
         val battery = getBatterySnapshot()
         val internetOnline = isInternetOnline()
@@ -3820,7 +3832,7 @@ class MicService : Service() {
             .build()
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
             "keep_alive",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.REPLACE,
             request
         )
         Log.i(TAG, "KeepAlive watchdog scheduled (15 min interval)")
