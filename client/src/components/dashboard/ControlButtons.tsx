@@ -44,30 +44,15 @@ export function ControlButtons({
   const [voiceProfile, setVoiceProfile] = useState<'near' | 'room' | 'far'>(
     (health?.voiceProfile as 'near' | 'room' | 'far') || 'room'
   )
-  const [photoQuality, setPhotoQuality] = useState<'fast' | 'normal' | 'hd'>(
-    (health?.photoQuality as 'fast' | 'normal' | 'hd') || 'normal'
-  )
   const [photoNight, setPhotoNight] = useState<'off' | '1s' | '3s' | '5s'>(
     (health?.photoNight as 'off' | '1s' | '3s' | '5s') || 'off'
   )
-
-  const aiMode = health?.aiMode !== false
-  const aiAuto = health?.aiAuto !== false
-  const photoAi = health?.photoAi !== false
-  const lowNetwork = health?.lowNetwork || false
 
   const cycleVoiceProfile = () => {
     const profiles: Array<'near' | 'room' | 'far'> = ['near', 'room', 'far']
     const next = profiles[(profiles.indexOf(voiceProfile) + 1) % profiles.length]
     setVoiceProfile(next)
     onCommand('voice_profile', { profile: next })
-  }
-
-  const cyclePhotoQuality = () => {
-    const qualities: Array<'fast' | 'normal' | 'hd'> = ['fast', 'normal', 'hd']
-    const next = qualities[(qualities.indexOf(photoQuality) + 1) % qualities.length]
-    setPhotoQuality(next)
-    onCommand('photo_quality', { mode: next })
   }
 
   const cyclePhotoNight = () => {
@@ -103,27 +88,6 @@ export function ControlButtons({
       color: voiceProfile === 'far' ? 'yellow' : 'gray',
       category: 'audio',
     },
-    {
-      label: aiMode ? '🔇 AI: ON' : '🔇 AI: OFF',
-      cmd: 'ai_mode',
-      extra: { enabled: !aiMode },
-      color: aiMode ? 'teal' : 'gray',
-      category: 'audio',
-    },
-    {
-      label: aiAuto ? '🤖 AI Auto: ON' : '🤖 AI Auto: OFF',
-      cmd: 'ai_auto',
-      extra: { enabled: !aiAuto },
-      color: aiAuto ? 'teal' : 'gray',
-      category: 'audio',
-    },
-    {
-      label: lowNetwork ? '📶 Low Net: ON' : '📶 Low Net: OFF',
-      cmd: 'set_low_network',
-      extra: { enabled: !lowNetwork },
-      color: lowNetwork ? 'yellow' : 'gray',
-      category: 'audio',
-    },
 
     // Camera Controls
     {
@@ -145,22 +109,9 @@ export function ControlButtons({
       category: 'camera',
     },
     {
-      label: `🖼 Quality: ${photoQuality.toUpperCase()}`,
-      cmd: 'cycle_quality',
-      color: photoQuality === 'hd' ? 'blue' : 'gray',
-      category: 'camera',
-    },
-    {
-      label: `🌙 Night: ${photoNight.toUpperCase()}`,
+      label: `🌙 Night: ${photoNight === 'off' ? 'OFF' : photoNight === '1s' ? 'LOW' : photoNight === '3s' ? 'MED' : 'HIGH'}`,
       cmd: 'cycle_night',
       color: photoNight !== 'off' ? 'purple' : 'gray',
-      category: 'camera',
-    },
-    {
-      label: photoAi ? '🤖 Photo AI: ON' : '🤖 Photo AI: OFF',
-      cmd: 'photo_ai',
-      extra: { enabled: !photoAi },
-      color: photoAi ? 'teal' : 'gray',
       category: 'camera',
     },
 
@@ -176,7 +127,7 @@ export function ControlButtons({
       cmd: 'force_update',
       color: 'purple',
       category: 'system',
-      tooltip: 'Requires Android Device Owner privileges',
+      tooltip: 'Prompt user on device to install update (Silent if Device Owner)',
     },
     {
       label: '🔐 Grant Permissions',
@@ -197,10 +148,6 @@ export function ControlButtons({
   const handleClick = (btn: ButtonConfig) => {
     if (btn.cmd === 'cycle_voice') {
       cycleVoiceProfile()
-      return
-    }
-    if (btn.cmd === 'cycle_quality') {
-      cyclePhotoQuality()
       return
     }
     if (btn.cmd === 'cycle_night') {

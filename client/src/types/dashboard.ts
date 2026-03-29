@@ -13,6 +13,10 @@ export type DeviceHealth = {
   audioCodec?: string
   streamCodec?: string
   streamCodecMode?: string
+  netDownKbps?: number
+  netUpKbps?: number
+  netType?: string
+  bitrateKbps?: number
   micInLevel?: number
   quality?: string
   lowNetwork?: boolean

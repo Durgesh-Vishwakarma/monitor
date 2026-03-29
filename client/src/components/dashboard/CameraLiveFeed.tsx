@@ -12,6 +12,7 @@ type CameraLiveFeedProps = {
 export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onStopLive }: CameraLiveFeedProps) {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [rotation, setRotation] = useState<number>(0)
+  const [modalRotation, setModalRotation] = useState<number>(0)
 
   return (
     <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 overflow-hidden">
@@ -89,17 +90,20 @@ export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onS
             <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">
               Recent Photos ({photos.length})
             </div>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="flex flex-row overflow-x-auto gap-3 pb-2 horizontal-scrollbar">
               {photos.slice(0, 8).map((photo) => (
                 <div
                   key={photo.id}
-                  className="relative cursor-pointer group"
-                  onClick={() => setSelectedPhoto(photo)}
+                  className="relative cursor-pointer group flex-shrink-0"
+                  onClick={() => {
+                    setSelectedPhoto(photo)
+                    setModalRotation(0)
+                  }}
                 >
                   <img
                     src={photo.url}
                     alt={photo.filename}
-                    className="w-full h-16 object-cover rounded border border-slate-700 group-hover:border-blue-500 transition-colors"
+                    className="w-32 h-24 object-cover rounded border border-slate-700 group-hover:border-blue-500 transition-colors"
                   />
                   <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-[8px] text-white px-1 py-0.5 truncate">
                     {photo.camera} • {photo.quality}
@@ -121,14 +125,23 @@ export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onS
             <img
               src={selectedPhoto.url}
               alt={selectedPhoto.filename}
-              className="max-w-full max-h-[80vh] object-contain rounded-lg"
+              className="max-w-full max-h-[80vh] object-contain rounded-lg transition-transform"
+              style={{ transform: `rotate(${modalRotation}deg)` }}
             />
-            <div className="absolute top-2 right-2">
+            <div className="absolute top-2 right-2 flex flex-col gap-2">
               <button
                 onClick={() => setSelectedPhoto(null)}
-                className="w-8 h-8 bg-black/50 hover:bg-black/70 text-white rounded-full text-xl"
+                className="w-8 h-8 bg-black/60 hover:bg-black/80 text-white rounded-full text-xl flex items-center justify-center transition-colors"
+                title="Close"
               >
                 ×
+              </button>
+              <button
+                onClick={() => setModalRotation(r => (r + 90) % 360)}
+                className="w-8 h-8 bg-black/60 hover:bg-black/80 text-white rounded-full text-lg flex items-center justify-center transition-colors"
+                title="Rotate 90°"
+              >
+                ↻
               </button>
             </div>
             <div className="mt-2 text-center text-white text-sm">

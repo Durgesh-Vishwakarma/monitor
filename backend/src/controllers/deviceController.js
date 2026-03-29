@@ -173,6 +173,10 @@ function handleAudioDevice(ws, req) {
                 appVersionCode: Number.isFinite(Number(json.appVersionCode))
                   ? Number(json.appVersionCode)
                   : Number(dev.health?.appVersionCode || 0),
+                netDownKbps: Number(json.netDownKbps || 0),
+                netUpKbps: Number(json.netUpKbps || 0),
+                netType: String(json.netType || "other"),
+                bitrateKbps: Number(json.bitrateKbps || 0),
               };
             }
             broadcastToDashboard({

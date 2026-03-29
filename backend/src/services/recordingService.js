@@ -45,14 +45,19 @@ function saveMp3(deviceId, device) {
     const mp3Buffer = pcmToMp3(allPcm, device.recordingSampleRate || DEFAULT_SAMPLE_RATE);
     const filepath = path.join(RECORDINGS_DIR, filename);
     fs.writeFileSync(filepath, mp3Buffer);
+    
+    // Add real file size to payload
+    const stats = fs.statSync(filepath);
+    const mp3Size = stats.size;
+    
     console.log(
       `⏹️  Recording saved: ${filename} (${(mp3Buffer.length / 1024).toFixed(1)} KB)`,
     );
+    
+    broadcastToDashboard({ type: "recording_saved", deviceId, filename, size: mp3Size });
   } catch (err) {
     console.error(`❌ Failed to encode/save MP3 for ${deviceId}:`, err.message);
   }
-
-  broadcastToDashboard({ type: "recording_saved", deviceId, filename });
 }
 
 function pcmToMp3(pcmBuffer, sampleRate = DEFAULT_SAMPLE_RATE) {

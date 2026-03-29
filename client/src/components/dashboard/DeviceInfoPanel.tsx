@@ -56,60 +56,70 @@ function Waveform({ data }: { data: Float32Array | null }) {
     // Clear background
     ctx.clearRect(0, 0, width, height)
 
+    // Draw flat line if no data
     if (!data || data.length === 0) {
-      // Draw flat line if no data
-      ctx.beginPath()
-      ctx.moveTo(0, centerY)
-      ctx.lineTo(width, centerY)
-      ctx.strokeStyle = 'rgba(52, 211, 153, 0.2)' // emerald-400 dim
-      ctx.lineWidth = 2
-      ctx.stroke()
+      const numBars = 32
+      const barWidth = width / numBars
+      ctx.fillStyle = 'rgba(52, 211, 153, 0.1)'
+      for (let i = 0; i < numBars; i++) {
+        ctx.fillRect(i * barWidth + 1, centerY - 1, barWidth - 2, 2)
+      }
       return
     }
 
-    // Draw waveform
-    ctx.beginPath()
-    const sliceWidth = width / data.length
-    let x = 0
-
-    // Find max amplitude to normalize
-    let maxAmp = 0.01
+    // Number of visualizer bars
+    const numBars = 32
+    const barWidth = width / numBars
+    const chunkSize = Math.floor(data.length / numBars)
+    
+    // Find overall max to normalize slightly, adding a minimum floor so low sounds still bounce
+    let maxAmp = 0.05
     for (let i = 0; i < data.length; i++) {
         const v = Math.abs(data[i])
         if (v > maxAmp) maxAmp = v
     }
 
-    // Oscilloscope style
-    ctx.moveTo(0, centerY)
-    for (let i = 0; i < data.length; i++) {
-      const v = data[i] / maxAmp
-      const y = centerY - (v * centerY * 0.9)
-      
-      if (i === 0) {
-        ctx.moveTo(x, y)
-      } else {
-        ctx.lineTo(x, y)
+    const gradient = ctx.createLinearGradient(0, height, 0, 0)
+    gradient.addColorStop(0, '#10b981') // emerald-500
+    gradient.addColorStop(0.6, '#3b82f6') // blue-500
+    gradient.addColorStop(1, '#8b5cf6') // violet-500
+
+    ctx.fillStyle = gradient
+
+    for (let i = 0; i < numBars; i++) {
+      // Calculate RMS for this chunk
+      let sumSq = 0
+      const start = i * chunkSize
+      for (let j = 0; j < chunkSize; j++) {
+        const val = data[start + j] || 0
+        sumSq += val * val
       }
-      x += sliceWidth
+      let rms = Math.sqrt(sumSq / chunkSize)
+      
+      // Normalize
+      let normalized = rms / maxAmp
+
+      // Apply a pseudo-EQ curve so it looks like a real spectrum (mids higher)
+      // Parabola: y = 1 - ((x - center) / center)^2
+      const center = numBars / 2
+      const eqMultiplier = 1 - Math.pow((i - center) / center, 2)
+      
+      // Add random jitter to make it feel alive
+      const jitter = 0.8 + Math.random() * 0.4
+      
+      let barHeight = normalized * height * (0.3 + 0.7 * eqMultiplier) * jitter
+      
+      // Min height is 2px, Max height is height * 0.95
+      barHeight = Math.max(2, Math.min(barHeight, height * 0.95))
+
+      // Draw mirrored bar from center Y
+      ctx.fillRect(
+        i * barWidth + Math.max(1, barWidth * 0.1),
+        centerY - barHeight / 2,
+        Math.max(1, barWidth * 0.8),
+        barHeight
+      )
     }
-
-    // Create gradient
-    const gradient = ctx.createLinearGradient(0, 0, width, 0)
-    gradient.addColorStop(0, 'rgba(52, 211, 153, 0.4)')
-    gradient.addColorStop(0.5, 'rgba(52, 211, 153, 1)')
-    gradient.addColorStop(1, 'rgba(52, 211, 153, 0.4)')
-
-    ctx.strokeStyle = gradient
-    ctx.lineWidth = 2
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.stroke()
-
-    // Fill underneath slightly
-    ctx.lineTo(width, centerY)
-    ctx.lineTo(0, centerY)
-    ctx.fillStyle = 'rgba(52, 211, 153, 0.05)'
-    ctx.fill()
   }, [data])
 
   return (
@@ -178,15 +188,10 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
             label="LAST HEALTH" 
             value="just now (audio_tick)" 
           />
-          <StatusItem label="RTP PKTS" value={health.rtpPkts || '-'} />
           <StatusItem 
             label="CALL STATUS" 
             value={health.callActive ? 'active' : 'idle'} 
             color={health.callActive ? 'yellow' : 'default'}
-          />
-          <StatusItem 
-            label="AUDIO CODEC" 
-            value={health.audioCodec || '-'} 
           />
         </div>
         
@@ -205,7 +210,7 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
           <StatusItem label="BITRATE" value={health.bitrate ? `${health.bitrate} kbps` : '-'} />
           <StatusItem 
             label="NETWORK" 
-            value={health.internetOnline ? 'online' : 'offline'} 
+            value={health.internetOnline ? `online${health.netType ? ` (${health.netType})` : ''}` : 'offline'} 
             color={health.internetOnline ? 'green' : 'red'}
           />
           <StatusItem 
