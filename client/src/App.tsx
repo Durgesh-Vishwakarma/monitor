@@ -127,7 +127,12 @@ function App() {
         </div>
 
         {/* Network Profile */}
-        <NetworkProfile />
+        <NetworkProfile 
+          lowNetwork={selectedDevice?.health?.lowNetwork}
+          streamCodec={selectedDevice?.health?.streamCodec}
+          streamCodecMode={selectedDevice?.health?.streamCodecMode}
+          onForceToggle={() => handleCommand('set_low_network', { enabled: !selectedDevice?.health?.lowNetwork })}
+        />
 
         {/* Device Selection Tabs (if multiple devices) */}
         {devices.length > 1 && (

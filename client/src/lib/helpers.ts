@@ -28,19 +28,27 @@ export function apiUrl(path: string): string {
 }
 
 export function wsUrlForControl(): string {
+  const token = import.meta.env.VITE_WS_AUTH_TOKEN || ''
   const wsBase = import.meta.env.VITE_WS_BASE_URL
+  let url: URL
+
   if (wsBase) {
-    return new URL('/control', ensureTrailingSlash(normalizeWsBase(wsBase))).toString()
+    url = new URL('/control', ensureTrailingSlash(normalizeWsBase(wsBase)))
+  } else {
+    const apiBase = import.meta.env.VITE_API_BASE_URL
+    if (apiBase) {
+      const wsFromApi = normalizeWsBase(apiBase)
+      url = new URL('/control', ensureTrailingSlash(wsFromApi))
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      url = new URL(`${protocol}//${window.location.host}/control`)
+    }
   }
 
-  const apiBase = import.meta.env.VITE_API_BASE_URL
-  if (apiBase) {
-    const wsFromApi = normalizeWsBase(apiBase)
-    return new URL('/control', ensureTrailingSlash(wsFromApi)).toString()
+  if (token) {
+    url.searchParams.set('token', token)
   }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/control`
+  return url.toString()
 }
 
 export function wsPillClass(state: WsState): string {

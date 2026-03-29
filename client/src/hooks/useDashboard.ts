@@ -68,12 +68,23 @@ export function useDashboard(
     [addFeed, devices, selectedDeviceId],
   )
 
+  const onAudioDataRef = useRef(onAudioData)
+  const onWebRTCMessageRef = useRef(onWebRTCMessage)
+  const onCameraFrameRef = useRef(onCameraFrame)
+
+  useEffect(() => {
+    onAudioDataRef.current = onAudioData
+    onWebRTCMessageRef.current = onWebRTCMessage
+    onCameraFrameRef.current = onCameraFrame
+  }, [onAudioData, onWebRTCMessage, onCameraFrame])
+
   useEffect(() => {
     let stopped = false
 
     const connect = () => {
       setWsState('connecting')
-      const ws = new WebSocket(wsUrlForControl())
+      const url = wsUrlForControl()
+      const ws = new WebSocket(url)
       wsRef.current = ws
 
       ws.binaryType = 'arraybuffer'
@@ -86,14 +97,14 @@ export function useDashboard(
       ws.addEventListener('message', (event) => {
         // Handle binary audio data
         if (event.data instanceof ArrayBuffer) {
-          if (onAudioData && event.data.byteLength > 4) {
+          if (onAudioDataRef.current && event.data.byteLength > 4) {
             // Extract device ID from frame header
             const view = new DataView(event.data)
             const deviceIdLen = view.getUint16(0, false)
             if (event.data.byteLength >= 2 + deviceIdLen) {
               const deviceIdBytes = new Uint8Array(event.data, 2, deviceIdLen)
               const deviceId = new TextDecoder().decode(deviceIdBytes)
-              onAudioData(event.data, deviceId)
+              onAudioDataRef.current(event.data, deviceId)
             }
           }
           return
@@ -214,7 +225,7 @@ export function useDashboard(
 
           // Handle live camera frame
           if (type === 'camera_live_frame') {
-            if (onCameraFrame) {
+            if (onCameraFrameRef.current) {
               const frame: CameraFrame = {
                 deviceId: String(msg.deviceId || ''),
                 camera: msg.camera === 'front' ? 'front' : 'rear',
@@ -223,7 +234,7 @@ export function useDashboard(
                 data: String(msg.data || ''),
                 timestamp: Number(msg.ts || Date.now()),
               }
-              onCameraFrame(frame)
+              onCameraFrameRef.current(frame)
             }
             return
           }
@@ -261,8 +272,8 @@ export function useDashboard(
 
           // Handle WebRTC signaling messages
           if (type === 'webrtc_answer' || type === 'webrtc_ice' || type === 'webrtc_state') {
-            if (onWebRTCMessage) {
-              onWebRTCMessage(msg)
+            if (onWebRTCMessageRef.current) {
+              onWebRTCMessageRef.current(msg)
             }
             addFeed(`Event: ${type}`)
             return
@@ -281,11 +292,16 @@ export function useDashboard(
         }
       })
 
+      ws.addEventListener('error', (event) => {
+        addFeed('Control WebSocket error - browser blocked connection or backend down')
+        console.error('WS Error:', event)
+      })
+
       ws.addEventListener('close', () => {
         setWsState('closed')
         if (stopped) return
         addFeed('Control WebSocket disconnected, retrying...')
-        reconnectTimerRef.current = window.setTimeout(connect, 2000)
+        reconnectTimerRef.current = window.setTimeout(connect, 3000)
       })
     }
 
@@ -298,7 +314,7 @@ export function useDashboard(
       }
       wsRef.current?.close()
     }
-  }, [addFeed, removeDevice, upsertDevice, onAudioData, onWebRTCMessage, onCameraFrame])
+  }, [addFeed, removeDevice, upsertDevice])
 
   useEffect(() => {
     let stopped = false

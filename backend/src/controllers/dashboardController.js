@@ -14,7 +14,7 @@ let streamRecoveryTimer = null;
 function handleDashboard(ws) {
   const wasEmpty = dashboardStore.size() === 0;
   dashboardStore.addClient(ws);
-  console.log("👁️  Dashboard client connected");
+  console.log(`👁️  Dashboard client connected (Total: ${dashboardStore.size()})`);
 
   if (wasEmpty) {
     deviceStore.forEachDevice((dev, id) => {
