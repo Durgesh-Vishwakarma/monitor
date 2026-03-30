@@ -3,31 +3,140 @@ type NetworkProfileProps = {
   streamCodec?: string
   streamCodecMode?: string
   onForceToggle?: () => void
+  isStreaming?: boolean
+  connQuality?: string
+  netType?: string
 }
 
-export function NetworkProfile({ lowNetwork = false, streamCodec, streamCodecMode, onForceToggle }: NetworkProfileProps) {
-  const isPcm = streamCodec === 'pcm' 
+export function NetworkProfile({
+  lowNetwork = false,
+  streamCodec,
+  streamCodecMode,
+  onForceToggle,
+  isStreaming = false,
+  connQuality,
+  netType,
+}: NetworkProfileProps) {
+
+  const modeLabel = lowNetwork
+    ? '⚡ Low-Bandwidth Mode'
+    : `📡 High-Quality Mode`
+
+  const modeDesc = lowNetwork
+    ? 'Server 2.5× gain boost active • Optimized for weak signal'
+    : streamCodecMode === 'auto'
+    ? 'HQ Opus auto-codec • Max fidelity for clear voice'
+    : streamCodec === 'pcm'
+    ? 'Uncompressed PCM 16-bit • Zero loss'
+    : `${streamCodec || 'PCM'} ${streamCodecMode || ''}`
+
+  const qualColor = connQuality === 'excellent' ? '#10b981'
+    : connQuality === 'good' ? '#6366f1'
+    : connQuality === 'poor' ? '#ef4444'
+    : '#f59e0b'
+
   return (
-    <div className="flex items-center justify-between px-4 py-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
-      <div className="flex items-center gap-3">
-        <span className={`px-2 py-1 text-xs border rounded font-medium ${lowNetwork ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'}`}>
-          Network Profile:
-        </span>
-        <span className={`text-sm ${lowNetwork ? 'text-yellow-400' : 'text-slate-300'}`}>
-          {lowNetwork 
-            ? '⚡ Low-network mode: Opus 48-96kbps, 16kHz (balanced bandwidth)' 
-            : `📡 High-Quality mode: ${streamCodecMode === 'auto' ? 'HQ Opus' : isPcm ? 'Uncompressed PCM' : streamCodec} (max fidelity)`}
-        </span>
+    <div className="rounded-2xl px-5 py-3 flex items-center justify-between gap-4 flex-wrap" style={{
+      background: lowNetwork
+        ? 'linear-gradient(90deg, rgba(245,158,11,0.06) 0%, rgba(239,68,68,0.04) 100%)'
+        : 'linear-gradient(90deg, rgba(99,102,241,0.07) 0%, rgba(16,185,129,0.04) 100%)',
+      border: `1px solid ${lowNetwork ? 'rgba(245,158,11,0.25)' : 'rgba(99,102,241,0.2)'}`,
+      backdropFilter: 'blur(12px)',
+      boxShadow: lowNetwork
+        ? '0 0 30px rgba(245,158,11,0.06)'
+        : '0 0 30px rgba(99,102,241,0.05)'
+    }}>
+      {/* Left — mode label */}
+      <div className="flex items-center gap-4">
+        {/* Animated signal bars icon */}
+        <div className="flex items-end gap-0.5 h-6" aria-hidden="true">
+          {[3, 5, 7, 9].map((h, i) => (
+            <div
+              key={i}
+              className="w-1 rounded-sm transition-all duration-500"
+              style={{
+                height: `${lowNetwork && i > 1 ? Math.max(3, h * 0.4) : h}px`,
+                background: lowNetwork
+                  ? i < 2 ? '#f59e0b' : 'rgba(245,158,11,0.2)'
+                  : `hsl(${145 + i * 15}, 70%, 55%)`,
+                opacity: isStreaming ? 1 : 0.5,
+              }}
+            />
+          ))}
+        </div>
+
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold" style={{
+              color: lowNetwork ? '#fbbf24' : '#a5b4fc'
+            }}>
+              {modeLabel}
+            </span>
+            {lowNetwork && isStreaming && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{
+                background: 'rgba(245,158,11,0.15)',
+                border: '1px solid rgba(245,158,11,0.3)',
+                color: '#fbbf24'
+              }}>
+                BOOSTED
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">{modeDesc}</div>
+        </div>
       </div>
-      <button 
+
+      {/* Center — quality pills */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {connQuality && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold" style={{
+            background: `${qualColor}18`,
+            border: `1px solid ${qualColor}40`,
+            color: qualColor
+          }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-current" />
+            {connQuality.charAt(0).toUpperCase() + connQuality.slice(1)} Quality
+          </div>
+        )}
+        {netType && (
+          <div className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{
+            background: 'rgba(148,163,184,0.07)',
+            border: '1px solid rgba(148,163,184,0.12)',
+            color: '#64748b'
+          }}>
+            {netType.toUpperCase()}
+          </div>
+        )}
+        {streamCodec && (
+          <div className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{
+            background: 'rgba(99,102,241,0.1)',
+            border: '1px solid rgba(99,102,241,0.2)',
+            color: '#a5b4fc'
+          }}>
+            {streamCodec.toUpperCase()}
+          </div>
+        )}
+      </div>
+
+      {/* Right — toggle button */}
+      <button
         onClick={onForceToggle}
-        className={`px-3 py-1.5 text-xs border rounded font-medium transition-colors ${
-          lowNetwork 
-            ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/30' 
-            : 'bg-slate-700/50 text-slate-400 border-slate-600 hover:bg-slate-700'
-        }`}
+        className="ml-auto shrink-0 text-xs font-bold px-4 py-2 rounded-xl transition-all duration-200"
+        style={{
+          background: lowNetwork
+            ? 'rgba(245,158,11,0.15)'
+            : 'rgba(99,102,241,0.1)',
+          border: `1px solid ${lowNetwork ? 'rgba(245,158,11,0.35)' : 'rgba(99,102,241,0.3)'}`,
+          color: lowNetwork ? '#fbbf24' : '#a5b4fc',
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.03)'
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'
+        }}
       >
-        FORCE LOW-NETWORK: {lowNetwork ? 'ON' : 'OFF'}
+        {lowNetwork ? '▲ Switch to HQ' : '▼ Force Low-BW'}
       </button>
     </div>
   )

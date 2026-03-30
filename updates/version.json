@@ -2,9 +2,9 @@
   "versionCode": 33,
   "versionName": "1.11.11",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "16-Layer Resilience Architecture Enabled",
+  "changelog": "Low-network gain boost + premium dashboard redesign",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 49049129,
-  "updatedAt": "2026-03-30T00:20:00+05:30"
+  "apkSize": 49049137,
+  "updatedAt": "2026-03-30T10:48:00+05:30"
 }

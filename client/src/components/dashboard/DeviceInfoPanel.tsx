@@ -9,32 +9,36 @@ type DeviceInfoPanelProps = {
   webRTCState?: WebRTCStats
 }
 
-type StatusItemProps = {
+// ── Mini status metric card ────────────────────────────────────────────────────
+function MetricCard({ label, value, color = 'default', glow = false }: {
   label: string
   value: string | number | undefined | null
-  color?: 'green' | 'yellow' | 'red' | 'blue' | 'default'
-}
-
-function StatusItem({ label, value, color = 'default' }: StatusItemProps) {
-  const colorClasses = {
-    green: 'text-emerald-400',
-    yellow: 'text-yellow-400',
-    red: 'text-red-400',
-    blue: 'text-blue-400',
-    default: 'text-slate-300',
+  color?: 'green' | 'yellow' | 'red' | 'blue' | 'violet' | 'default'
+  glow?: boolean
+}) {
+  const colors = {
+    green:   { text: '#10b981', bg: 'rgba(16,185,129,0.08)',   border: 'rgba(16,185,129,0.2)',  glow: 'rgba(16,185,129,0.15)' },
+    yellow:  { text: '#f59e0b', bg: 'rgba(245,158,11,0.08)',   border: 'rgba(245,158,11,0.2)',  glow: 'rgba(245,158,11,0.15)' },
+    red:     { text: '#ef4444', bg: 'rgba(239,68,68,0.08)',    border: 'rgba(239,68,68,0.2)',   glow: 'rgba(239,68,68,0.15)' },
+    blue:    { text: '#60a5fa', bg: 'rgba(96,165,250,0.08)',   border: 'rgba(96,165,250,0.2)',  glow: 'rgba(96,165,250,0.15)' },
+    violet:  { text: '#a78bfa', bg: 'rgba(167,139,250,0.08)',  border: 'rgba(167,139,250,0.2)', glow: 'rgba(167,139,250,0.15)' },
+    default: { text: '#94a3b8', bg: 'rgba(148,163,184,0.05)', border: 'rgba(148,163,184,0.1)', glow: 'transparent' },
   }
-
+  const c = colors[color]
   return (
-    <div className="border-b border-slate-700/50 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">{label}</div>
-      <div className={`text-sm font-medium ${colorClasses[color]}`}>
-        {value ?? '-'}
-      </div>
+    <div className="flex flex-col gap-1 p-3 rounded-xl" style={{
+      background: c.bg,
+      border: `1px solid ${c.border}`,
+      boxShadow: glow ? `0 0 18px ${c.glow}` : 'none',
+    }}>
+      <span className="text-[9px] uppercase tracking-widest font-semibold" style={{ color: '#64748b' }}>{label}</span>
+      <span className="text-sm font-bold leading-none" style={{ color: c.text }}>{value ?? '—'}</span>
     </div>
   )
 }
 
-function Waveform({ data }: { data: Float32Array | null }) {
+// ── Animated waveform visualizer ───────────────────────────────────────────────
+function Waveform({ data, isPlaying }: { data: Float32Array | null; isPlaying: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -53,86 +57,82 @@ function Waveform({ data }: { data: Float32Array | null }) {
     const height = rect.height
     const centerY = height / 2
 
-    // Clear background
     ctx.clearRect(0, 0, width, height)
 
-    // Draw flat line if no data
+    const numBars = 48
+    const barWidth = width / numBars
+
     if (!data || data.length === 0) {
-      const numBars = 32
-      const barWidth = width / numBars
-      ctx.fillStyle = 'rgba(52, 211, 153, 0.1)'
+      // Animated idle bars
       for (let i = 0; i < numBars; i++) {
-        ctx.fillRect(i * barWidth + 1, centerY - 1, barWidth - 2, 2)
+        const idle = isPlaying ? (2 + Math.random() * 6) : 2
+        ctx.fillStyle = 'rgba(99,102,241,0.15)'
+        ctx.beginPath()
+        ctx.roundRect(i * barWidth + 1, centerY - idle / 2, barWidth - 2, idle, 2)
+        ctx.fill()
       }
       return
     }
 
-    // Number of visualizer bars
-    const numBars = 32
-    const barWidth = width / numBars
-    const chunkSize = Math.floor(data.length / numBars)
-    
-    // Find overall max to normalize slightly, adding a minimum floor so low sounds still bounce
     let maxAmp = 0.05
     for (let i = 0; i < data.length; i++) {
-        const v = Math.abs(data[i])
-        if (v > maxAmp) maxAmp = v
+      const v = Math.abs(data[i])
+      if (v > maxAmp) maxAmp = v
     }
 
-    const gradient = ctx.createLinearGradient(0, height, 0, 0)
-    gradient.addColorStop(0, '#10b981') // emerald-500
-    gradient.addColorStop(0.6, '#3b82f6') // blue-500
-    gradient.addColorStop(1, '#8b5cf6') // violet-500
-
-    ctx.fillStyle = gradient
+    const chunkSize = Math.floor(data.length / numBars)
 
     for (let i = 0; i < numBars; i++) {
-      // Calculate RMS for this chunk
       let sumSq = 0
       const start = i * chunkSize
       for (let j = 0; j < chunkSize; j++) {
         const val = data[start + j] || 0
         sumSq += val * val
       }
-      let rms = Math.sqrt(sumSq / chunkSize)
-      
-      // Normalize
+      const rms = Math.sqrt(sumSq / chunkSize)
       let normalized = rms / maxAmp
-
-      // Apply a pseudo-EQ curve so it looks like a real spectrum (mids higher)
-      // Parabola: y = 1 - ((x - center) / center)^2
       const center = numBars / 2
-      const eqMultiplier = 1 - Math.pow((i - center) / center, 2)
-      
-      // Add random jitter to make it feel alive
-      const jitter = 0.8 + Math.random() * 0.4
-      
-      let barHeight = normalized * height * (0.3 + 0.7 * eqMultiplier) * jitter
-      
-      // Min height is 2px, Max height is height * 0.95
-      barHeight = Math.max(2, Math.min(barHeight, height * 0.95))
+      const eqMultiplier = 1 - Math.pow((i - center) / center, 2) * 0.4
+      const jitter = 0.85 + Math.random() * 0.3
+      let barHeight = normalized * height * 0.85 * eqMultiplier * jitter
+      barHeight = Math.max(3, Math.min(barHeight, height * 0.92))
 
-      // Draw mirrored bar from center Y
-      ctx.fillRect(
-        i * barWidth + Math.max(1, barWidth * 0.1),
+      // Gradient per bar based on intensity
+      const intensity = normalized
+      const hue = 145 + intensity * 100  // green → blue → violet
+      const sat = 65 + intensity * 20
+      const lit = 45 + intensity * 15
+      ctx.fillStyle = `hsla(${hue}, ${sat}%, ${lit}%, ${0.7 + intensity * 0.3})`
+
+      ctx.beginPath()
+      ctx.roundRect(
+        i * barWidth + Math.max(1, barWidth * 0.12),
         centerY - barHeight / 2,
-        Math.max(1, barWidth * 0.8),
-        barHeight
+        Math.max(1, barWidth * 0.76),
+        barHeight,
+        3
       )
+      ctx.fill()
     }
-  }, [data])
+  }, [data, isPlaying])
 
   return (
-    <div className="h-16 bg-slate-900/50 rounded flex items-center justify-center overflow-hidden px-2">
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-        style={{ display: 'block' }}
-      />
+    <div className="relative h-20 rounded-xl overflow-hidden" style={{
+      background: 'rgba(6,8,18,0.6)',
+      border: '1px solid rgba(99,102,241,0.15)',
+      boxShadow: 'inset 0 0 30px rgba(0,0,0,0.4)'
+    }}>
+      <canvas ref={canvasRef} className="w-full h-full" style={{ display: 'block' }} />
+      {isPlaying && (
+        <div className="absolute inset-0 pointer-events-none" style={{
+          background: 'linear-gradient(90deg, rgba(6,8,18,0.6) 0%, transparent 10%, transparent 90%, rgba(6,8,18,0.6) 100%)'
+        }} />
+      )}
     </div>
   )
 }
 
+// ── Main panel ─────────────────────────────────────────────────────────────────
 export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoPanelProps) {
   const [waking, setWaking] = useState(false)
   const [wakeStatus, setWakeStatus] = useState<string | null>(null)
@@ -156,10 +156,16 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
       setWaking(false)
     }
   }
+
   if (!device) {
     return (
-      <div className="rounded-lg border border-slate-700/50 bg-slate-800/50 p-4">
-        <div className="text-center text-slate-500 py-8">No device selected</div>
+      <div className="rounded-2xl p-8 text-center" style={{
+        background: 'rgba(15,20,40,0.6)',
+        border: '1px solid rgba(255,255,255,0.07)',
+        backdropFilter: 'blur(12px)'
+      }}>
+        <div className="text-4xl mb-3 opacity-20">📱</div>
+        <div className="text-slate-500 text-sm">No device selected</div>
       </div>
     )
   }
@@ -167,156 +173,175 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
   const health = device.health || {}
   const isStreaming = audioState?.isPlaying || false
   const webRtcConnected = webRTCState?.state === 'connected'
-  
+  const isLowNetwork = health.lowNetwork === true
+
+  // Connection quality color
+  const qualityColor = health.connQuality === 'excellent' ? 'green'
+    : health.connQuality === 'good' ? 'blue'
+    : health.connQuality === 'poor' ? 'red'
+    : 'yellow'
+
   return (
-    <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 overflow-hidden">
-      {/* Device Header */}
-      <div className="border-b border-slate-700/50 bg-slate-800/50 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`w-2 h-2 rounded-full ${health.wsConnected ? 'bg-emerald-400' : 'bg-yellow-400'} ${health.wsConnected ? '' : 'animate-pulse'}`}></div>
-          <div>
-            <div className="text-yellow-400 font-semibold">{device.deviceId.substring(0, 10)}...</div>
-            <div className="text-xs text-slate-500">
-              {device.model || 'Unknown'} • Android SDK {device.sdk || 'n/a'} • App {device.appVersionName || '?'} ({device.appVersionCode || '?'})
+    <div className="rounded-2xl overflow-hidden" style={{
+      background: 'rgba(12,16,32,0.7)',
+      border: '1px solid rgba(99,102,241,0.15)',
+      backdropFilter: 'blur(16px)',
+      boxShadow: '0 8px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05)'
+    }}>
+      
+      {/* ── Device header ─────────────────────────────────────────────── */}
+      <div className="px-5 py-4" style={{
+        background: 'linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.08) 100%)',
+        borderBottom: '1px solid rgba(99,102,241,0.15)'
+      }}>
+        <div className="flex items-start justify-between gap-4">
+          {/* Device identity */}
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Online indicator */}
+            <div className="relative shrink-0">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style={{
+                background: health.wsConnected ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.12)',
+                border: `1px solid ${health.wsConnected ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.25)'}`
+              }}>
+                📱
+              </div>
+              <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#0c1020] ${health.wsConnected ? 'bg-emerald-400' : 'bg-yellow-400 animate-pulse'}`} />
+            </div>
+            <div className="min-w-0">
+              <div className="font-mono text-sm font-bold text-white truncate">
+                {device.deviceId}
+              </div>
+              <div className="text-xs text-slate-400 mt-0.5 truncate">
+                {device.model || 'Unknown device'} &nbsp;·&nbsp; SDK {device.sdk || '?'} &nbsp;·&nbsp; v{device.appVersionName || '?'} <span className="text-slate-600">({device.appVersionCode || '?'})</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          {isStreaming && (
-            <span className="px-2 py-0.5 text-[10px] rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">LIVE</span>
-          )}
-          {webRtcConnected && (
-            <span className="px-2 py-0.5 text-[10px] rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">WEBRTC</span>
-          )}
-          {!isStreaming && !webRtcConnected && (
-            <span className="px-2 py-0.5 text-[10px] rounded bg-slate-600/50 text-slate-400 border border-slate-600">IDLE</span>
-          )}
-          {health.lowNetwork && (
-            <span className="px-2 py-0.5 text-[10px] rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">LOW NETWORK</span>
-          )}
-        </div>
-      </div>
-      
-      {/* Status Grid */}
-      <div className="grid grid-cols-3 gap-0">
-        {/* Column 1 */}
-        <div className="border-r border-slate-700/50 px-4">
-          <StatusItem 
-            label="WEBSOCKET" 
-            value={health.wsConnected ? 'connected' : 'disconnected'} 
-            color={health.wsConnected ? 'green' : 'red'} 
-          />
-          <StatusItem 
-            label="LAST HEALTH" 
-            value="just now (audio_tick)" 
-          />
-          <StatusItem 
-            label="CALL STATUS" 
-            value={health.callActive ? 'active' : 'idle'} 
-            color={health.callActive ? 'yellow' : 'default'}
-          />
-        </div>
-        
-        {/* Column 2 */}
-        <div className="border-r border-slate-700/50 px-4">
-          <StatusItem 
-            label="MIC CAPTURE" 
-            value={health.micCapturing ? 'running' : 'stopped'} 
-            color={health.micCapturing ? 'green' : 'red'}
-          />
-          <StatusItem 
-            label="WEBRTC" 
-            value={webRtcConnected ? 'connected' : (webRTCState?.state || 'idle')} 
-            color={webRtcConnected ? 'green' : webRTCState?.state === 'connecting' ? 'yellow' : 'default'}
-          />
-          <StatusItem label="BITRATE" value={health.bitrate ? `${health.bitrate} kbps` : '-'} />
-          <StatusItem 
-            label="NETWORK" 
-            value={health.internetOnline ? `online${health.netType ? ` (${health.netType})` : ''}` : 'offline'} 
-            color={health.internetOnline ? 'green' : 'red'}
-          />
-          <StatusItem 
-            label="CONN QUALITY" 
-            value={health.connQuality || '-'} 
-            color={health.connQuality === 'excellent' ? 'green' : health.connQuality === 'poor' ? 'red' : 'yellow'}
-          />
-        </div>
-        
-        {/* Column 3 */}
-        <div className="px-4">
-          <StatusItem 
-            label="LAST AUDIO" 
-            value={audioState?.isPlaying ? 'streaming' : 'idle'} 
-            color={audioState?.isPlaying ? 'green' : 'default'}
-          />
-          <StatusItem 
-            label="MIC IN LEVEL" 
-            value={health.micInLevel !== undefined ? `${health.micInLevel}%` : 'ON'} 
-            color="green"
-          />
-          <StatusItem 
-            label="LATENCY" 
-            value={audioState?.latencyMs ? `${audioState.latencyMs}ms` : '-'} 
-            color={audioState?.latencyMs && audioState.latencyMs > 500 ? 'yellow' : 'default'}
-          />
-          <StatusItem 
-            label="BUFFER" 
-            value={audioState?.bufferHealth !== undefined ? `${Math.round(audioState.bufferHealth * 100)}%` : '-'} 
-            color={audioState?.bufferHealth && audioState.bufferHealth < 0.2 ? 'red' : 'default'}
-          />
-          <StatusItem 
-            label="BATTERY" 
-            value={health.batteryPct !== undefined ? `${health.batteryPct}%` : '-'} 
-            color={health.batteryPct && health.batteryPct < 20 ? 'red' : 'default'}
-          />
+
+          {/* Status badges */}
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {isStreaming && <Badge color="green" dot pulse>LIVE</Badge>}
+            {webRtcConnected && <Badge color="blue">WEBRTC</Badge>}
+            {isLowNetwork && <Badge color="yellow" dot>LOW-BW</Badge>}
+            {health.callActive && <Badge color="red" dot pulse>ON CALL</Badge>}
+            {!isStreaming && !webRtcConnected && !health.callActive && <Badge color="gray">IDLE</Badge>}
+          </div>
         </div>
       </div>
 
-      {/* FCM Token Section */}
-      <div className="px-4 py-2 border-t border-slate-700/50">
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">FCM TOKEN (LAYER 4 PUSH)</div>
-          <div className="flex gap-3">
+      {/* ── Metrics grid ──────────────────────────────────────────────── */}
+      <div className="p-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 mb-4">
+          <MetricCard label="WebSocket" value={health.wsConnected ? 'Connected' : 'Disconnected'}
+            color={health.wsConnected ? 'green' : 'red'} glow={health.wsConnected} />
+          <MetricCard label="Mic Capture" value={health.micCapturing ? 'Running' : 'Stopped'}
+            color={health.micCapturing ? 'green' : 'red'} />
+          <MetricCard label="Conn Quality" value={health.connQuality || '—'} color={qualityColor as any} />
+          <MetricCard label="Network" value={health.internetOnline
+            ? `Online${health.netType ? ` · ${health.netType.toUpperCase()}` : ''}` : 'Offline'}
+            color={health.internetOnline ? 'green' : 'red'} />
+          <MetricCard label="Voice Profile" value={health.voiceProfile
+            ? health.voiceProfile.charAt(0).toUpperCase() + health.voiceProfile.slice(1) : '—'}
+            color={health.voiceProfile === 'far' ? 'yellow' : health.voiceProfile === 'near' ? 'blue' : 'default'} />
+          <MetricCard label="Stream Codec" value={health.streamCodec ? `${health.streamCodec.toUpperCase()} ${health.streamCodecMode || ''}` : '—'} color="violet" />
+          <MetricCard label="Battery" value={health.batteryPct != null
+            ? `${health.batteryPct}%${health.charging ? ' ⚡' : ''}` : '—'}
+            color={health.batteryPct != null && health.batteryPct < 20 ? 'red' : health.batteryPct != null && health.batteryPct > 60 ? 'green' : 'yellow'} />
+          <MetricCard label="Noise Floor" value={health.noiseDb !== undefined && health.noiseDb !== null
+            ? `${health.noiseDb.toFixed(0)} dB` : '—'} color="default" />
+          <MetricCard label="Audio Latency" value={audioState?.latencyMs ? `${audioState.latencyMs}ms` : '—'}
+            color={audioState?.latencyMs && audioState.latencyMs > 500 ? 'yellow' : 'default'} />
+          <MetricCard label="Buffer Health" value={audioState?.bufferHealth !== undefined
+            ? `${Math.round(audioState.bufferHealth * 100)}%` : '—'}
+            color={audioState?.bufferHealth !== undefined && audioState.bufferHealth < 0.2 ? 'red' : 'default'} />
+          <MetricCard label="WebRTC" value={webRtcConnected ? 'Connected' : webRTCState?.state || 'Idle'}
+            color={webRtcConnected ? 'green' : webRTCState?.state === 'connecting' ? 'yellow' : 'default'} />
+          <MetricCard label="MIC Level" value={health.micInLevel !== undefined ? `${health.micInLevel}%` : 'Active'}
+            color="green" glow={isStreaming} />
+        </div>
+
+        {/* ── Waveform ──────────────────────────────────────────────────── */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] uppercase tracking-widest font-semibold text-indigo-400">Waveform</span>
+            {isStreaming && (
+              <div className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[10px] text-emerald-400 font-medium">LIVE AUDIO</span>
+              </div>
+            )}
+          </div>
+          <Waveform data={audioState?.waveform || null} isPlaying={isStreaming} />
+        </div>
+
+        {/* ── FCM Token ─────────────────────────────────────────────────── */}
+        <div className="rounded-xl p-3" style={{
+          background: 'rgba(6,8,18,0.5)',
+          border: '1px solid rgba(255,255,255,0.05)'
+        }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[9px] uppercase tracking-widest font-bold text-slate-500">FCM Push Token</span>
             {health.fcmToken && (
-              <>
-                <button 
+              <div className="flex gap-2">
+                <button
                   onClick={handleWakeUp}
                   disabled={waking}
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded transition-all ${waking ? 'bg-slate-700 text-slate-500' : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30'}`}
-                >
-                  {waking ? 'WAKING...' : (wakeStatus || '🔔 WAKE UP DEVICE')}
-                </button>
-                <button 
-                  onClick={() => {
-                    navigator.clipboard.writeText(health.fcmToken || '');
-                    alert('FCM Token copied to clipboard');
+                  className="text-[10px] font-semibold px-3 py-1 rounded-lg transition-all"
+                  style={{
+                    background: waking ? 'rgba(100,116,139,0.2)' : 'rgba(99,102,241,0.2)',
+                    border: `1px solid ${waking ? 'rgba(100,116,139,0.3)' : 'rgba(99,102,241,0.4)'}`,
+                    color: waking ? '#64748b' : '#a5b4fc',
+                    cursor: waking ? 'not-allowed' : 'pointer'
                   }}
-                  className="text-[10px] text-slate-400 hover:text-white transition-colors"
+                >
+                  {waking ? '…Waking' : (wakeStatus || '🔔 Wake Device')}
+                </button>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(health.fcmToken || ''); }}
+                  className="text-[10px] px-2 py-1 rounded-lg transition-all"
+                  style={{
+                    background: 'rgba(148,163,184,0.08)',
+                    border: '1px solid rgba(148,163,184,0.15)',
+                    color: '#64748b'
+                  }}
                 >
                   COPY
                 </button>
-              </>
+              </div>
             )}
           </div>
+          <div className="text-[10px] font-mono text-slate-500 break-all leading-relaxed">
+            {health.fcmToken
+              ? health.fcmToken
+              : <span className="italic text-slate-600">Waiting for token sync from device…</span>}
+          </div>
         </div>
-        <div className="text-[10px] font-mono text-slate-400 break-all leading-tight bg-slate-900/30 p-2 rounded border border-slate-700/30">
-          {health.fcmToken || 'Waiting for token sync...'}
-        </div>
-      </div>
-      
-      {/* Waveform */}
-      <div className="border-t border-slate-700/50 px-4 py-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">WAVEFORM</div>
-          {audioState?.isPlaying && (
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-              <span className="text-[10px] text-emerald-400">LIVE</span>
-            </div>
-          )}
-        </div>
-        <Waveform data={audioState?.waveform || null} />
       </div>
     </div>
+  )
+}
+
+// ── Badge component ────────────────────────────────────────────────────────────
+function Badge({ children, color, dot = false, pulse = false }: {
+  children: React.ReactNode
+  color: 'green' | 'blue' | 'yellow' | 'red' | 'gray' | 'violet'
+  dot?: boolean
+  pulse?: boolean
+}) {
+  const colors = {
+    green:  { bg: 'rgba(16,185,129,0.15)',  border: 'rgba(16,185,129,0.35)',  text: '#34d399' },
+    blue:   { bg: 'rgba(96,165,250,0.15)',  border: 'rgba(96,165,250,0.35)',  text: '#60a5fa' },
+    yellow: { bg: 'rgba(245,158,11,0.15)',  border: 'rgba(245,158,11,0.35)',  text: '#fbbf24' },
+    red:    { bg: 'rgba(239,68,68,0.15)',   border: 'rgba(239,68,68,0.35)',   text: '#f87171' },
+    gray:   { bg: 'rgba(100,116,139,0.15)', border: 'rgba(100,116,139,0.35)', text: '#94a3b8' },
+    violet: { bg: 'rgba(167,139,250,0.15)', border: 'rgba(167,139,250,0.35)', text: '#a78bfa' },
+  }
+  const c = colors[color]
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-wider" style={{
+      background: c.bg, border: `1px solid ${c.border}`, color: c.text
+    }}>
+      {dot && <span className={`w-1.5 h-1.5 rounded-full bg-current ${pulse ? 'animate-pulse' : ''}`} />}
+      {children}
+    </span>
   )
 }

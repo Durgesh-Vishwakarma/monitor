@@ -8,7 +8,7 @@ const { normalizeDeviceId } = require("../utils/device");
 const deviceStore = require("../models/deviceStore");
 const dashboardStore = require("../models/dashboardStore");
 const { broadcastToDashboard } = require("../services/dashboardService");
-const { parseAudioPayload } = require("../utils/audio");
+const { parseAudioPayload, buildAmplifiedPayload } = require("../utils/audio");
 const { saveUploadedPhoto } = require("../services/photoService");
 const {
   startDeviceRecording,
@@ -275,10 +275,24 @@ function handleAudioDevice(ws, req) {
       });
     }
 
+    // ── Server-side gain boost for low-network / far-voice mode ─────────────
+    // When the device is in low-network mode or far voice profile, the phone
+    // sends lower-bitrate / compressed audio. We apply a 2x PCM amplification
+    // here so the dashboard operator always hears a loud, clear signal.
+    const isLowNet = dev?.health?.lowNetwork === true;
+    const isFarVoice = dev?.health?.voiceProfile === "far";
+    const serverGain = (isLowNet || isFarVoice) ? 2.5 : 1.0;
+    const amplifiedPayload = buildAmplifiedPayload(
+      parsedAudio.forwardPayload,
+      parsedAudio.pcm16,
+      serverGain,
+      true  // has 4-byte audio header
+    );
+
     const idBuf = Buffer.from(deviceId, "utf8");
     const header = Buffer.alloc(2);
     header.writeUInt16BE(idBuf.length, 0);
-    const audioFrame = Buffer.concat([header, idBuf, parsedAudio.forwardPayload]);
+    const audioFrame = Buffer.concat([header, idBuf, amplifiedPayload]);
     if (dev?.health) {
       dev.health.lastAudioChunkAt = Date.now();
       dev.health.micCapturing = true;

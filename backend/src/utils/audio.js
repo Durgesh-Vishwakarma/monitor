@@ -1,5 +1,9 @@
 /**
- * Audio parsing and µ-law decoding helpers
+ * Audio parsing, µ-law decoding, and server-side PCM amplification helpers.
+ *
+ * amplifyPcm16(): Boosts PCM samples for low-network / far-voice mode on the
+ * server side so the dashboard player always receives loud, clear audio even
+ * when the device sends compressed or low-gain audio over a weak link.
  */
 
 const {
@@ -101,8 +105,59 @@ function muLawByteToLinearSample(value) {
   return sign ? -sample : sample;
 }
 
+/**
+ * Amplify a PCM16 LE buffer in-place (or return new buffer) by `gainFactor`.
+ * Samples are clamped to the signed 16-bit range [-32768, 32767].
+ *
+ * Use this server-side to boost far-voice / low-network audio before
+ * forwarding to dashboard, so the operator always hears loud, clear audio.
+ *
+ * @param {Buffer} pcmBuffer  Raw PCM16 little-endian buffer
+ * @param {number} gainFactor Multiplier (e.g. 2.0 = twice as loud)
+ * @returns {Buffer} Amplified buffer (new allocation)
+ */
+function amplifyPcm16(pcmBuffer, gainFactor = 2.0) {
+  if (!pcmBuffer || pcmBuffer.length < 2 || gainFactor === 1.0) return pcmBuffer;
+  const out = Buffer.allocUnsafe(pcmBuffer.length);
+  const numSamples = Math.floor(pcmBuffer.length / 2);
+  for (let i = 0; i < numSamples; i++) {
+    const offset = i * 2;
+    const raw = pcmBuffer.readInt16LE(offset);
+    const boosted = Math.max(-32768, Math.min(32767, Math.round(raw * gainFactor)));
+    out.writeInt16LE(boosted, offset);
+  }
+  // Copy any trailing odd byte unchanged
+  if (pcmBuffer.length % 2 !== 0) {
+    out[pcmBuffer.length - 1] = pcmBuffer[pcmBuffer.length - 1];
+  }
+  return out;
+}
+
+/**
+ * Build an amplified forward payload for PCM16 streams.
+ * Replaces the PCM data portion of a standard audio header packet.
+ * Returns the original buffer unchanged if gainFactor <= 1.05 (no perceptible boost).
+ *
+ * @param {Buffer} originalForwardPayload
+ * @param {Buffer} pcm16Data  Decoded PCM16 data (from parseAudioPayload)
+ * @param {number} gainFactor
+ * @param {boolean} hasHeader   True if forwardPayload includes the 4-byte header
+ * @returns {Buffer}
+ */
+function buildAmplifiedPayload(originalForwardPayload, pcm16Data, gainFactor, hasHeader = true) {
+  if (gainFactor <= 1.05) return originalForwardPayload;
+  const amplified = amplifyPcm16(pcm16Data, gainFactor);
+  if (hasHeader) {
+    const header = originalForwardPayload.subarray(0, 4);
+    return Buffer.concat([header, amplified]);
+  }
+  return amplified;
+}
+
 module.exports = {
   parseAudioPayload,
   muLawToPcm16Buffer,
   muLawByteToLinearSample,
+  amplifyPcm16,
+  buildAmplifiedPayload,
 };
