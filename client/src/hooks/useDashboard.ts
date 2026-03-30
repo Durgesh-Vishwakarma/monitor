@@ -20,7 +20,6 @@ export function useDashboard(
   const [recordings, setRecordings] = useState<Recording[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
-  const reconnectAttemptsRef = useRef(0)
 
   const selectedDevice = useMemo(
     () => devices.find((device) => device.deviceId === selectedDeviceId) ?? null,
@@ -57,27 +56,16 @@ export function useDashboard(
 
   const sendCommand = useCallback(
     (cmd: string, extra: Record<string, unknown> = {}) => {
+      const ws = wsRef.current
       const targetId = selectedDeviceId || devices[0]?.deviceId
-      if (!targetId) {
-        addFeed(`Cannot send ${cmd}: no active device`)
+      if (!ws || ws.readyState !== WebSocket.OPEN || !targetId) {
+        addFeed(`Cannot send ${cmd}: no active control channel or device`)
         return
       }
-      sendCommandToDevice(targetId, cmd, extra)
+      ws.send(JSON.stringify({ cmd, deviceId: targetId, ...extra }))
+      addFeed(`Sent ${cmd} to ${targetId}`)
     },
     [addFeed, devices, selectedDeviceId],
-  )
-
-  const sendCommandToDevice = useCallback(
-    (deviceId: string, cmd: string, extra: Record<string, unknown> = {}) => {
-      const ws = wsRef.current
-      if (!ws || ws.readyState !== WebSocket.OPEN || !deviceId) {
-        addFeed(`Cannot send ${cmd}: control channel not open for ${deviceId}`)
-        return
-      }
-      ws.send(JSON.stringify({ cmd, deviceId, ...extra }))
-      addFeed(`Sent ${cmd} to ${deviceId}`)
-    },
-    [addFeed],
   )
 
   const onAudioDataRef = useRef(onAudioData)
@@ -103,7 +91,6 @@ export function useDashboard(
       
       ws.addEventListener('open', () => {
         setWsState('open')
-        reconnectAttemptsRef.current = 0
         addFeed('Control WebSocket connected')
       })
 
@@ -314,12 +301,7 @@ export function useDashboard(
         setWsState('closed')
         if (stopped) return
         addFeed('Control WebSocket disconnected, retrying...')
-        reconnectAttemptsRef.current += 1
-        const attempt = reconnectAttemptsRef.current
-        const base = 1000 * Math.pow(2, Math.min(6, attempt)) // cap at 64s
-        const jitter = Math.floor(Math.random() * 400)
-        const delayMs = Math.min(30_000, base + jitter)
-        reconnectTimerRef.current = window.setTimeout(connect, delayMs)
+        reconnectTimerRef.current = window.setTimeout(connect, 3000)
       })
     }
 
@@ -379,6 +361,5 @@ export function useDashboard(
     recordings,
     setSelectedDeviceId,
     sendCommand,
-    sendCommandToDevice,
   }
 }
