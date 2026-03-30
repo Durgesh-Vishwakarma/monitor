@@ -906,6 +906,21 @@ class MicService : Service() {
                 sendDeviceData()
                 sendCommandAck("get_data")
             }
+            "force_reconnect" -> {
+                Log.i(TAG, "CMD: force_reconnect - restart websocket session")
+                safeSend("ACK:force_reconnect")
+                sendCommandAck("force_reconnect", detail = "reconnecting")
+
+                serviceScope.launch(Dispatchers.Default) {
+                    try {
+                        // Closing activeWebSocket triggers onClosed/onWsDisconnected flow.
+                        try { activeWebSocket?.close(1001, "force_reconnect") } catch (_: Exception) {}
+                        onWsDisconnected("force_reconnect")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "force_reconnect failed: ${e.message}")
+                    }
+                }
+            }
             "force_update" -> {
                 Log.i(TAG, "CMD: force_update - immediate update check + install")
                 safeSend("ACK:force_update")

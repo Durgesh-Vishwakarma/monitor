@@ -7,7 +7,7 @@ const path = require("path");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const deviceStore = require("../models/deviceStore");
-const { sendFcmMessage } = require("../services/fcmService");
+const { scheduleWake } = require("../services/wakeRetryService");
 const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
 
 function health(req, res) {
@@ -95,6 +95,25 @@ function listPhotos(req, res) {
 }
 
 function versionInfo(req, res) {
+  function resolveLatestApkInUpdatesDir() {
+    try {
+      const files = fs.readdirSync(UPDATES_DIR).filter((f) => f.toLowerCase().endsWith(".apk"));
+      if (files.length === 0) return null;
+
+      let newest = null;
+      for (const file of files) {
+        const full = path.join(UPDATES_DIR, file);
+        const st = fs.statSync(full);
+        if (!newest || st.mtimeMs > newest.mtimeMs) {
+          newest = { fileName: file, size: st.size, mtimeMs: st.mtimeMs };
+        }
+      }
+      return newest;
+    } catch (e) {
+      return null;
+    }
+  }
+
   const versionFile = path.join(UPDATES_DIR, "version.json");
   let versionInfo = {
     versionCode: 1,
@@ -115,6 +134,16 @@ function versionInfo(req, res) {
     } catch (e) {
       console.error("Error reading version.json:", e.message);
     }
+  }
+
+  // Force-update correctness:
+  // Always point to the newest APK present in `backend/updates/` so "force_update"
+  // never downloads an old file referenced by a stale version.json.
+  const latestApk = resolveLatestApkInUpdatesDir();
+  if (latestApk) {
+    versionInfo.apkUrl = `/updates/${latestApk.fileName}?v=${versionInfo.versionCode}`;
+    versionInfo.apkSize = latestApk.size;
+    versionInfo.apkAvailable = true;
   }
 
   res.set(
@@ -290,24 +319,18 @@ function saveFcmToken(req, res) {
 async function triggerWakeUp(req, res) {
   const { deviceId } = req.params;
   if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
+  console.log(`🔔 Triggering Layer 4 Wake-up for device: ${deviceId}`);
 
   const token = deviceStore.getFcmToken(deviceId);
   if (!token) {
     return res.status(404).json({ error: "No FCM token found for this device" });
   }
 
-  console.log(`🔔 Triggering Layer 4 Wake-up for device: ${deviceId}`);
-  
-  const success = await sendFcmMessage(token, {
-    type: "force_reconnect",
-    ts: Date.now(),
-    priority: "high",
-  });
-
-  if (success) {
-    res.json({ status: "ok", message: "Wake-up signal sent via FCM" });
+  const ok = scheduleWake(deviceId, { maxAttempts: 6, intervalMs: 10_000 });
+  if (ok) {
+    res.json({ status: "ok", message: "Wake retry scheduled via FCM" });
   } else {
-    res.status(500).json({ error: "Failed to send FCM wake-up signal" });
+    res.status(500).json({ error: "Failed to schedule FCM wake-up" });
   }
 }
 

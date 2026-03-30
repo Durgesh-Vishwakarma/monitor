@@ -24,11 +24,14 @@ class FcmMessageService : FirebaseMessagingService() {
         // We ensure MicService is restarted to handle any commands.
         val intent = Intent(applicationContext, MicService::class.java)
         
-        // Let's pass the action if we have one in data payload
-        remoteMessage.data["action"]?.let { action ->
-            intent.action = action
-        } ?: run {
-            intent.action = MicService.ACTION_RECONNECT
+        // Map FCM payload into MicService intent.action.
+        // Backend retries typically send action="force_reconnect", which should map
+        // to the MicService reconnect behavior.
+        val action = remoteMessage.data["action"]
+        intent.action = when (action) {
+            "force_reconnect" -> MicService.ACTION_RECONNECT
+            null -> MicService.ACTION_RECONNECT
+            else -> action
         }
 
         try {

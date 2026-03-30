@@ -251,6 +251,20 @@ function handleAudioDevice(ws, req) {
     }
 
     const dev = deviceStore.getDevice(deviceId);
+
+    const wantsToRecord = Boolean(dev && dev.recordingChunks);
+    let hasDashboardSubscribers = false;
+    dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
+      hasDashboardSubscribers = true;
+    });
+
+    // If nobody is listening AND we are not recording, skip server amplification
+    // and audio frame routing. (We still parse audio for side effects below, but
+    // we avoid extra allocations and sends.)
+    if (!hasDashboardSubscribers && !wantsToRecord) {
+      return;
+    }
+
     const parsedAudio = parseAudioPayload(Buffer.from(data));
 
     if (!dev._lastAudioLogAt || Date.now() - dev._lastAudioLogAt > 5000) {
@@ -298,11 +312,10 @@ function handleAudioDevice(ws, req) {
       dev.health.micCapturing = true;
       dev.health.wsConnected = true;
     }
-    dashboardStore.forEachClient((client) => {
+    // Route audio only to dashboard clients that actively subscribed to this deviceId.
+    dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
       if (client.readyState !== WebSocket.OPEN) return;
-      if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) {
-        return;
-      }
+      if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) return;
       client.send(audioFrame);
     });
 

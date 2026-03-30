@@ -5,8 +5,8 @@ plugins {
 }
 
 // Version management - increment versionCode for each release
-val appVersionCode = 33  // Increment this for each update
-val appVersionName = "1.11.11"  // Human-readable version
+val appVersionCode = 34  // Increment this for each update
+val appVersionName = "1.11.12"  // Human-readable version
 
 android {
     namespace = "com.micmonitor.app"
