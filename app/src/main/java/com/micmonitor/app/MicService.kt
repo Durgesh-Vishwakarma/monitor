@@ -52,6 +52,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import kotlinx.coroutines.*
+import kotlinx.coroutines.isActive
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.*
@@ -147,8 +149,8 @@ class MicService : Service() {
     private var hqBuffer = ByteArray(0) // lazily initialized when HQ mode enabled
     @Volatile private var hqBufferOffset = 0
     @Volatile private var hqAggressiveDenoise = false // keep denoise moderate for far voice detail
-    private val hqSilenceThreshold = 50 // RMS below this = silence (very low for far voice - reduced from 150)
-    private val hqSilencePercent = 0.98 // Buffer must be 98% silent to skip (more strict - send most audio)
+    private val hqSilenceThreshold = 120 // RMS below this = silence chunk (was 50; 98% rule needed realistic headroom)
+    private val hqSilencePercent = 0.72 // Fraction of chunks that must be silent to skip buffer (~usable in real rooms)
     private val hqChunkSize = 64 * 1024 // Split large buffers into 64KB chunks for reliable transmission
     @Volatile private var lastAudioChunkSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
@@ -177,9 +179,21 @@ class MicService : Service() {
     private var eq1Y1 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-1]
     private var eq1Y2 = 0.0         // EQ stage1 biquad +6dB@1500Hz: y[n-2]
     private var smoothedGain = 3.5  // Temporally-smoothed gain (anti-pumping), far-voice baseline - increased
-    @Volatile private var ourAudioMode = false  // true while we own MODE_IN_COMMUNICATION
-    // Overlap-add FFT spectral denoiser — shared instance, reset each capture session.
+    @Volatile private var ourAudioMode = false  // true while we changed AudioManager.mode from NORMAL
+    // Overlap-add FFT spectral denoiser — realtime path; HQ uses separate instance (no state fight).
     private val spectralDenoiser = SpectralDenoiser()
+    private val hqSpectralDenoiser = SpectralDenoiser()
+    // Hardware session effects (must outlive AudioRecord; released in stopAudioCapture / release path)
+    private var noiseSuppressor: NoiseSuppressor? = null
+    private var acousticEchoCanceler: AcousticEchoCanceler? = null
+    private var automaticGainControl: AutomaticGainControl? = null
+    // Stage 4b high-shelf continuity across stream chunks
+    private var hfShelfPrevOut = 0.0
+    private var hfShelfNeedsPrime = true
+    // Skip spectral denoise for first N chunks (noise model only; WS still sends HPF+EQ audio)
+    private var realtimeDenoiserWarmupChunksRemaining = 0
+    // MuLaw 16k→8k decimator low-pass state (anti-alias)
+    private var muLawDecimLp = 0.0
 
     // ── WebRTC state (phone publishes mic track) ───────────────────────────
     @Volatile private var isWebRtcStreaming = false
@@ -201,10 +215,10 @@ class MicService : Service() {
     private fun preferredAudioSources(): IntArray {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             intArrayOf(
-                MediaRecorder.AudioSource.UNPROCESSED,
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 MediaRecorder.AudioSource.MIC,
                 MediaRecorder.AudioSource.CAMCORDER,
+                MediaRecorder.AudioSource.UNPROCESSED,
             )
         } else {
             intArrayOf(
@@ -2600,14 +2614,13 @@ class MicService : Service() {
             // ALL connections fail until audio capture restarts. The system's
             // default routing already handles WiFi↔Cellular transitions cleanly.
             
-            // MODE_IN_COMMUNICATION activates the phone's call-quality mic profile, which
-            // typically has significantly higher analog sensitivity than MODE_NORMAL —
-            // critical for capturing distant speakers. Restored when capture ends.
+            // Monitoring: MODE_NORMAL for all profiles — avoids HAL AEC/NS/beamforming
+            // that MODE_IN_COMMUNICATION enables on Qualcomm and similar (not controllable via AudioEffect).
             val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             am?.isMicrophoneMute  = false   // ensure mic is not software-muted
             am?.isSpeakerphoneOn  = false   // speakerphone off — avoids feedback loop
-            am?.mode = AudioManager.MODE_IN_COMMUNICATION
-            ourAudioMode = true
+            am?.mode = AudioManager.MODE_NORMAL
+            ourAudioMode = false
             
             // ── Initialize HQ buffer if in buffered mode ─────────────────────
             if (hqBufferedMode) {
@@ -2746,7 +2759,6 @@ class MicService : Service() {
                                         sendHealthStatus("audio_tick")
                                     }
                                 } else {
-                                    // WebSocket send failed, stop audio capture to allow recovery
                                     Log.w(TAG, "Audio send failed - stopping capture for reconnect")
                                     isCapturing = false
                                     break
@@ -2779,6 +2791,7 @@ class MicService : Service() {
                 }
 
                 audioRecord?.stop()
+                releaseSessionAudioEffects()
                 audioRecord?.release()
                 audioRecord = null
                 val wasCapturing = isCapturing
@@ -2876,29 +2889,27 @@ class MicService : Service() {
                         // are captured equally instead of favouring near/front speech.
                         try { rec.setPreferredMicrophoneDirection(0) } catch (_: Exception) {}
                     }
-                    // Keep hardware processing conservative to avoid over-processed artifacts.
-                    // Far profile benefits from hardware NS to suppress steady background noise.
+                    // Hardware NS for far profile (stored until session ends — do not release here).
+                    releaseSessionAudioEffects()
                     val sid = rec.audioSessionId
                     if (NoiseSuppressor.isAvailable()) {
                         try {
-                            NoiseSuppressor.create(sid)?.let { e ->
+                            noiseSuppressor = NoiseSuppressor.create(sid)?.also { e ->
                                 e.enabled = voiceProfile == "far"
-                                e.release()
                             }
                         } catch (_: Exception) {}
                     }
-                    if (AcousticEchoCanceler.isAvailable())
+                    if (AcousticEchoCanceler.isAvailable()) {
                         try {
-                            AcousticEchoCanceler.create(sid)?.let { e ->
+                            acousticEchoCanceler = AcousticEchoCanceler.create(sid)?.also { e ->
                                 e.enabled = false
-                                e.release()
                             }
                         } catch (_: Exception) {}
+                    }
                     if (AutomaticGainControl.isAvailable()) {
                         try {
-                            AutomaticGainControl.create(sid)?.let { e ->
+                            automaticGainControl = AutomaticGainControl.create(sid)?.also { e ->
                                 e.enabled = false
-                                e.release()
                             }
                         } catch (_: Exception) {}
                     }
@@ -2914,13 +2925,27 @@ class MicService : Service() {
         return null
     }
 
+    private fun releaseSessionAudioEffects() {
+        try { noiseSuppressor?.release() } catch (_: Exception) {}
+        noiseSuppressor = null
+        try { acousticEchoCanceler?.release() } catch (_: Exception) {}
+        acousticEchoCanceler = null
+        try { automaticGainControl?.release() } catch (_: Exception) {}
+        automaticGainControl = null
+    }
+
     /** Reset all IIR filter memory.  Must be called once at every capture-session start. */
     private fun resetEnhancerState() {
         hpfPrevX = 0.0; hpfPrevY = 0.0
         eq1X1 = 0.0; eq1X2 = 0.0; eq1Y1 = 0.0; eq1Y2 = 0.0
+        hfShelfPrevOut = 0.0
+        hfShelfNeedsPrime = true
+        muLawDecimLp = 0.0
         // Keep far baseline moderate to avoid startup clipping/pumping artifacts.
         smoothedGain = if (voiceProfile == "far") 3.2 else 3.0
         spectralDenoiser.reset()
+        hqSpectralDenoiser.reset()
+        realtimeDenoiserWarmupChunksRemaining = 30
     }
 
     /**
@@ -2930,9 +2955,9 @@ class MicService : Service() {
     * to avoid the distortion artifacts from overly aggressive EQ/boost stacks.
      *
     *  Stage 1 — HPF @ 120 Hz            removes sub-bass rumble
-    *  Stage 2 — Spectral denoiser       suppresses steady fan/AC noise
-    *  Stage 3 — Adaptive gain (up 5x)   lifts far voice without hard pumping
-    *  Stage 4 — Gentle presence boost   improves intelligibility
+    *  Stage 2 — Presence EQ + high-shelf (low level — before gain)
+    *  Stage 3 — Spectral denoiser       (skipped first ~30 chunks for model warmup)
+    *  Stage 4 — Adaptive gain (+ user multiplier, single capped stage)
     *  Stage 5 — Soft peak limiter       prevents digital clipping
      *
      * Filter state (hpfPrev*, eq1*, bq*, pe*, smoothedGain) persists between
@@ -2944,6 +2969,9 @@ class MicService : Service() {
         val strongAi = aiEnhancementEnabled
         val p = voiceProfile
 
+        val inWarmup = realtimeDenoiserWarmupChunksRemaining > 0
+        if (realtimeDenoiserWarmupChunksRemaining > 0) realtimeDenoiserWarmupChunksRemaining--
+
         // ── Decode PCM-16 LE → double working buffer ─────────────────────────
         val work = DoubleArray(samples)
         for (i in 0 until samples) {
@@ -2952,16 +2980,7 @@ class MicService : Service() {
             work[i] = ((hi shl 8) or lo).toShort().toDouble()
         }
 
-        // ── Pre-gain mic boost (aggressive lift for clear loud voice) ─────────
-        val micBoost = when (p) {
-            "near" -> 2.8
-            "far" -> 4.0
-            else -> 2.5
-        }
-        for (i in 0 until samples) work[i] *= micBoost * softwareGainMultiplier
-
         // ── Stage 1: High-pass filter @ 120 Hz ───────────────────────────────
-        // In noisy environments (fan/hum), push HPF slightly higher to remove rumble.
         val noisyEnv = estimatedNoiseDb > -54.0
         val hpAlpha = if (noisyEnv) 0.9470 else 0.9550
         for (i in 0 until samples) {
@@ -2971,45 +2990,7 @@ class MicService : Service() {
             work[i] = y
         }
 
-        // ── Stage 2: FFT Spectral denoiser ───────────────────────────────────
-        // Preserve speech clarity by blending original signal back
-        val preDenoise = if (p == "far" || p == "near") work.copyOf() else null
-        spectralDenoiser.denoise(work)
-        if (preDenoise != null) {
-            val blendOriginal = when (p) {
-                "far" -> 0.65   // Keep 65% original for far voice
-                "near" -> 0.55  // Keep 55% original for near voice (more denoise OK)
-                else -> 0.45
-            }
-            for (i in 0 until samples) {
-                work[i] = preDenoise[i] * blendOriginal + work[i] * (1.0 - blendOriginal)
-            }
-        }
-
-        // ── Stage 3: Adaptive upward gain (balanced for clarity) ─────────────
-        var sumSq = 0.0
-        for (v in work) sumSq += v * v
-        val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
-        val gainCeil = when (p) {
-            "near" -> if (strongAi) 5.0 else 4.0
-            "far" -> if (strongAi) 7.0 else 5.5
-            else -> if (strongAi) 4.5 else 3.5
-        }
-        val gainTarget = when (p) {
-            "near" -> if (strongAi) 14000.0 else 11000.0
-            "far" -> if (strongAi) 18000.0 else 15000.0
-            else -> if (strongAi) 12000.0 else 10000.0
-        }
-        val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
-        // Slow, smooth attack/release for natural dynamics.
-        smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.90 + rawGain * 0.10
-        else
-            smoothedGain * 0.985 + rawGain * 0.015
-        for (i in 0 until samples) work[i] *= smoothedGain
-
-        // ── Stage 4: Gentle presence boost @ 2.2 kHz ───────────────────────
-        // Peaking: +3 dB, Q=1.0
+        // ── Stage 2a: Presence EQ @ 2.2 kHz (before gain — avoids honky resonance after boost) ──
         val eq1b0 = 1.1541
         val eq1b1 = -1.2070
         val eq1b2 = 0.5173
@@ -3029,40 +3010,73 @@ class MicService : Service() {
             }
             work[i] = x * (1.0 - wet) + y * wet
         }
-        
-        // ── Stage 4b: Extra high-mid boost @ 3.5kHz for voice clarity ────
+
+        // ── Stage 2b: High-shelf @ ~3.5 kHz ─────────────────────────────────
         if (p == "far" || p == "near") {
-            // Simple 1-pole high-shelf approximation for consonant clarity
-            var prevOut = 0.0
             val hfGain = when (p) {
                 "far" -> if (strongAi) 1.25 else 1.15
                 "near" -> if (strongAi) 1.18 else 1.10
                 else -> 1.08
             }
-            val hfAlpha = 0.15  // Crossover around 3kHz
+            val hfAlpha = 0.15
+            var prevOut = hfShelfPrevOut
+            if (hfShelfNeedsPrime && samples > 0) {
+                prevOut = work[0]
+                hfShelfNeedsPrime = false
+            }
             for (i in 0 until samples) {
                 val highFreq = work[i] - prevOut
                 prevOut = prevOut + hfAlpha * (work[i] - prevOut)
                 work[i] = prevOut + highFreq * hfGain
             }
+            hfShelfPrevOut = prevOut
         }
 
-        // ── Stage 5: Loudness normalization (boost quiet chunks, tame peaks) ─
-        var peakAbs = 1.0
-        for (v in work) {
-            val abs = kotlin.math.abs(v)
-            if (abs > peakAbs) peakAbs = abs
+        // ── Stage 3: Spectral denoise (skipped during warmup — no FFT queue buildup) ──
+        if (!inWarmup) {
+            val preDenoise = if (p == "far" || p == "near") work.copyOf() else null
+            spectralDenoiser.denoise(work)
+            if (preDenoise != null) {
+                val blendOriginal = when (p) {
+                    "far" -> 0.65
+                    "near" -> 0.55
+                    else -> 0.45
+                }
+                for (i in 0 until samples) {
+                    work[i] = preDenoise[i] * blendOriginal + work[i] * (1.0 - blendOriginal)
+                }
+            }
         }
-        val loudnessTarget = 29000.0
-        val maxNorm = when (p) {
-            "near" -> 3.2
-            "far" -> 4.0
-            else -> 3.0
-        }
-        val norm = (loudnessTarget / peakAbs).coerceIn(1.0, maxNorm)
-        for (i in 0 until samples) work[i] *= norm
 
-        // ── Stage 6: Soft peak limiter + encode PCM-16 LE ────────────────────
+        // ── Stage 4: Adaptive gain (single loudness stage; no separate RMS norm — avoids pumping) ──
+        var sumSq = 0.0
+        for (v in work) sumSq += v * v
+        val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
+        val gainCeil = when (p) {
+            "near" -> if (strongAi) 4.5 else 3.5
+            "far" -> if (strongAi) 5.5 else 4.5
+            else -> if (strongAi) 4.0 else 3.5
+        }
+        val gainTarget = when (p) {
+            "near" -> if (strongAi) 14500.0 else 11500.0
+            "far" -> if (strongAi) 19500.0 else 16500.0
+            else -> if (strongAi) 12500.0 else 10500.0
+        }
+        val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
+        smoothedGain = if (rawGain > smoothedGain)
+            smoothedGain * 0.70 + rawGain * 0.30
+        else
+            smoothedGain * 0.94 + rawGain * 0.06
+        val userGain = softwareGainMultiplier.coerceIn(0.5, 5.0)
+        val maxCombined = when (p) {
+            "far" -> if (strongAi) 9.0 else 7.5
+            "near" -> 5.5
+            else -> 6.5
+        }
+        val combinedGain = (smoothedGain * userGain).coerceIn(1.0, maxCombined)
+        for (i in 0 until samples) work[i] *= combinedGain
+
+        // ── Stage 5: Soft peak limiter + encode PCM-16 LE ────────────────────
         val out = ByteArray(len)
         for (i in 0 until samples) {
             val limited = softPeakLimit(work[i])
@@ -3121,65 +3135,32 @@ class MicService : Service() {
             work[i] = y
         }
         
-        // ── Stage 2: AGGRESSIVE spectral denoise ────────────────────────────
-        // Process in chunks since denoiser expects smaller frames
+        // ── Stage 2: spectral denoise (fresh state per buffer — no tail bleed into next 5s) ──
+        hqSpectralDenoiser.reset()
         val preDenoise = if (p == "far") work.copyOf() else null
-        val chunkSize = 4096
-        var offset = 0
-        while (offset < samples) {
-            val endIdx = min(offset + chunkSize, samples)
-            val chunk = work.copyOfRange(offset, endIdx)
-            spectralDenoiser.denoise(chunk)
-            System.arraycopy(chunk, 0, work, offset, chunk.size)
-            offset += chunkSize
-        }
+        hqSpectralDenoiser.denoise(work)
         if (p == "far" && preDenoise != null) {
             for (i in 0 until samples) {
-                // Keep more weak speech transients by blending back pre-denoise signal (60% original, 40% denoised).
                 work[i] = preDenoise[i] * 0.60 + work[i] * 0.40
             }
         }
-        
-        // ── Stage 3: Strong upward gain for far voices ──────────────────────
-        // Calculate RMS for adaptive gain
-        var sumSq = 0.0
-        for (v in work) sumSq += v * v
-        val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
-        
-        // MUCH higher gain ceiling in HQ mode (optimized for far voices)
-        val gainCeil = when (p) {
-            "near" -> 1.5
-            "far" -> 8.0  // INCREASED from 6.0x to 8.0x for even better far voice pickup in noisy environments
-            else -> 3.0
-        }
-        val gainTarget = when (p) {
-            "near" -> 5500.0
-            "far" -> 15000.0  // INCREASED target for far voices in noisy environments (was 12000)
-            else -> 8000.0
-        }
-        val gain = (gainTarget / rms).coerceIn(1.0, gainCeil)
-        Log.d(TAG, "HQ gain: ${String.format("%.2f", gain)}x (RMS: ${rms.toInt()}, profile: $p)")
-        
-        for (i in 0 until samples) work[i] *= gain
-        
-        // ── Stage 4: Strong presence boost @ 2-4 kHz (speech clarity) ───────
-        // Peaking EQ: +8dB at 2.8kHz for HQ mode (increased from +6dB for better clarity)
-        // Biquad coefficients for 2800Hz peak, Q=1.0, +8dB gain at 16kHz sample rate
+
+        // ── Stage 3: Presence EQ before gain (reduces metallic peaks vs EQ-after-boost) ──
         val eqB0 = 1.3780
         val eqB1 = -1.1245
         val eqB2 = 0.3980
         val eqA1 = -1.1245
         val eqA2 = 0.7760
-        
+
         var eqX1 = 0.0; var eqX2 = 0.0
         var eqY1 = 0.0; var eqY2 = 0.0
-        
+
         val wetMix = when (p) {
             "near" -> 0.18
-            "far" -> 0.65   // Increased from 0.50 for MUCH stronger far voice EQ
-            else -> 0.35
+            "far" -> 0.28
+            else -> 0.28
         }
-        
+
         for (i in 0 until samples) {
             val x = work[i]
             val y = eqB0 * x + eqB1 * eqX1 + eqB2 * eqX2 - eqA1 * eqY1 - eqA2 * eqY2
@@ -3187,24 +3168,22 @@ class MicService : Service() {
             eqY2 = eqY1; eqY1 = y
             work[i] = x * (1.0 - wetMix) + y * wetMix
         }
-        
-        // ── Stage 5: Additional high-mid boost @ 4kHz for consonant clarity ─
-        // Biquad coefficients for 4000Hz peak, Q=1.2, +6dB gain (increased from +4dB)
+
         val eq2B0 = 1.2890
         val eq2B1 = -0.9156
         val eq2B2 = 0.3221
         val eq2A1 = -0.9156
         val eq2A2 = 0.6111
-        
+
         var eq2X1 = 0.0; var eq2X2 = 0.0
         var eq2Y1 = 0.0; var eq2Y2 = 0.0
-        
+
         val wet2 = when (p) {
             "near" -> 0.10
-            "far" -> 0.45   // Increased from 0.30 for MUCH better consonant clarity
-            else -> 0.22
+            "far" -> 0.20
+            else -> 0.18
         }
-        
+
         for (i in 0 until samples) {
             val x = work[i]
             val y = eq2B0 * x + eq2B1 * eq2X1 + eq2B2 * eq2X2 - eq2A1 * eq2Y1 - eq2A2 * eq2Y2
@@ -3212,20 +3191,49 @@ class MicService : Service() {
             eq2Y2 = eq2Y1; eq2Y1 = y
             work[i] = x * (1.0 - wet2) + y * wet2
         }
-        
-        // ── Stage 6: Loudness normalization (both boost + anti-clipping) ─────
-        var maxAbs = 1.0
-        for (v in work) {
-            val abs = kotlin.math.abs(v)
-            if (abs > maxAbs) maxAbs = abs
+
+        // ── Stage 4: adaptive gain (user multiplier folded into single ceiling) ──
+        var sumSq = 0.0
+        for (v in work) sumSq += v * v
+        val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
+
+        val gainCeil = when (p) {
+            "near" -> 2.2
+            "far" -> 5.0
+            else -> 3.0
         }
-        val targetPeak = 31000.0  // Increased from 30000 for louder output
+        val gainTarget = when (p) {
+            "near" -> 5500.0
+            "far" -> 15000.0
+            else -> 8000.0
+        }
+        val userGain = softwareGainMultiplier.coerceIn(0.5, 5.0)
+        val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
+        val maxHqCombined = when (p) {
+            "far" -> 8.0
+            "near" -> 4.5
+            else -> 5.5
+        }
+        val gain = (rawGain * userGain).coerceIn(1.0, maxHqCombined)
+        Log.d(TAG, "HQ gain: ${String.format("%.2f", gain)}x (RMS: ${rms.toInt()}, profile: $p)")
+
+        for (i in 0 until samples) work[i] *= gain
+
+        // ── Stage 5: RMS normalization (higher ceiling for quiet far content) ──
+        var sumSqHq = 0.0
+        for (v in work) sumSqHq += v * v
+        val rmsHq = Math.sqrt(sumSqHq / samples).coerceAtLeast(1.0)
+        val targetRmsHq = when (p) {
+            "near" -> 8200.0
+            "far" -> 10000.0
+            else -> 7800.0
+        }
         val maxBoost = when (p) {
-            "near" -> 2.4
-            "far" -> 8.0  // INCREASED from 6.0 for even LOUDER far voice in noisy environments
-            else -> 3.5
+            "near" -> 1.8
+            "far" -> 3.5
+            else -> 2.0
         }
-        val normFactor = (targetPeak / maxAbs).coerceIn(1.0, maxBoost)
+        val normFactor = (targetRmsHq / rmsHq).coerceIn(1.0, maxBoost)
         for (i in 0 until samples) work[i] *= normFactor
         
         // ── Stage 7: Soft peak limiter + encode PCM-16 LE ───────────────────
@@ -3271,34 +3279,34 @@ class MicService : Service() {
      * Send HQ audio in smaller chunks to avoid WebSocket frame size limits.
      * Splits large buffers into 64KB chunks for reliable transmission.
      */
-    private fun sendHqAudioChunked(data: ByteArray): Boolean {
+    private suspend fun sendHqAudioChunked(data: ByteArray): Boolean {
+        if (!coroutineContext.isActive) return false
         if (data.size <= hqChunkSize) {
-            // Small enough to send directly
             return safeSend(data.toByteString())
         }
-        
-        // Split into chunks
+
         var offset = 0
         var chunkCount = 0
         while (offset < data.size) {
+            if (!coroutineContext.isActive) return false
             val remaining = data.size - offset
             val chunkLen = min(hqChunkSize, remaining)
             val chunk = data.copyOfRange(offset, offset + chunkLen)
-            
+
             if (!safeSend(chunk.toByteString())) {
                 Log.e(TAG, "HQ chunk send failed at offset $offset (chunk ${chunkCount + 1})")
                 return false
             }
-            
+
             offset += chunkLen
             chunkCount++
-            
-            // Small delay between chunks to avoid overwhelming the network
+
             if (offset < data.size) {
-                Thread.sleep(50)
+                delay(50)
+                if (!coroutineContext.isActive) return false
             }
         }
-        
+
         Log.d(TAG, "HQ audio sent in $chunkCount chunks (${data.size} bytes total)")
         return true
     }
@@ -3316,8 +3324,8 @@ class MicService : Service() {
         // Calculate RMS in chunks for efficiency
         val chunkSize = 1000
         var i = 0
-        while (i < len - 1) {
-            val endIdx = min(i + chunkSize * 2, len - 1)
+        while (i < len) {
+            val endIdx = min(i + chunkSize * 2, len)
             var sumSq = 0.0
             var count = 0
             
@@ -3344,7 +3352,8 @@ class MicService : Service() {
     }
 
     private fun encodeHqAudio(pcm16: ByteArray): ByteArray {
-        // Legacy compatibility - auto-compress
+        // Legacy HQ path: reset decimator so LPF state never bleeds across sessions/buffers.
+        muLawDecimLp = 0.0
         val compressed = pcm16ToMuLaw(pcm16)
         return encodeHqAudio(compressed, isCompressed = true)
     }
@@ -3363,29 +3372,21 @@ class MicService : Service() {
     }
 
     private fun chooseWsFallbackCodec(): Byte {
+        // Far field: always PCM (clarity over bandwidth).
         if (voiceProfile == "far") {
             return AUDIO_CODEC_PCM16_16K
         }
-        // LOW NETWORK MODE: AVOID PCM (256 kbps) - use compressed codec
-        // PCM is the WRONG choice for weak networks
+        // Low network: prefer PCM for voice clarity; MuLaw only when stream mode is "smart".
         if (lowNetworkMode) {
-            // Clarity-priority low-network mode:
-            // keep PCM for WS fallback unless user explicitly selected "smart".
             return if (wsStreamMode == "smart") {
-                Log.i(TAG, "Low-network mode: using MuLaw because stream mode is smart")
+                Log.i(TAG, "Low-network + smart: MuLaw 8 kHz")
                 AUDIO_CODEC_MULAW_8K
             } else {
-                Log.i(TAG, "Low-network mode: keeping PCM fallback for clarity")
+                Log.i(TAG, "Low-network: PCM16 for clarity")
                 AUDIO_CODEC_PCM16_16K
             }
         }
-        
-        // For far voice mode, ALWAYS use PCM for maximum quality
-        if (voiceProfile == "far") {
-            Log.i(TAG, "Far voice mode: using PCM for maximum clarity")
-            return AUDIO_CODEC_PCM16_16K
-        }
-        
+
         return when (wsStreamMode) {
             "pcm" -> AUDIO_CODEC_PCM16_16K
             "smart" -> AUDIO_CODEC_MULAW_8K
@@ -3416,15 +3417,26 @@ class MicService : Service() {
         }
     }
 
+    /**
+     * 16 kHz PCM → low-pass + 2:1 decimate → 8 kHz-equivalent samples, then µ-law.
+     * Keeps codec bandwidth and sample counts consistent with server 8 kHz playback.
+     */
     private fun pcm16ToMuLaw(pcm16: ByteArray): ByteArray {
         val samples = pcm16.size / 2
-        val out = ByteArray(samples)
-        var i = 0
+        val outLen = samples / 2
+        if (outLen <= 0) return ByteArray(0)
+        val out = ByteArray(outLen)
         var o = 0
-        while (i + 1 < pcm16.size) {
-            val s = readLeSample(pcm16, i)
-            out[o++] = linearToMuLaw(s)
-            i += 2
+        var i = 0
+        while (i + 3 < pcm16.size) {
+            val s0 = readLeSample(pcm16, i).toDouble()
+            val s1 = readLeSample(pcm16, i + 2).toDouble()
+            // Light LPF state across pairs reduces aliasing before decimation
+            val blended = 0.5 * (s0 + s1)
+            muLawDecimLp = muLawDecimLp * 0.65 + blended * 0.35
+            val filtered = muLawDecimLp * 0.85 + blended * 0.15
+            out[o++] = linearToMuLaw(filtered.toInt().coerceIn(-32768, 32767))
+            i += 4
         }
         return out
     }
@@ -3495,7 +3507,10 @@ class MicService : Service() {
 
         // Noise power spectrum (one value per positive frequency bin)
         private val noisePow = DoubleArray(BINS)
-        private var adaptFrames = 0    // frames consumed so far for noise estimation
+        /** FFT frames processed (always increments). */
+        private var fftFramesProcessed = 0
+        /** Frames where noise estimate was updated from quiet content only. */
+        private var noiseAdaptFrames = 0
 
         fun reset() {
             inBuf.fill(0.0)
@@ -3503,7 +3518,8 @@ class MicService : Service() {
             outBuf.fill(0.0)
             readyOut.clear()
             noisePow.fill(0.0)
-            adaptFrames = 0
+            fftFramesProcessed = 0
+            noiseAdaptFrames = 0
         }
 
         /**
@@ -3546,26 +3562,22 @@ class MicService : Service() {
             // Power spectrum for positive bins
             val power = DoubleArray(BINS) { i -> re[i]*re[i] + im[i]*im[i] }
             val frameRms = Math.sqrt(power.average()).coerceAtLeast(1.0)
+            fftFramesProcessed++
 
-            // Update noise estimate:
-            //   first 30 frames: aggressive averaging (fast bootstrap)
-            //   thereafter: only from quiet frames (speech skips the update)
-            // Adaptive threshold: only update if this frame is close to the current
-            // estimated noise floor. A fixed threshold failed because quiet far-voice
-            // frames (slightly above noise) were still classified as "quiet" and the
-            // noise model absorbed the voice and then subtracted it.
+            // Update noise estimate only from quiet frames — never bootstrap on speech
+            // (fast alpha when few noise frames collected; avoids "underwater" musical noise).
             val noiseFloorRms = Math.sqrt(noisePow.average()).coerceAtLeast(1.0)
             val isQuiet = frameRms < noiseFloorRms * 1.2 + 20.0
-            if (adaptFrames < 30 || isQuiet) {
-                val alpha = if (adaptFrames < 15) 0.5 else 0.96
+            if (isQuiet) {
+                val alpha = if (noiseAdaptFrames < 15) 0.5 else 0.96
                 for (i in noisePow.indices) {
                     noisePow[i] = alpha * noisePow[i] + (1.0 - alpha) * power[i]
                 }
-                adaptFrames++
+                noiseAdaptFrames++
             }
 
-            // Spectral subtraction — only after enough noise frames are collected
-            if (adaptFrames >= 15) {
+            // Spectral subtraction once we have enough FFT history and noise adaptation (~160ms+)
+            if (fftFramesProcessed >= 15 && noiseAdaptFrames >= 10) {
                 // Increase subtraction only in strong/noisy conditions (e.g. exhaust fans).
                 val strongDenoise = aiEnhancementEnabled || estimatedNoiseDb > -54.0
                 val OVER  = if (strongDenoise) 0.84 else 0.74
@@ -3640,7 +3652,7 @@ class MicService : Service() {
      * Prevents hard digital clipping without audible distortion.
      */
     private fun softPeakLimit(x: Double): Double {
-        val knee = 18000.0 // Lower knee for earlier soft limiting
+        val knee = 28500.0 // Catch true peaks only; normal speech stays linear
         val ceil = 32767.0
         val abs  = Math.abs(x)
         if (abs <= knee) return x
@@ -3671,7 +3683,7 @@ class MicService : Service() {
         val peakDb = 20.0 * kotlin.math.log10((peak.coerceAtLeast(1)).toDouble() / 32768.0)
         val crestDb = peakDb - rmsDb
 
-        val likelySpeech = rmsDb > -48.0 && crestDb > 5.0
+        val likelySpeech = rmsDb > -58.0 && crestDb > 5.0
         if (!likelySpeech) {
             val alpha = if (rmsDb > estimatedNoiseDb) 0.90 else 0.97
             estimatedNoiseDb = alpha * estimatedNoiseDb + (1.0 - alpha) * rmsDb
@@ -3704,6 +3716,7 @@ class MicService : Service() {
         isCapturing = false
         try {
             audioRecord?.stop()
+            releaseSessionAudioEffects()
             audioRecord?.release()
         } catch (_: Exception) {}
         audioRecord = null
@@ -3797,7 +3810,8 @@ class MicService : Service() {
         return try {
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
             val mode = audioManager.mode
-            // Exclude MODE_IN_COMMUNICATION that we set ourselves to boost mic sensitivity.
+            // We keep MODE_NORMAL during capture (ourAudioMode=false) so real calls are visible.
+            // If we ever set MODE_IN_COMMUNICATION ourselves again, gate with !ourAudioMode.
             !ourAudioMode && (mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION)
         } catch (_: Exception) {
             false

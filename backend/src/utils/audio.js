@@ -31,6 +31,7 @@ function parseAudioPayload(buffer) {
       };
     }
     if (codec === AUDIO_CODEC_MULAW_8K) {
+      // Client decimates 16 kHz → 8 kHz before µ-law; one byte per 8 kHz sample.
       return {
         forwardPayload: buffer,
         pcm16: muLawToPcm16Buffer(audioData),
