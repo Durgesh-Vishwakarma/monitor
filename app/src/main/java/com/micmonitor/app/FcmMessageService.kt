@@ -60,7 +60,7 @@ class FcmMessageService : FirebaseMessagingService() {
         val httpUrl = serverUrl.replace("wss://", "https://")
             .replace("ws://", "http://")
             .trimEnd('/')
-            .substringBeforeLast("/") // Remove current deviceId if present in WS URL
+            .replace(Regex("/audio(/.*)?$"), "")
         
         val url = "$httpUrl/api/fcm-token"
         Log.i(TAG, "Syncing FCM token to: $url")

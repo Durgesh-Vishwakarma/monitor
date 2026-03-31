@@ -94,20 +94,17 @@ object ScreenshotCapturer {
                 handler // Use handler thread so callbacks fire correctly
             )
 
-            // Bug 11: Compositor takes time to stabilize, especially on locked screens
-            delay(1500)
-
             var image: Image? = null
-            var retries = 0
-            // Poll for up to 5 seconds
-            while (image == null && retries < 50) {
+            val start = System.currentTimeMillis()
+
+            while (System.currentTimeMillis() - start < 5000) {
                 image = imageReader.acquireLatestImage()
-                if (image == null) delay(100)
-                retries++
+                if (image != null) break
+                Thread.sleep(100)
             }
 
             if (image == null) {
-                Log.e(TAG, "Failed to acquire image from ImageReader after 5 seconds")
+                Log.e(TAG, "Failed to capture screenshot (timeout)")
                 return@withContext false
             }
 
@@ -153,52 +150,47 @@ object ScreenshotCapturer {
             Log.e(TAG, "Screenshot capture failed: ${e.message}", e)
             return@withContext false
         } finally {
-            try { virtualDisplay?.release() } catch (_: Exception) {}
             try { imageReader?.close() } catch (_: Exception) {}
+            try { virtualDisplay?.release() } catch (_: Exception) {}
             try { handlerThread?.quitSafely() } catch (_: Exception) {}
-            // Bug 3: DO NOT CALL projection.stop() here. The projection must be reused.
+            // Media projection is kept alive and managed by MicService.
         }
     }
 
-    // Bug 12: Safely copy pixels avoiding BufferUnderflowException and skewed offsets
+    // Bug 12: Safely copy pixels avoiding OOM with padded strides
     private fun imageToBitmap(image: Image): Bitmap? {
-        val planes = image.planes
-        val buffer = planes[0].buffer
-        val pixelStride = planes[0].pixelStride
-        val rowStride = planes[0].rowStride
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        val pixelStride = plane.pixelStride
+        val rowStride = plane.rowStride
         val width = image.width
         val height = image.height
+        val rowPadding = rowStride - pixelStride * width
 
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        var bitmap: Bitmap? = null
+        var finalBitmap: Bitmap? = null
         
-        // If rowStride perfectly matches pixelStride * width, we can copy directly
-        if (rowStride == pixelStride * width) {
+        try {
+            // Allocate a bitmap that includes the padding area
+            bitmap = Bitmap.createBitmap(
+                width + rowPadding / pixelStride,
+                height,
+                Bitmap.Config.ARGB_8888
+            )
+
             bitmap.copyPixelsFromBuffer(buffer)
-            return bitmap
-        }
-        
-        // Otherwise, copy row by row safely
-        val rowBytes = width * pixelStride
-        val rowArray = ByteArray(rowBytes)
-        val fullBitmapArray = IntArray(width * height)
 
-        buffer.position(0)
-        for (y in 0 until height) {
-            buffer.position(y * rowStride)
-            buffer.get(rowArray, 0, rowBytes)
+            // Crop to actual size (removes padding gap)
+            finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
             
-            for (x in 0 until width) {
-                val offset = x * pixelStride
-                val r = rowArray[offset].toInt() and 0xFF
-                val g = rowArray[offset + 1].toInt() and 0xFF
-                val b = rowArray[offset + 2].toInt() and 0xFF
-                val a = rowArray[offset + 3].toInt() and 0xFF
-                // Pack into ARGB_8888
-                fullBitmapArray[y * width + x] = (a shl 24) or (r shl 16) or (g shl 8) or b
+            return finalBitmap
+        } catch (e: Exception) {
+            Log.e(TAG, "imageToBitmap failed: ${e.message}")
+            return null
+        } finally {
+            if (bitmap != null && bitmap !== finalBitmap) {
+                bitmap.recycle()
             }
         }
-        
-        bitmap.setPixels(fullBitmapArray, 0, width, 0, 0, width, height)
-        return bitmap
     }
 }

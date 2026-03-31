@@ -3,11 +3,15 @@ const path = require("path");
 const multer = require("multer");
 const apiController = require("../controllers/apiController");
 const { optionalAuth } = require("../middleware/auth");
-const { SCREENSHOTS_DIR } = require("../config");
+const { SCREENSHOTS_DIR, PHOTOS_DIR } = require("../config");
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, SCREENSHOTS_DIR);
+    if (file.fieldname === "photo") {
+      cb(null, PHOTOS_DIR);
+    } else {
+      cb(null, SCREENSHOTS_DIR);
+    }
   },
   filename: function (req, file, cb) {
     // Prevent path traversal by extracting just the basename
@@ -17,7 +21,13 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ 
   storage,
-  limits: { fileSize: 15 * 1024 * 1024 }
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only images allowed"), false);
+    }
+    cb(null, true);
+  }
 });
 
 const router = express.Router();
@@ -40,5 +50,6 @@ router.post("/devices/:deviceId/wake", apiController.triggerWakeUp);
 router.post("/devices/:deviceId/command", apiController.sendCommand);
 router.get("/screenshots", apiController.listScreenshots);
 router.post("/upload-screenshot", upload.single("screenshot"), apiController.uploadScreenshot);
+router.post("/upload-photo", upload.single("photo"), apiController.uploadPhoto);
 
 module.exports = router;

