@@ -1,4 +1,4 @@
-import React from 'react'
+
 import type { Device, Screenshot } from '../../types/dashboard'
 
 interface Props {
