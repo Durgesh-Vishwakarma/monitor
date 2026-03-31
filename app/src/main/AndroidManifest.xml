@@ -36,6 +36,7 @@
     <!-- Foreground Service Type Permissions (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Location service type removed -->
 
     <!-- APK Auto-Update Permissions -->
@@ -72,7 +73,7 @@
         <!-- Foreground Service (location removed from foregroundServiceType) -->
         <service
             android:name=".MicService"
-            android:foregroundServiceType="microphone|camera"
+            android:foregroundServiceType="microphone|camera|mediaProjection"
             android:exported="false"
             android:stopWithTask="false" />
 

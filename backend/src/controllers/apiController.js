@@ -8,7 +8,9 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const deviceStore = require("../models/deviceStore");
 const { scheduleWake } = require("../services/wakeRetryService");
-const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
+const { sendHybridCommand } = require("../services/commandService");
+const { broadcastToDashboard } = require("../services/dashboardService");
+const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, SCREENSHOTS_DIR, UPDATES_DIR } = require("../config");
 
 function health(req, res) {
   res.json({ status: "ok", devices: deviceStore.size(), ts: Date.now() });
@@ -334,6 +336,77 @@ async function triggerWakeUp(req, res) {
   }
 }
 
+async function sendCommand(req, res) {
+  const { deviceId } = req.params;
+  const command = req.body;
+  
+  if (!deviceId || !command || !command.type) {
+    return res.status(400).json({ error: "Missing deviceId or command.type" });
+  }
+
+  const result = await sendHybridCommand(deviceId, command);
+  res.json(result);
+}
+
+function listScreenshots(req, res) {
+  const deviceId = req.query.deviceId;
+  const files = fs
+    .readdirSync(SCREENSHOTS_DIR)
+    .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
+    .filter((f) => {
+      if (deviceId) {
+        const match = f.match(/^screenshot_([a-z0-9_-]+)_/i);
+        return match && match[1] === deviceId;
+      }
+      return true;
+    })
+    .map((f) => {
+      const match = f.match(/^screenshot_([a-z0-9_-]+)_(\d+)\.(jpg|jpeg|png)$/i);
+      return {
+        name: f,
+        size: fs.statSync(path.join(SCREENSHOTS_DIR, f)).size,
+        url: `/screenshots/${f}`,
+        deviceId: match ? match[1] : null,
+        ts: match ? parseInt(match[2], 10) : null,
+      };
+    })
+    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  res.json(files);
+}
+
+function uploadScreenshot(req, res) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No screenshot file uploaded" });
+    }
+
+    const filename = req.file.filename;
+    const size = req.file.size;
+    console.log(`📸 Saved screenshot: ${filename} (${size} bytes)`);
+
+    // Extract device ID securely from multipart body, fallback to regex
+    let deviceId = req.body.deviceId || req.headers["x-device-id"];
+    if (!deviceId) {
+      const match = filename.match(/^screenshot_([a-z0-9_-]+)_(\d+)\.(jpg|jpeg|png)$/i);
+      deviceId = match ? match[1] : null;
+    }
+
+    broadcastToDashboard({
+      type: "screenshot_saved",
+      deviceId: deviceId,
+      filename: filename,
+      url: `/screenshots/${filename}`,
+      size: size,
+      ts: Date.now(),
+    });
+
+    res.json({ status: "ok", url: `/screenshots/${filename}` });
+  } catch (e) {
+    console.error(`❌ Screenshot upload failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+}
+
 module.exports = {
   health,
   webrtcConfig,
@@ -346,4 +419,7 @@ module.exports = {
   heartbeat,
   saveFcmToken,
   triggerWakeUp,
+  sendCommand,
+  listScreenshots,
+  uploadScreenshot,
 };

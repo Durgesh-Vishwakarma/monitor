@@ -86,6 +86,14 @@ export type Photo = {
   timestamp: string
 }
 
+export type Screenshot = {
+  id: string
+  filename: string
+  url: string
+  size: number
+  timestamp: string
+}
+
 export type CameraFrame = {
   deviceId: string
   camera: 'front' | 'rear'

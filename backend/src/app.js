@@ -12,6 +12,7 @@ const {
   PORT,
   RECORDINGS_DIR,
   PHOTOS_DIR,
+  SCREENSHOTS_DIR,
   UPDATES_DIR,
   SELF_PING_INTERVAL_MS,
 } = require("./config");
@@ -33,6 +34,7 @@ function ensureDir(dirPath) {
 function createApp() {
   ensureDir(RECORDINGS_DIR);
   ensureDir(PHOTOS_DIR);
+  ensureDir(SCREENSHOTS_DIR);
   ensureDir(UPDATES_DIR);
 
   const app = express();

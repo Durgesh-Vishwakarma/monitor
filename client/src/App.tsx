@@ -7,6 +7,7 @@ import { CallsPanel } from './components/dashboard/CallsPanel'
 import { RecordingsPanel } from './components/dashboard/RecordingsPanel'
 import { EventLog } from './components/dashboard/EventLog'
 import { CameraLiveFeed } from './components/dashboard/CameraLiveFeed'
+import { DeviceFleetList } from './components/dashboard/DeviceFleetList'
 import { useDashboard } from './hooks/useDashboard'
 import { useAudioPlayback } from './hooks/useAudioPlayback'
 import { useWebRTC } from './hooks/useWebRTC'
@@ -51,6 +52,7 @@ function App() {
     selectedDeviceId,
     feed,
     photos,
+    screenshots,
     recordings,
     setSelectedDeviceId,
     sendCommand,
@@ -169,27 +171,15 @@ function App() {
       {/* ─── MAIN CONTENT ────────────────────────────────────────────────────── */}
       <main className="p-4 md:p-5 max-w-screen-2xl mx-auto space-y-5">
 
-        {/* Device tabs (if multiple) */}
-        {devices.length > 1 && (
-          <div className="flex gap-2 flex-wrap">
-            {devices.map((device) => (
-              <button
-                key={device.deviceId}
-                onClick={() => setSelectedDeviceId(device.deviceId)}
-                className="px-4 py-2 text-sm rounded-xl font-medium transition-all duration-200"
-                style={{
-                  background: selectedDeviceId === device.deviceId
-                    ? 'linear-gradient(135deg, rgba(99,102,241,0.3), rgba(139,92,246,0.3))'
-                    : 'rgba(15,20,40,0.6)',
-                  border: `1px solid ${selectedDeviceId === device.deviceId ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.07)'}`,
-                  color: selectedDeviceId === device.deviceId ? '#a5b4fc' : '#64748b',
-                  boxShadow: selectedDeviceId === device.deviceId ? '0 0 20px rgba(99,102,241,0.2)' : 'none'
-                }}
-              >
-                📱 {device.model || device.deviceId.substring(0, 8)}
-              </button>
-            ))}
-          </div>
+        {/* Device Fleet View (Vertical List) */}
+        {devices.length > 0 && (
+          <DeviceFleetList
+            devices={devices}
+            selectedDeviceId={selectedDeviceId}
+            setSelectedDeviceId={setSelectedDeviceId}
+            sendCommand={handleCommand}
+            screenshots={screenshots}
+          />
         )}
 
         {/* No device placeholder */}
