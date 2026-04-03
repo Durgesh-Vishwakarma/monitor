@@ -63,6 +63,21 @@ export function useDashboard(
         return
       }
       addFeed(`Sending ${cmd}...`)
+
+      // Primary path: send via control WebSocket so backend can apply
+      // per-dashboard audio subscriptions (required for live stream audio routing).
+      const ws = wsRef.current
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ cmd, deviceId: targetId, ...extra }))
+          addFeed(`Routed ${cmd} to ${targetId} via control_ws`)
+          return
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          addFeed(`Control WS send failed for ${cmd}: ${message}; trying HTTP fallback...`)
+        }
+      }
+
       try {
         const res = await fetch(apiUrl(`/api/devices/${encodeURIComponent(targetId)}/command`), {
           method: 'POST',
