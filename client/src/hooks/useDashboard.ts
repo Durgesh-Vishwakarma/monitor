@@ -64,15 +64,33 @@ export function useDashboard(
       }
       addFeed(`Sending ${cmd}...`)
       try {
-        const res = await fetch(apiUrl(`/devices/${targetId}/command`), {
+        const res = await fetch(apiUrl(`/api/devices/${encodeURIComponent(targetId)}/command`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: cmd, ...extra })
         })
-        const result = await res.json()
-        addFeed(`Routed ${cmd} to ${targetId} via ${result.status}`)
+        const contentType = res.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          const bodyPreview = (await res.text()).replace(/\s+/g, ' ').slice(0, 120)
+          throw new Error(
+            `Unexpected API response (${res.status}): ${bodyPreview || 'empty body'}`,
+          )
+        }
+
+        const result = (await res.json()) as {
+          status?: string
+          error?: string
+          message?: string
+        }
+
+        if (!res.ok) {
+          throw new Error(result.error || result.message || `HTTP ${res.status}`)
+        }
+
+        addFeed(`Routed ${cmd} to ${targetId} via ${result.status || 'ok'}`)
       } catch (err) {
-        addFeed(`Failed to send ${cmd}: ${err}`)
+        const message = err instanceof Error ? err.message : String(err)
+        addFeed(`Failed to send ${cmd}: ${message}`)
       }
     },
     [addFeed, devices, selectedDeviceId],
@@ -362,7 +380,7 @@ export function useDashboard(
 
     const loadScreenshots = async () => {
       try {
-        const res = await fetch(apiUrl('/screenshots'))
+        const res = await fetch(apiUrl('/api/screenshots'))
         const list = await res.json()
         if (!stopped && Array.isArray(list)) {
           const mapped = list.map((item: any) => ({
