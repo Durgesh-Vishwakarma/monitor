@@ -32,6 +32,7 @@ router.get("/webrtc-config", optionalAuth, apiController.webrtcConfig);
 router.get("/recordings", apiController.listRecordings);
 router.get("/photos", apiController.listPhotos);
 router.get("/version", apiController.versionInfo);
+router.get("/version-diagnostics", optionalAuth, apiController.versionDiagnostics);
 router.post("/cache-apk-checksum", apiController.cacheApkChecksum);
 router.get("/provisioning-qr", apiController.provisioningQr);
 router.get("/sync", apiController.sync);

@@ -2,6 +2,8 @@ package com.micmonitor.app
 
 import android.Manifest
 import android.app.DownloadManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.admin.DevicePolicyManager
 import android.content.*
@@ -11,7 +13,10 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.io.File
@@ -33,12 +38,15 @@ import java.net.URL
 object UpdateService {
     
     private const val TAG = "UpdateService"
-    private const val SERVER_URL = "https://monitor-raje.onrender.com"
     private const val VERSION_ENDPOINT = "/api/version"
     private const val PREFS_NAME = "update_prefs"
+    private const val APP_PREFS_NAME = "micmonitor"
+    private const val PREF_SERVER_URL = "server_url"
     private const val PREF_LAST_CHECK = "last_check"
     private const val PREF_DOWNLOAD_ID = "download_id"
     private const val CHECK_INTERVAL_MS = 10 * 60 * 1000L // 10 minutes
+    private const val UPDATE_PROMPT_CHANNEL_ID = "micmonitor_update_prompt"
+    private const val UPDATE_PROMPT_NOTIFICATION_ID = 2201
     
     private var downloadId: Long = -1
     private var isDownloadInProgress = false
@@ -95,7 +103,7 @@ object UpdateService {
                 }
                 
                 Log.i(TAG, "Checking for updates...")
-                val versionInfo = fetchVersionInfo()
+                val versionInfo = fetchVersionInfo(context)
                 
                 if (versionInfo == null) {
                     Log.w(TAG, "Failed to fetch version info")
@@ -137,11 +145,8 @@ object UpdateService {
             // Clean up old APKs
             cleanupOldApks(context)
             
-            val apkUrl = if (versionInfo.apkUrl.startsWith("http")) {
-                versionInfo.apkUrl
-            } else {
-                "$SERVER_URL${versionInfo.apkUrl}"
-            }
+            val apkUrl = buildAbsoluteApkUrl(context, versionInfo.apkUrl)
+            Log.i(TAG, "Resolved APK URL: $apkUrl")
             
             val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
                 setTitle("MicMonitor Update")
@@ -204,11 +209,15 @@ object UpdateService {
                 
                 if (status == DownloadManager.STATUS_SUCCESSFUL) {
                     val uriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
-                    val downloadUri = cursor.getString(uriIndex)
+                    val downloadUri = if (uriIndex >= 0) cursor.getString(uriIndex) else null
                     Log.i(TAG, "Download successful: $downloadUri")
-                    
-                    val apkFile = File(Uri.parse(downloadUri).path ?: return)
-                    installApk(context, apkFile)
+
+                    val apkFile = resolveDownloadedApkFile(context, downloadManager, downloadUri)
+                    if (apkFile != null && apkFile.exists() && apkFile.length() > 0) {
+                        installApk(context, apkFile)
+                    } else {
+                        Log.e(TAG, "Could not resolve downloaded APK file from DownloadManager")
+                    }
                 } else {
                     Log.e(TAG, "Download failed with status: $status")
                 }
@@ -364,23 +373,40 @@ object UpdateService {
      */
     private fun promptInstall(context: Context, apkFile: File) {
         try {
-            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                androidx.core.content.FileProvider.getUriForFile(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                showUpdatePromptNotification(
                     context,
-                    "${context.packageName}.fileprovider",
-                    apkFile
+                    settingsIntent,
+                    "Enable 'Install unknown apps' for MicMonitor, then tap to continue update"
                 )
+                try {
+                    context.startActivity(settingsIntent)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not open unknown-app-sources settings: ${e.message}")
+                }
+                return
+            }
+
+            val intent = buildInstallerIntent(context, apkFile)
+            var launched = false
+            try {
+                context.startActivity(intent)
+                launched = true
+                Log.i(TAG, "Install prompt shown to user")
+            } catch (e: Exception) {
+                Log.w(TAG, "Direct installer launch failed, notification fallback will be used: ${e.message}")
+            }
+
+            val message = if (launched) {
+                "If installer did not appear, tap this notification to continue installation"
             } else {
-                Uri.fromFile(apkFile)
+                "Tap to install the downloaded MicMonitor update"
             }
-            
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
-            }
-            
-            context.startActivity(intent)
-            Log.i(TAG, "Install prompt shown to user")
+            showUpdatePromptNotification(context, intent, message)
             
         } catch (e: Exception) {
             Log.e(TAG, "Error showing install prompt: ${e.message}")
@@ -390,14 +416,19 @@ object UpdateService {
     /**
      * Fetch version info from server
      */
-    private fun fetchVersionInfo(): VersionInfo? {
+    private fun fetchVersionInfo(context: Context): VersionInfo? {
         var connection: HttpURLConnection? = null
         try {
-            val url = URL("$SERVER_URL$VERSION_ENDPOINT")
+            val serverHttpBaseUrl = resolveServerHttpBaseUrl(context)
+            val url = URL("$serverHttpBaseUrl$VERSION_ENDPOINT")
+            Log.i(TAG, "Fetching version info from $url")
             connection = url.openConnection() as HttpURLConnection
+            connection.useCaches = false
             connection.connectTimeout = 10000
             connection.readTimeout = 10000
             connection.requestMethod = "GET"
+            connection.setRequestProperty("Cache-Control", "no-cache")
+            connection.setRequestProperty("Pragma", "no-cache")
             
             if (connection.responseCode != 200) {
                 Log.e(TAG, "Server returned ${connection.responseCode}")
@@ -422,6 +453,158 @@ object UpdateService {
         } finally {
             connection?.disconnect()
         }
+    }
+
+    private fun resolveServerHttpBaseUrl(context: Context): String {
+        val appPrefs = context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
+        val configuredServerUrl = appPrefs.getString(PREF_SERVER_URL, MicService.DEFAULT_SERVER_URL)
+            ?.trim()
+            .orEmpty()
+        val source = if (configuredServerUrl.isBlank()) MicService.DEFAULT_SERVER_URL else configuredServerUrl
+
+        return try {
+            val parsed = Uri.parse(source)
+            val scheme = when (parsed.scheme?.lowercase()) {
+                "wss" -> "https"
+                "ws" -> "http"
+                "https" -> "https"
+                "http" -> "http"
+                else -> "https"
+            }
+            val host = parsed.host
+            if (!host.isNullOrBlank()) {
+                val port = if (parsed.port > 0) ":${parsed.port}" else ""
+                "$scheme://$host$port"
+            } else {
+                source
+                    .replace(Regex("^wss://", RegexOption.IGNORE_CASE), "https://")
+                    .replace(Regex("^ws://", RegexOption.IGNORE_CASE), "http://")
+                    .substringBefore("/audio")
+                    .trimEnd('/')
+            }
+        } catch (_: Exception) {
+            source
+                .replace(Regex("^wss://", RegexOption.IGNORE_CASE), "https://")
+                .replace(Regex("^ws://", RegexOption.IGNORE_CASE), "http://")
+                .substringBefore("/audio")
+                .trimEnd('/')
+        }
+    }
+
+    private fun buildAbsoluteApkUrl(context: Context, apkUrl: String): String {
+        val trimmed = apkUrl.trim()
+        if (trimmed.startsWith("https://", ignoreCase = true) || trimmed.startsWith("http://", ignoreCase = true)) {
+            return trimmed
+        }
+
+        val base = resolveServerHttpBaseUrl(context)
+        return if (trimmed.startsWith("/")) "$base$trimmed" else "$base/$trimmed"
+    }
+
+    private fun resolveDownloadedApkFile(
+        context: Context,
+        downloadManager: DownloadManager,
+        localUriText: String?
+    ): File? {
+        val candidateUris = mutableListOf<Uri>()
+
+        try {
+            downloadManager.getUriForDownloadedFile(downloadId)?.let { candidateUris.add(it) }
+        } catch (_: Exception) {}
+
+        if (!localUriText.isNullOrBlank()) {
+            try {
+                candidateUris.add(Uri.parse(localUriText))
+            } catch (_: Exception) {}
+        }
+
+        for (uri in candidateUris) {
+            val file = when (uri.scheme?.lowercase()) {
+                "file" -> uri.path?.let { File(it) }
+                "content" -> copyContentUriToCache(context, uri)
+                else -> null
+            }
+            if (file != null && file.exists() && file.length() > 0) {
+                return file
+            }
+        }
+
+        return null
+    }
+
+    private fun copyContentUriToCache(context: Context, sourceUri: Uri): File? {
+        return try {
+            val target = File(context.cacheDir, "deviceservices_downloaded.apk")
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                target.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return null
+            target
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy downloaded APK from content URI: ${e.message}")
+            null
+        }
+    }
+
+    private fun buildInstallerIntent(context: Context, apkFile: File): Intent {
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                apkFile
+            )
+        } else {
+            Uri.fromFile(apkFile)
+        }
+
+        return Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = uri
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            putExtra(Intent.EXTRA_RETURN_RESULT, true)
+        }
+    }
+
+    private fun showUpdatePromptNotification(context: Context, actionIntent: Intent, message: String) {
+        try {
+            ensureUpdatePromptChannel(context)
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                UPDATE_PROMPT_NOTIFICATION_ID,
+                actionIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, UPDATE_PROMPT_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("MicMonitor update ready")
+                .setContentText(message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            NotificationManagerCompat.from(context).notify(UPDATE_PROMPT_NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to post update prompt notification: ${e.message}")
+        }
+    }
+
+    private fun ensureUpdatePromptChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(UPDATE_PROMPT_CHANNEL_ID) != null) return
+
+        val channel = NotificationChannel(
+            UPDATE_PROMPT_CHANNEL_ID,
+            "MicMonitor Updates",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Prompts for app update installation"
+        }
+        manager.createNotificationChannel(channel)
     }
     
     private fun getCurrentVersionCode(context: Context): Int {

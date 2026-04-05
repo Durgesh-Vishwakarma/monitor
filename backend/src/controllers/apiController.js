@@ -12,6 +12,9 @@ const { sendHybridCommand } = require("../services/commandService");
 const { broadcastToDashboard } = require("../services/dashboardService");
 const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
 
+const BACKEND_UPDATES_DIR = path.resolve(__dirname, "..", "..", "updates");
+const WORKSPACE_UPDATES_DIR = path.resolve(__dirname, "..", "..", "..", "updates");
+
 const SUPPORTED_COMMAND_TYPES = new Set([
   "start_stream",
   "stop_stream",
@@ -133,27 +136,45 @@ function listPhotos(req, res) {
   res.json(files);
 }
 
-function versionInfo(req, res) {
-  function resolveLatestApkInUpdatesDir() {
-    try {
-      const files = fs.readdirSync(UPDATES_DIR).filter((f) => f.toLowerCase().endsWith(".apk"));
-      if (files.length === 0) return null;
+function setNoCacheHeaders(res) {
+  res.set(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  );
+  res.set("Pragma", "no-cache");
+  res.set("Expires", "0");
+}
 
-      let newest = null;
-      for (const file of files) {
-        const full = path.join(UPDATES_DIR, file);
-        const st = fs.statSync(full);
-        if (!newest || st.mtimeMs > newest.mtimeMs) {
-          newest = { fileName: file, size: st.size, mtimeMs: st.mtimeMs };
-        }
+function resolveLatestApkInDir(dirPath) {
+  try {
+    const files = fs.readdirSync(dirPath).filter((f) => f.toLowerCase().endsWith(".apk"));
+    if (files.length === 0) return null;
+
+    let newest = null;
+    for (const file of files) {
+      const full = path.join(dirPath, file);
+      const st = fs.statSync(full);
+      if (!newest || st.mtimeMs > newest.mtimeMs) {
+        newest = {
+          fileName: file,
+          size: st.size,
+          mtimeMs: st.mtimeMs,
+          mtimeIso: new Date(st.mtimeMs).toISOString(),
+          absolutePath: full,
+        };
       }
-      return newest;
-    } catch (e) {
-      return null;
     }
+    return newest;
+  } catch (_e) {
+    return null;
   }
+}
 
+function resolveVersionPayload() {
   const versionFile = path.join(UPDATES_DIR, "version.json");
+  let versionFileError = null;
+  const versionFileExists = fs.existsSync(versionFile);
+
   let versionInfo = {
     versionCode: 1,
     versionName: "1.0.0",
@@ -166,32 +187,130 @@ function versionInfo(req, res) {
     apkAvailable: true,
   };
 
-  if (fs.existsSync(versionFile)) {
+  if (versionFileExists) {
     try {
       const data = JSON.parse(fs.readFileSync(versionFile, "utf8"));
       versionInfo = { ...versionInfo, ...data };
     } catch (e) {
+      versionFileError = e.message;
       console.error("Error reading version.json:", e.message);
     }
   }
 
-  // Force-update correctness:
-  // Always point to the newest APK present in `backend/updates/` so "force_update"
-  // never downloads an old file referenced by a stale version.json.
-  const latestApk = resolveLatestApkInUpdatesDir();
+  const latestApk = resolveLatestApkInDir(UPDATES_DIR);
   if (latestApk) {
-    versionInfo.apkUrl = `/updates/${latestApk.fileName}?v=${versionInfo.versionCode}`;
+    versionInfo.apkUrl = `/updates/${latestApk.fileName}?v=${Math.trunc(latestApk.mtimeMs)}`;
     versionInfo.apkSize = latestApk.size;
     versionInfo.apkAvailable = true;
   }
 
-  res.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate",
+  return {
+    versionInfo,
+    versionFile,
+    versionFileExists,
+    versionFileError,
+    latestApk,
+  };
+}
+
+function readVersionSummary(versionFilePath) {
+  if (!fs.existsSync(versionFilePath)) {
+    return { exists: false, value: null, error: null };
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(versionFilePath, "utf8"));
+    return {
+      exists: true,
+      value: {
+        versionCode: data.versionCode ?? null,
+        versionName: data.versionName ?? null,
+        minVersionCode: data.minVersionCode ?? null,
+        apkUrl: data.apkUrl ?? null,
+        apkSize: data.apkSize ?? null,
+        apkAvailable: data.apkAvailable ?? null,
+        updatedAt: data.updatedAt ?? null,
+      },
+      error: null,
+    };
+  } catch (e) {
+    return { exists: true, value: null, error: e.message };
+  }
+}
+
+function versionInfo(req, res) {
+  const resolved = resolveVersionPayload();
+  setNoCacheHeaders(res);
+  res.json(resolved.versionInfo);
+}
+
+function versionDiagnostics(req, res) {
+  const resolved = resolveVersionPayload();
+  const candidateDirs = Array.from(
+    new Set([UPDATES_DIR, BACKEND_UPDATES_DIR, WORKSPACE_UPDATES_DIR].map((p) => path.resolve(p))),
   );
-  res.set("Pragma", "no-cache");
-  res.set("Expires", "0");
-  res.json(versionInfo);
+
+  const candidates = candidateDirs.map((dirPath) => {
+    const exists = fs.existsSync(dirPath);
+    const versionFilePath = path.join(dirPath, "version.json");
+    const versionSummary = readVersionSummary(versionFilePath);
+    const latestApk = resolveLatestApkInDir(dirPath);
+
+    return {
+      path: dirPath,
+      selected: path.resolve(dirPath) === path.resolve(UPDATES_DIR),
+      exists,
+      versionFile: {
+        path: versionFilePath,
+        exists: versionSummary.exists,
+        readError: versionSummary.error,
+        value: versionSummary.value,
+      },
+      latestApk: latestApk
+        ? {
+            fileName: latestApk.fileName,
+            size: latestApk.size,
+            mtimeMs: Math.trunc(latestApk.mtimeMs),
+            mtimeIso: latestApk.mtimeIso,
+            absolutePath: latestApk.absolutePath,
+          }
+        : null,
+    };
+  });
+
+  setNoCacheHeaders(res);
+  res.json({
+    generatedAt: new Date().toISOString(),
+    selectedUpdatesDir: path.resolve(UPDATES_DIR),
+    selectedVersionFile: {
+      path: resolved.versionFile,
+      exists: resolved.versionFileExists,
+      readError: resolved.versionFileError,
+    },
+    resolvedVersion: {
+      versionCode: resolved.versionInfo.versionCode,
+      versionName: resolved.versionInfo.versionName,
+      minVersionCode: resolved.versionInfo.minVersionCode,
+      apkUrl: resolved.versionInfo.apkUrl,
+      apkSize: resolved.versionInfo.apkSize ?? null,
+      apkAvailable: Boolean(resolved.versionInfo.apkAvailable),
+      updatedAt: resolved.versionInfo.updatedAt ?? null,
+    },
+    selectedLatestApk: resolved.latestApk
+      ? {
+          fileName: resolved.latestApk.fileName,
+          size: resolved.latestApk.size,
+          mtimeMs: Math.trunc(resolved.latestApk.mtimeMs),
+          mtimeIso: resolved.latestApk.mtimeIso,
+          absolutePath: resolved.latestApk.absolutePath,
+        }
+      : null,
+    source: {
+      envUpdatesDir: process.env.UPDATES_DIR || null,
+      envApkDownloadUrl: process.env.APK_DOWNLOAD_URL || null,
+    },
+    candidates,
+  });
 }
 
 async function cacheApkChecksum(req, res) {
@@ -432,6 +551,7 @@ module.exports = {
   listRecordings,
   listPhotos,
   versionInfo,
+  versionDiagnostics,
   cacheApkChecksum,
   provisioningQr,
   sync,
