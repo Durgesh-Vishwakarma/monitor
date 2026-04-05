@@ -41,6 +41,7 @@ object UpdateService {
     private const val CHECK_INTERVAL_MS = 10 * 60 * 1000L // 10 minutes
     
     private var downloadId: Long = -1
+    private var isDownloadInProgress = false
     
     // All permissions that should be auto-granted after update
     // Note: Location permissions REMOVED to avoid system notifications
@@ -125,7 +126,12 @@ object UpdateService {
      * Download and install update
      */
     fun downloadAndInstall(context: Context, versionInfo: VersionInfo) {
+        if (isDownloadInProgress) {
+            Log.w(TAG, "Download already in progress")
+            return
+        }
         try {
+            isDownloadInProgress = true
             Log.i(TAG, "Starting download: ${versionInfo.apkUrl}")
             
             // Clean up old APKs
@@ -162,6 +168,7 @@ object UpdateService {
             
         } catch (e: Exception) {
             Log.e(TAG, "Error starting download: ${e.message}")
+            isDownloadInProgress = false
         }
     }
     
@@ -210,6 +217,7 @@ object UpdateService {
         } catch (e: Exception) {
             Log.e(TAG, "Error handling download completion: ${e.message}")
         } finally {
+            isDownloadInProgress = false
             // Unregister receiver
             try {
                 downloadReceiver?.let { context.applicationContext.unregisterReceiver(it) }
@@ -330,13 +338,14 @@ object UpdateService {
             // Create intent for installation result
             val intent = Intent(context, InstallResultReceiver::class.java).apply {
                 action = "com.micmonitor.app.INSTALL_RESULT"
+                component = ComponentName(context, InstallResultReceiver::class.java)
             }
             
             val pendingIntent = PendingIntent.getBroadcast(
                 context,
                 sessionId,
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             
             // Commit the session

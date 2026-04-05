@@ -15,6 +15,7 @@ class FcmMessageService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "FcmMessageService"
+        private val sharedHttpClient = OkHttpClient()
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
@@ -30,7 +31,6 @@ class FcmMessageService : FirebaseMessagingService() {
         val action = remoteMessage.data["action"] ?: remoteMessage.data["type"]
         intent.action = when (action) {
             "force_reconnect" -> MicService.ACTION_RECONNECT
-            "take_screenshot" -> "take_screenshot"
             null -> MicService.ACTION_RECONNECT
             else -> action
         }
@@ -65,7 +65,7 @@ class FcmMessageService : FirebaseMessagingService() {
         val url = "$httpUrl/api/fcm-token"
         Log.i(TAG, "Syncing FCM token to: $url")
 
-        val client = OkHttpClient()
+        val client = sharedHttpClient
         val json = JSONObject().apply {
             put("deviceId", deviceId)
             put("token", token)

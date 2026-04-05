@@ -1,8 +1,8 @@
 1<?xml version="1.0" encoding="utf-8"?>
 2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 3    package="com.device.services.app"
-4    android:versionCode="34"
-5    android:versionName="1.11.12" >
+4    android:versionCode="36"
+5    android:versionName="1.12.2" >
 6
 7    <uses-sdk
 8        android:minSdkVersion="26"
@@ -157,7 +157,7 @@
 89            </intent-filter>
 90        </activity>
 91
-92        <!-- Foreground Service (location removed from foregroundServiceType) -->
+92        <!-- Foreground Service -->
 93        <service
 93-->D:\mic\monitor\app\src\main\AndroidManifest.xml:73:9-77:44
 94            android:name="com.micmonitor.app.MicService"
@@ -245,8 +245,8 @@
 138-->D:\mic\monitor\app\src\main\AndroidManifest.xml:117:9-123:20
 139            android:name="com.micmonitor.app.InstallResultReceiver"
 139-->D:\mic\monitor\app\src\main\AndroidManifest.xml:118:13-50
-140            android:exported="false" >
-140-->D:\mic\monitor\app\src\main\AndroidManifest.xml:119:13-37
+140            android:exported="true" >
+140-->D:\mic\monitor\app\src\main\AndroidManifest.xml:119:13-36
 141            <intent-filter>
 141-->D:\mic\monitor\app\src\main\AndroidManifest.xml:120:13-122:29
 142                <action android:name="com.micmonitor.app.INSTALL_RESULT" />

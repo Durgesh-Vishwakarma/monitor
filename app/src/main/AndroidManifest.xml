@@ -36,7 +36,6 @@
     <!-- Foreground Service Type Permissions (Android 14+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <!-- Location service type removed -->
 
     <!-- APK Auto-Update Permissions -->
@@ -70,10 +69,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Foreground Service (location removed from foregroundServiceType) -->
+        <!-- Foreground Service -->
         <service
             android:name=".MicService"
-            android:foregroundServiceType="microphone|camera|mediaProjection"
+            android:foregroundServiceType="microphone|camera"
             android:exported="false"
             android:stopWithTask="false" />
 
@@ -117,7 +116,7 @@
         <!-- Install Result Receiver for silent install feedback -->
         <receiver
             android:name=".InstallResultReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.micmonitor.app.INSTALL_RESULT" />
             </intent-filter>

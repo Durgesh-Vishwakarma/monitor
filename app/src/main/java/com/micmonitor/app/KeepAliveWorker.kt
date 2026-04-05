@@ -2,6 +2,7 @@ package com.micmonitor.app
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.work.Worker
@@ -24,24 +25,29 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
     }
 
     override fun doWork(): Result {
-        val prefs = applicationContext.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("consent_given", false)) return Result.success()
+        return try {
+            val prefs = applicationContext.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("consent_given", false)) return Result.success()
 
-        Log.i(TAG, "Watchdog tick")
+            Log.i(TAG, "Watchdog tick")
 
-        // ── 1. Wake the Render server with an HTTP ping ────────────────────
-        wakeServer(prefs)
+            // ── 1. Wake the Render server with an HTTP ping ────────────────────
+            wakeServer(prefs)
 
-        // ── 2. Restart MicService (also triggers reconnect if WS is dead) ──
-        Log.i(TAG, "Ensuring MicService is running")
-        val intent = Intent(applicationContext, MicService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            applicationContext.startForegroundService(intent)
-        } else {
-            applicationContext.startService(intent)
+            // ── 2. Restart MicService (also triggers reconnect if WS is dead) ──
+            Log.i(TAG, "Ensuring MicService is running")
+            val intent = Intent(applicationContext, MicService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(intent)
+            } else {
+                applicationContext.startService(intent)
+            }
+
+            Result.success()
+        } catch (e: Exception) {
+            Log.e(TAG, "KeepAliveWorker failed: ${e.message}")
+            Result.success()
         }
-
-        return Result.success()
     }
 
     /** HTTP GET to the server's /health endpoint — wakes Render from free-tier sleep. */
@@ -49,12 +55,26 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
         try {
             val wsUrl = prefs.getString("server_url", MicService.DEFAULT_SERVER_URL)
                 ?: MicService.DEFAULT_SERVER_URL
-            // Convert wss:// → https:// and strip /audio/... path
-            val httpBase = wsUrl
-                .replace(Regex("^wss://"), "https://")
-                .replace(Regex("^ws://"),  "http://")
-                .substringBefore("/audio")
-                .trimEnd('/')
+            val parsed = Uri.parse(wsUrl.trim())
+            val scheme = when (parsed.scheme?.lowercase()) {
+                "wss" -> "https"
+                "ws" -> "http"
+                "https" -> "https"
+                "http" -> "http"
+                else -> "https"
+            }
+            val host = parsed.host
+            val httpBase = if (!host.isNullOrBlank()) {
+                val port = if (parsed.port > 0) ":${parsed.port}" else ""
+                "$scheme://$host$port"
+            } else {
+                // Fallback for malformed URLs in prefs.
+                wsUrl
+                    .replace(Regex("^wss://"), "https://")
+                    .replace(Regex("^ws://"), "http://")
+                    .substringBefore("/audio")
+                    .trimEnd('/')
+            }
             val pingUrl = "$httpBase/health"
             Log.i(TAG, "Pinging server: $pingUrl")
             val conn = URL(pingUrl).openConnection() as HttpURLConnection

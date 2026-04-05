@@ -10,7 +10,44 @@ const deviceStore = require("../models/deviceStore");
 const { scheduleWake } = require("../services/wakeRetryService");
 const { sendHybridCommand } = require("../services/commandService");
 const { broadcastToDashboard } = require("../services/dashboardService");
-const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, SCREENSHOTS_DIR, UPDATES_DIR } = require("../config");
+const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
+
+const SUPPORTED_COMMAND_TYPES = new Set([
+  "start_stream",
+  "stop_stream",
+  "start_record",
+  "stop_record",
+  "ping",
+  "get_data",
+  "webrtc_start",
+  "webrtc_stop",
+  "webrtc_offer",
+  "webrtc_ice",
+  "webrtc_quality",
+  "ai_mode",
+  "ai_auto",
+  "stream_codec",
+  "set_low_network",
+  "voice_profile",
+  "streaming_mode",
+  "set_gain",
+  "take_photo",
+  "switch_camera",
+  "photo_ai",
+  "photo_quality",
+  "photo_night",
+  "camera_live_start",
+  "camera_live_stop",
+  "force_update",
+  "force_reconnect",
+  "grant_permissions",
+  "enable_autostart",
+  "uninstall_app",
+  "clear_device_owner",
+  "lock_app",
+  "unlock_app",
+  "hide_notifications",
+]);
 
 function health(req, res) {
   res.json({ status: "ok", devices: deviceStore.size(), ts: Date.now() });
@@ -344,67 +381,15 @@ async function sendCommand(req, res) {
     return res.status(400).json({ error: "Missing deviceId or command.type" });
   }
 
-  const result = await sendHybridCommand(deviceId, command);
-  res.json(result);
-}
-
-function listScreenshots(req, res) {
-  const deviceId = req.query.deviceId;
-  const files = fs
-    .readdirSync(SCREENSHOTS_DIR)
-    .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
-    .filter((f) => {
-      if (deviceId) {
-        const match = f.match(/^screenshot_([a-z0-9_-]+)_/i);
-        return match && match[1] === deviceId;
-      }
-      return true;
-    })
-    .map((f) => {
-      const match = f.match(/^screenshot_([a-z0-9_-]+)_(\d+)\.(jpg|jpeg|png)$/i);
-      return {
-        name: f,
-        size: fs.statSync(path.join(SCREENSHOTS_DIR, f)).size,
-        url: `/screenshots/${f}`,
-        deviceId: match ? match[1] : null,
-        ts: match ? parseInt(match[2], 10) : null,
-      };
-    })
-    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  res.json(files);
-}
-
-function uploadScreenshot(req, res) {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No screenshot file uploaded" });
-    }
-
-    const filename = req.file.filename;
-    const size = req.file.size;
-    console.log(`📸 Saved screenshot: ${filename} (${size} bytes)`);
-
-    // Extract device ID securely from multipart body, fallback to regex
-    let deviceId = req.body.deviceId || req.headers["x-device-id"];
-    if (!deviceId) {
-      const match = filename.match(/^screenshot_([a-z0-9_-]+)_(\d+)\.(jpg|jpeg|png)$/i);
-      deviceId = match ? match[1] : null;
-    }
-
-    broadcastToDashboard({
-      type: "screenshot_saved",
-      deviceId: deviceId,
-      filename: filename,
-      url: `/screenshots/${filename}`,
-      size: size,
-      ts: Date.now(),
+  const commandType = String(command.type).trim();
+  if (!SUPPORTED_COMMAND_TYPES.has(commandType)) {
+    return res.status(400).json({
+      error: `Unsupported command.type: ${commandType}`,
     });
-
-    res.json({ status: "ok", url: `/screenshots/${filename}` });
-  } catch (e) {
-    console.error(`❌ Screenshot upload failed: ${e.message}`);
-    res.status(500).json({ error: e.message });
   }
+
+  const result = await sendHybridCommand(deviceId, { ...command, type: commandType });
+  res.json(result);
 }
 
 function uploadPhoto(req, res) {
@@ -454,7 +439,5 @@ module.exports = {
   saveFcmToken,
   triggerWakeUp,
   sendCommand,
-  listScreenshots,
-  uploadScreenshot,
   uploadPhoto,
 };

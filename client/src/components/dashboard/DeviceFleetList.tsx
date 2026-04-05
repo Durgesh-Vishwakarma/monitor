@@ -1,15 +1,12 @@
-
-import type { Device, Screenshot } from '../../types/dashboard'
+import type { Device } from '../../types/dashboard'
 
 interface Props {
   devices: Device[]
   selectedDeviceId: string
   setSelectedDeviceId: (id: string) => void
-  sendCommand: (cmd: string, extra?: Record<string, unknown>) => void
-  screenshots: Screenshot[]
 }
 
-export function DeviceFleetList({ devices, selectedDeviceId, setSelectedDeviceId, sendCommand, screenshots }: Props) {
+export function DeviceFleetList({ devices, selectedDeviceId, setSelectedDeviceId }: Props) {
   if (devices.length === 0) return null
 
   return (
@@ -24,13 +21,6 @@ export function DeviceFleetList({ devices, selectedDeviceId, setSelectedDeviceId
         {devices.map((device) => {
           const isSelected = selectedDeviceId === device.deviceId
           const health = device.health || {}
-          
-          // Get the most recent screenshot for this device
-          const deviceScreenshots = screenshots.filter(s => {
-            const match = s.filename.match(/^screenshot_([a-z0-9_-]+)_/i)
-            return match && match[1] === device.deviceId
-          })
-          const latestScreenshot = deviceScreenshots[0]
 
           return (
             <div
@@ -68,37 +58,6 @@ export function DeviceFleetList({ devices, selectedDeviceId, setSelectedDeviceId
                 </div>
               </div>
 
-              <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
-                {latestScreenshot && (
-                  <div className="relative group cursor-pointer" title="View latest screenshot">
-                    <a href={latestScreenshot.url} target="_blank" rel="noreferrer">
-                      <img 
-                        src={latestScreenshot.url} 
-                        alt="Latest Screenshot" 
-                        className="w-24 h-16 object-cover rounded-lg border border-slate-600 group-hover:border-indigo-400 transition-colors"
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg backdrop-blur-[2px]">
-                        <span className="text-[10px] font-bold text-white tracking-wider">VIEW</span>
-                      </div>
-                    </a>
-                  </div>
-                )}
-                
-                <button
-                  onClick={() => {
-                    // Temporarily select to ensure command goes to right device
-                    setSelectedDeviceId(device.deviceId)
-                    sendCommand("take_screenshot")
-                  }}
-                  className="px-4 py-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 border border-indigo-500/20"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  Screenshot
-                </button>
-              </div>
-              
               {isSelected && (
                 <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-xl bg-gradient-to-b from-indigo-500 to-purple-500" />
               )}

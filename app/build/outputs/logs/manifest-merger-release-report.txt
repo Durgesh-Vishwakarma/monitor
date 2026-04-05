@@ -374,7 +374,7 @@ ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:112:17-82
 receiver#com.micmonitor.app.InstallResultReceiver
 ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:117:9-123:20
 	android:exported
-		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:119:13-37
+		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:119:13-36
 	android:name
 		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:118:13-50
 intent-filter#action:name:com.micmonitor.app.INSTALL_RESULT

@@ -61,7 +61,7 @@ object ImageEnhancer {
 
         val stepX = (w / 32).coerceAtLeast(1)
         val stepY = (h / 32).coerceAtLeast(1)
-        var sum = 0L
+        var sum = 0.0
         var count = 0
 
         var y = 0
@@ -73,13 +73,13 @@ object ImageEnhancer {
                 val g = (c shr 8) and 0xFF
                 val b = c and 0xFF
                 // ITU-R BT.709 luma
-                sum += (0.2126 * r + 0.7152 * g + 0.0722 * b).toLong()
+                sum += (0.2126 * r + 0.7152 * g + 0.0722 * b)
                 count++
                 x += stepX
             }
             y += stepY
         }
-        return if (count > 0) (sum.toFloat() / count) else 128f
+        return if (count > 0) (sum / count).toFloat() else 128f
     }
 
     /**
@@ -223,57 +223,43 @@ object ImageEnhancer {
 
         val output = IntArray(width * height)
 
-        // Unsharp mask kernel scaled by strength
-        val center = (4 * strength + 1).toInt()
-        val edge = -strength.toInt().coerceAtLeast(0)
+        // Unsharp mask 9-point kernel (includes diagonals) scaled by strength
+        // Sum of coefficients: (8*s + 1) + 8*(-s) = 1.0 (normalized)
+        val center = 8 * strength + 1f
+        val edge = -strength
 
         for (y in 1 until height - 1) {
             for (x in 1 until width - 1) {
-                var r = 0
-                var g = 0
-                var b = 0
+                var rf = 0f
+                var gf = 0f
+                var bf = 0f
 
-                // Apply sharpening kernel: [0,-1,0], [-1,5,-1], [0,-1,0]
                 val idx = y * width + x
-                val top = (y - 1) * width + x
-                val bottom = (y + 1) * width + x
-
-                // Center pixel * 5
+                
+                // Center pixel (strength applied via center/edge)
                 var p = pixels[idx]
-                r += ((p shr 16) and 0xFF) * 5
-                g += ((p shr 8) and 0xFF) * 5
-                b += (p and 0xFF) * 5
+                rf += ((p shr 16) and 0xFF) * center
+                gf += ((p shr 8) and 0xFF) * center
+                bf += (p and 0xFF) * center
 
-                // Top pixel * -1
-                p = pixels[top]
-                r -= (p shr 16) and 0xFF
-                g -= (p shr 8) and 0xFF
-                b -= p and 0xFF
-
-                // Bottom pixel * -1
-                p = pixels[bottom]
-                r -= (p shr 16) and 0xFF
-                g -= (p shr 8) and 0xFF
-                b -= p and 0xFF
-
-                // Left pixel * -1
-                p = pixels[idx - 1]
-                r -= (p shr 16) and 0xFF
-                g -= (p shr 8) and 0xFF
-                b -= p and 0xFF
-
-                // Right pixel * -1
-                p = pixels[idx + 1]
-                r -= (p shr 16) and 0xFF
-                g -= (p shr 8) and 0xFF
-                b -= p and 0xFF
+                // 8 neighbors (9-point kernel for higher quality)
+                for (dy in -1..1) {
+                    for (dx in -1..1) {
+                        if (dx == 0 && dy == 0) continue
+                        p = pixels[(y + dy) * width + (x + dx)]
+                        rf += ((p shr 16) and 0xFF) * edge
+                        gf += ((p shr 8) and 0xFF) * edge
+                        bf += (p and 0xFF) * edge
+                    }
+                }
 
                 // Clamp
-                r = r.coerceIn(0, 255)
-                g = g.coerceIn(0, 255)
-                b = b.coerceIn(0, 255)
+                val r = rf.toInt().coerceIn(0, 255)
+                val g = gf.toInt().coerceIn(0, 255)
+                val b = bf.toInt().coerceIn(0, 255)
 
-                output[idx] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                val alpha = pixels[idx] and -0x1000000
+                output[idx] = alpha or (r shl 16) or (g shl 8) or b
             }
         }
 
@@ -405,7 +391,7 @@ object ImageEnhancer {
                 // Balanced: brightness + light sharpen
                 result = adjustBrightness(bitmap)
                 result = sharpen(result, 0.8f)
-                applyColorBoost(result, 1.08f)  // Slight saturation
+                result = applyColorBoost(result, 1.08f)  // Slight saturation
             }
             CaptureMode.NIGHT -> {
                 // Full pipeline: denoise -> brightness -> sharpen
@@ -490,4 +476,5 @@ object ImageEnhancer {
         }
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
+
 }

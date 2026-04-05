@@ -14,7 +14,6 @@ module.exports = {
   FCM_SERVER_KEY: process.env.FCM_SERVER_KEY || null,
   RECORDINGS_DIR: path.join(__dirname, "..", "..", "recordings"),
   PHOTOS_DIR: path.join(__dirname, "..", "..", "photos"),
-  SCREENSHOTS_DIR: path.join(__dirname, "..", "..", "screenshots"),
   UPDATES_DIR: path.resolve(__dirname, "..", "..", "..", "updates"),
   CLIENT_DIST_DIR: path.resolve(__dirname, "..", "..", "..", "client", "dist"),
   LEGACY_DASHBOARD: path.join(__dirname, "..", "..", "index.html"),

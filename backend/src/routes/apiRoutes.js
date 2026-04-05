@@ -3,15 +3,11 @@ const path = require("path");
 const multer = require("multer");
 const apiController = require("../controllers/apiController");
 const { optionalAuth } = require("../middleware/auth");
-const { SCREENSHOTS_DIR, PHOTOS_DIR } = require("../config");
+const { PHOTOS_DIR } = require("../config");
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    if (file.fieldname === "photo") {
-      cb(null, PHOTOS_DIR);
-    } else {
-      cb(null, SCREENSHOTS_DIR);
-    }
+    cb(null, PHOTOS_DIR);
   },
   filename: function (req, file, cb) {
     // Prevent path traversal by extracting just the basename
@@ -46,10 +42,8 @@ router.get("/heartbeat", apiController.heartbeat);
 router.post("/fcm-token", apiController.saveFcmToken);
 router.post("/devices/:deviceId/wake", apiController.triggerWakeUp);
 
-// Commands & Screenshots
+// Commands & Photos
 router.post("/devices/:deviceId/command", apiController.sendCommand);
-router.get("/screenshots", apiController.listScreenshots);
-router.post("/upload-screenshot", upload.single("screenshot"), apiController.uploadScreenshot);
 router.post("/upload-photo", upload.single("photo"), apiController.uploadPhoto);
 
 module.exports = router;

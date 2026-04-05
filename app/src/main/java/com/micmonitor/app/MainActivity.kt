@@ -2,10 +2,8 @@ package com.micmonitor.app
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.media.projection.MediaProjectionManager
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -16,7 +14,6 @@ import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -46,37 +43,6 @@ class MainActivity : AppCompatActivity() {
             return perms.toTypedArray()
         }
 
-    // Bug 7 & 22: Replace deprecated onActivityResult with registerForActivityResult
-    private val screenCaptureLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        prefs.edit().putBoolean("consent_given", true).apply()
-        
-        val intent = Intent(this, MicService::class.java)
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            prefs.edit().putBoolean("screen_capture_granted", true).apply()
-            intent.action = "INIT_PROJECTION"
-            intent.putExtra("projection_data", result.data)
-            Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show()
-            launchServiceWithIntent(intent)
-            requestBatteryOptExemption()
-            finish()
-        } else {
-            // Bug 22: User denied screen capture. Provide a retry path.
-            prefs.edit().putBoolean("screen_capture_granted", false).apply()
-            Toast.makeText(this, "Screen capture required for full features. Tap to retry.", Toast.LENGTH_LONG).show()
-            
-            val tvStatus = findViewById<TextView>(R.id.tvStatus)
-            val btnGrant = findViewById<Button>(R.id.btnGrant)
-            tvStatus.text = "Screen capture denied. Full remote features disabled."
-            btnGrant.text = "Grant Screen Capture"
-            
-            // Still launch service for core features (mic)
-            launchServiceWithIntent(intent)
-            requestBatteryOptExemption()
-        }
-    }
-
     @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         val existingToken = prefs.getString("server_token", null).orEmpty().trim()
-        if (existingToken.isBlank()) {
+        if (existingToken.isBlank() && MicService.DEFAULT_SERVER_TOKEN.isNotBlank()) {
             prefs.edit().putString("server_token", MicService.DEFAULT_SERVER_TOKEN).apply()
         }
 
@@ -101,12 +67,8 @@ class MainActivity : AppCompatActivity() {
             handleIntents(intent)
             launchServiceWithIntent(Intent(this, MicService::class.java))
             requestBatteryOptExemption()
-            
-            // Bug 22: If screen capture is missing, keep UI open to allow retry, unless locked
-            if (!prefs.getBoolean("screen_capture_granted", false)) {
-                tvStatus.text = "Screen capture permission missing."
-                btnGrant.text = "Enable Screen Capture"
-            } else if (!prefs.getBoolean("lock_task_mode", false)) {
+
+            if (!prefs.getBoolean("lock_task_mode", false)) {
                 finish()
                 return
             }
@@ -120,10 +82,23 @@ class MainActivity : AppCompatActivity() {
                 }
                 ActivityCompat.requestPermissions(this, requiredPermissions, REQUEST_CODE)
             } else {
-                // Bug 22: Re-request path for missing projection token
-                val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                screenCaptureLauncher.launch(mpm.createScreenCaptureIntent())
+                markConsentGiven()
+                Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show()
+                launchServiceWithIntent(Intent(this, MicService::class.java))
+                requestBatteryOptExemption()
+                finish()
             }
+        }
+    }
+
+    private fun markConsentGiven() {
+        prefs.edit().putBoolean("consent_given", true).apply()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                createDeviceProtectedStorageContext()
+                    .getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
+                    .edit().putBoolean("consent_given", true).apply()
+            } catch (_: Exception) {}
         }
     }
 
@@ -143,8 +118,11 @@ class MainActivity : AppCompatActivity() {
             val micGranted = micIndex >= 0 && grantResults[micIndex] == PackageManager.PERMISSION_GRANTED
 
             if (micGranted) {
-                val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                screenCaptureLauncher.launch(mpm.createScreenCaptureIntent())
+                markConsentGiven()
+                Toast.makeText(this, "Permissions granted", Toast.LENGTH_SHORT).show()
+                launchServiceWithIntent(Intent(this, MicService::class.java))
+                requestBatteryOptExemption()
+                finish()
             } else {
                 Toast.makeText(this, getString(R.string.toast_mic_required), Toast.LENGTH_LONG).show()
                 findViewById<TextView>(R.id.tvStatus).apply {
@@ -242,19 +220,5 @@ class MainActivity : AppCompatActivity() {
         return isLocal || isLegacyHost
     }
 
-    override fun onStop() {
-        super.onStop()
-        val isDeviceOwner = try {
-            UpdateService.isDeviceOwner(this)
-        } catch (_: Exception) {
-            false
-        }
-        if (isDeviceOwner && hasCorePermissions()) {
-            try {
-                launchServiceWithIntent(Intent(this, MicService::class.java))
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to launch service onStop: ${e.message}")
-            }
-        }
-    }
+
 }

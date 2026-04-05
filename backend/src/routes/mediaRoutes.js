@@ -1,10 +1,9 @@
 const express = require("express");
-const { RECORDINGS_DIR, PHOTOS_DIR, SCREENSHOTS_DIR } = require("../config");
+const { RECORDINGS_DIR, PHOTOS_DIR } = require("../config");
 
 function registerMediaRoutes(app) {
   app.use("/recordings", express.static(RECORDINGS_DIR));
   app.use("/photos", express.static(PHOTOS_DIR));
-  app.use("/screenshots", express.static(SCREENSHOTS_DIR));
 }
 
 module.exports = {

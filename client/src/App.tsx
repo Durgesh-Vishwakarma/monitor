@@ -52,7 +52,6 @@ function App() {
     selectedDeviceId,
     feed,
     photos,
-    screenshots,
     recordings,
     setSelectedDeviceId,
     sendCommand,
@@ -103,73 +102,127 @@ function App() {
   const isConnected = wsState === 'open'
   const isStreaming = isListening || audioPlayback.state.isPlaying
   const health = selectedDevice?.health
+  const selectedDeviceLabel = selectedDevice?.model || 'Unknown device'
+  const selectedDeviceShortId = selectedDevice?.deviceId ? selectedDevice.deviceId.slice(0, 8) : null
+  const networkTypeLabel = health?.netType ? String(health.netType).toUpperCase() : 'N/A'
+  const qualityLabel = health?.connQuality ? String(health.connQuality).toUpperCase() : 'N/A'
 
   return (
-    <div className="min-h-screen text-slate-200" style={{ background: 'linear-gradient(135deg, #06080f 0%, #0a0e1a 40%, #0d1220 100%)' }}>
-      
-      {/* ─── TOP HEADER BAR ─────────────────────────────────────────────────── */}
-      <header style={{
-        background: 'rgba(10,14,26,0.85)',
-        backdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(99,102,241,0.15)',
-        boxShadow: '0 1px 40px rgba(99,102,241,0.08)'
-      }} className="sticky top-0 z-50 px-5 py-3">
-        <div className="flex items-center justify-between max-w-screen-2xl mx-auto">
-          {/* Brand */}
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg text-white"
-                style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 4px 20px rgba(99,102,241,0.4)' }}>
-                M
+    <div className="relative min-h-screen overflow-hidden text-slate-200" style={{ background: 'linear-gradient(135deg, #06080f 0%, #0a0e1a 40%, #0d1220 100%)' }}>
+      <div className="pointer-events-none absolute inset-0">
+        <div className="dashboard-aurora dashboard-aurora-one" />
+        <div className="dashboard-aurora dashboard-aurora-two" />
+        <div className="dashboard-grid-overlay" />
+      </div>
+
+      <div className="relative z-10">
+        {/* ─── TOP HEADER BAR ─────────────────────────────────────────────────── */}
+        <header style={{
+          background: 'rgba(10,14,26,0.85)',
+          backdropFilter: 'blur(20px)',
+          borderBottom: '1px solid rgba(99,102,241,0.15)',
+          boxShadow: '0 1px 40px rgba(99,102,241,0.08)'
+        }} className="sticky top-0 z-50 px-5 py-3">
+          <div className="flex items-center justify-between max-w-screen-2xl mx-auto">
+            {/* Brand */}
+            <div className="flex items-center gap-4">
+              <div className="relative">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg text-white"
+                  style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 4px 20px rgba(99,102,241,0.4)' }}>
+                  M
+                </div>
+                {isStreaming && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 animate-pulse border-2 border-[#0a0e1a]" />
+                )}
               </div>
-              {isStreaming && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 animate-pulse border-2 border-[#0a0e1a]" />
-              )}
+              <div>
+                <h1 className="text-base font-bold tracking-wide text-white">MicMonitor</h1>
+                <p className="text-[10px] text-indigo-400 uppercase tracking-widest font-medium">Remote Audio Intelligence</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-bold tracking-wide text-white">MicMonitor</h1>
-              <p className="text-[10px] text-indigo-400 uppercase tracking-widest font-medium">Remote Audio Intelligence</p>
+
+            {/* Center — stats bar */}
+            <div className="hidden md:flex items-center gap-6">
+              <StatPill icon="📱" label="Devices" value={devices.length.toString()} color={devices.length > 0 ? '#10b981' : '#64748b'} />
+              <StatPill icon="🎙" label="Audio" value={isStreaming ? 'LIVE' : 'IDLE'} color={isStreaming ? '#10b981' : '#64748b'} pulse={isStreaming} />
+              <StatPill icon="📶" label="Network" value={health?.lowNetwork ? 'LOW-BW' : 'HQ'} color={health?.lowNetwork ? '#f59e0b' : '#6366f1'} />
+              <StatPill icon="🔋" label="Battery" value={health?.batteryPct !== undefined && health.batteryPct !== null ? `${health.batteryPct}%` : '—'} color={health?.batteryPct !== null && health?.batteryPct !== undefined && health.batteryPct < 20 ? '#ef4444' : '#64748b'} />
+            </div>
+
+            {/* Right — connection + clock */}
+            <div className="flex items-center gap-4">
+              <div className="text-right hidden sm:block">
+                <div className="text-sm font-mono font-semibold text-white tracking-widest">{formatTime(now)}</div>
+                <div className="text-[10px] text-slate-500">{formatDate(now)}</div>
+              </div>
+              <WsStatusBadge state={wsState} />
             </div>
           </div>
+        </header>
 
-          {/* Center — stats bar */}
-          <div className="hidden md:flex items-center gap-6">
+        {/* Mobile stats strip */}
+        <div className="px-5 pt-3 md:hidden">
+          <div className="max-w-screen-2xl mx-auto flex items-center gap-2 overflow-x-auto pb-1">
             <StatPill icon="📱" label="Devices" value={devices.length.toString()} color={devices.length > 0 ? '#10b981' : '#64748b'} />
             <StatPill icon="🎙" label="Audio" value={isStreaming ? 'LIVE' : 'IDLE'} color={isStreaming ? '#10b981' : '#64748b'} pulse={isStreaming} />
             <StatPill icon="📶" label="Network" value={health?.lowNetwork ? 'LOW-BW' : 'HQ'} color={health?.lowNetwork ? '#f59e0b' : '#6366f1'} />
             <StatPill icon="🔋" label="Battery" value={health?.batteryPct !== undefined && health.batteryPct !== null ? `${health.batteryPct}%` : '—'} color={health?.batteryPct !== null && health?.batteryPct !== undefined && health.batteryPct < 20 ? '#ef4444' : '#64748b'} />
           </div>
-
-          {/* Right — connection + clock */}
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-mono font-semibold text-white tracking-widest">{formatTime(now)}</div>
-              <div className="text-[10px] text-slate-500">{formatDate(now)}</div>
-            </div>
-            <WsStatusBadge state={wsState} />
-          </div>
         </div>
-      </header>
 
-      {/* ─── HERO LIVE BAR (when streaming) ─────────────────────────────────── */}
-      {isStreaming && (
-        <div style={{
-          background: 'linear-gradient(90deg, rgba(16,185,129,0.05) 0%, rgba(99,102,241,0.08) 50%, rgba(139,92,246,0.05) 100%)',
-          borderBottom: '1px solid rgba(16,185,129,0.15)'
-        }} className="px-5 py-2">
-          <div className="max-w-screen-2xl mx-auto flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Live Audio Stream Active</span>
+        {/* ─── HERO LIVE BAR (when streaming) ─────────────────────────────────── */}
+        {isStreaming && (
+          <div style={{
+            background: 'linear-gradient(90deg, rgba(16,185,129,0.05) 0%, rgba(99,102,241,0.08) 50%, rgba(139,92,246,0.05) 100%)',
+            borderBottom: '1px solid rgba(16,185,129,0.15)'
+          }} className="px-5 py-2">
+            <div className="max-w-screen-2xl mx-auto flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Live Audio Stream Active</span>
+              </div>
+              <div className="flex-1 h-0.5 rounded" style={{ background: 'linear-gradient(90deg, #10b981, #6366f1, #8b5cf6, transparent)' }} />
+              <LiveBeatBars />
             </div>
-            <div className="flex-1 h-0.5 rounded" style={{ background: 'linear-gradient(90deg, #10b981, #6366f1, #8b5cf6, transparent)' }} />
-            <LiveBeatBars />
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ─── MAIN CONTENT ────────────────────────────────────────────────────── */}
-      <main className="p-4 md:p-5 max-w-screen-2xl mx-auto space-y-5">
+        {selectedDevice && (
+          <div className="px-5 pt-3">
+            <div
+              className="max-w-screen-2xl mx-auto rounded-2xl px-4 py-3 md:px-5 md:py-4"
+              style={{
+                background: 'linear-gradient(120deg, rgba(30,41,59,0.78), rgba(30,27,75,0.65))',
+                border: '1px solid rgba(99,102,241,0.22)',
+                boxShadow: '0 8px 32px rgba(15,23,42,0.45)'
+              }}
+            >
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-indigo-300/90 font-semibold">Device Focus</p>
+                  <h2 className="text-lg font-bold text-white leading-tight">
+                    {selectedDeviceLabel}
+                    {selectedDeviceShortId ? (
+                      <span className="ml-2 text-xs font-mono text-slate-400 align-middle">#{selectedDeviceShortId}</span>
+                    ) : null}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">Network {networkTypeLabel} • Link {qualityLabel}</p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <StatusTag label="WS" value={health?.wsConnected === false ? 'Offline' : 'Online'} tone={health?.wsConnected === false ? 'bad' : 'good'} />
+                  <StatusTag label="Internet" value={health?.internetOnline === false ? 'Down' : 'Up'} tone={health?.internetOnline === false ? 'bad' : 'good'} />
+                  <StatusTag label="Mic" value={health?.micCapturing ? 'Capturing' : 'Idle'} tone={health?.micCapturing ? 'good' : 'neutral'} />
+                  <StatusTag label="Camera" value={isCameraLive ? 'Live' : 'Standby'} tone={isCameraLive ? 'warn' : 'neutral'} />
+                  <StatusTag label="Recording" value={isRecording ? 'On' : 'Off'} tone={isRecording ? 'warn' : 'neutral'} />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── MAIN CONTENT ────────────────────────────────────────────────────── */}
+        <main className="p-4 md:p-5 max-w-screen-2xl mx-auto space-y-5">
 
         {/* Device Fleet View (Vertical List) */}
         {devices.length > 0 && (
@@ -177,8 +230,6 @@ function App() {
             devices={devices}
             selectedDeviceId={selectedDeviceId}
             setSelectedDeviceId={setSelectedDeviceId}
-            sendCommand={handleCommand}
-            screenshots={screenshots}
           />
         )}
 
@@ -255,7 +306,8 @@ function App() {
             </div>
           </>
         )}
-      </main>
+        </main>
+      </div>
     </div>
   )
 }
@@ -322,17 +374,62 @@ function WsStatusBadge({ state }: { state: string }) {
   )
 }
 
+type StatusTone = 'good' | 'warn' | 'bad' | 'neutral'
+
+function StatusTag({ label, value, tone }: { label: string; value: string; tone: StatusTone }) {
+  const palette: Record<StatusTone, { bg: string; border: string; color: string }> = {
+    good: {
+      bg: 'rgba(16,185,129,0.16)',
+      border: 'rgba(16,185,129,0.35)',
+      color: '#6ee7b7',
+    },
+    warn: {
+      bg: 'rgba(245,158,11,0.16)',
+      border: 'rgba(245,158,11,0.35)',
+      color: '#fcd34d',
+    },
+    bad: {
+      bg: 'rgba(239,68,68,0.16)',
+      border: 'rgba(239,68,68,0.35)',
+      color: '#fca5a5',
+    },
+    neutral: {
+      bg: 'rgba(100,116,139,0.16)',
+      border: 'rgba(100,116,139,0.35)',
+      color: '#cbd5e1',
+    },
+  }
+  const style = palette[tone]
+
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+      style={{
+        background: style.bg,
+        border: `1px solid ${style.border}`,
+        color: style.color,
+      }}
+    >
+      <span className="text-[9px] opacity-70">{label}</span>
+      <span>{value}</span>
+    </span>
+  )
+}
+
+const LIVE_BAR_HEIGHTS = [26, 48, 36, 62, 43, 72, 38, 66, 30, 58, 41, 70]
+const LIVE_BAR_DURATIONS = [0.55, 0.64, 0.51, 0.73, 0.58, 0.66, 0.62, 0.74, 0.57, 0.69, 0.61, 0.76]
+
 function LiveBeatBars() {
   return (
     <div className="flex items-end gap-0.5 h-5">
-      {Array.from({ length: 12 }).map((_, i) => (
+      {LIVE_BAR_HEIGHTS.map((height, i) => (
         <div
           key={i}
           className="w-1 rounded-sm"
           style={{
-            height: `${20 + Math.random() * 80}%`,
+            height: `${height}%`,
             background: `hsl(${145 + i * 4}, 70%, 55%)`,
-            animation: `beatBar ${0.4 + Math.random() * 0.6}s ease-in-out infinite alternate`,
+            animation: `beatBar ${LIVE_BAR_DURATIONS[i]}s ease-in-out infinite alternate`,
             animationDelay: `${i * 0.07}s`
           }}
         />

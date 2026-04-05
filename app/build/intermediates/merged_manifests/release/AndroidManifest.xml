@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.device.services.app"
-    android:versionCode="34"
-    android:versionName="1.11.12" >
+    android:versionCode="36"
+    android:versionName="1.12.2" >
 
     <uses-sdk
         android:minSdkVersion="26"
@@ -89,7 +89,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Foreground Service (location removed from foregroundServiceType) -->
+        <!-- Foreground Service -->
         <service
             android:name="com.micmonitor.app.MicService"
             android:exported="false"
@@ -137,7 +137,7 @@
         <!-- Install Result Receiver for silent install feedback -->
         <receiver
             android:name="com.micmonitor.app.InstallResultReceiver"
-            android:exported="false" >
+            android:exported="true" >
             <intent-filter>
                 <action android:name="com.micmonitor.app.INSTALL_RESULT" />
             </intent-filter>

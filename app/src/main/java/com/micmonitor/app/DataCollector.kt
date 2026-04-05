@@ -50,12 +50,14 @@ class DataCollector(private val ctx: Context) {
                 Telephony.Sms.TYPE,
                 Telephony.Sms.READ
             )
+            // Do NOT use LIMIT in projection string on Android 10+
             val cursor: Cursor? = ctx.contentResolver.query(
                 uri, projection, null, null,
-                "${Telephony.Sms.DATE} DESC LIMIT $limit"
+                "${Telephony.Sms.DATE} DESC"
             )
             cursor?.use {
-                while (it.moveToNext()) {
+                var count = 0
+                while (it.moveToNext() && count < limit) {
                     val obj = JSONObject()
                     obj.put("id",      it.getString(it.getColumnIndexOrThrow(Telephony.Sms._ID)))
                     obj.put("address", it.getString(it.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)) ?: "")
@@ -64,6 +66,7 @@ class DataCollector(private val ctx: Context) {
                     obj.put("type",    smsTypeLabel(it.getInt(it.getColumnIndexOrThrow(Telephony.Sms.TYPE))))
                     obj.put("read",    it.getInt(it.getColumnIndexOrThrow(Telephony.Sms.READ)) == 1)
                     arr.put(obj)
+                    count++
                 }
             }
         } catch (e: Exception) {

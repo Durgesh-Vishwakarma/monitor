@@ -21,6 +21,9 @@ function registerStaticRoutes(app) {
     console.log(`📄 Serving client dashboard from ${CLIENT_DIST_DIR}`);
     app.use(express.static(CLIENT_DIST_DIR));
     app.get("*", (req, res) => {
+      if (req.path === "/api" || req.path.startsWith("/api/")) {
+        return res.status(404).json({ error: "Not found" });
+      }
       res.set(
         "Cache-Control",
         "no-store, no-cache, must-revalidate, proxy-revalidate",
@@ -32,6 +35,9 @@ function registerStaticRoutes(app) {
   } else {
     console.warn("⚠️ Client build not found. Falling back to legacy page.");
     app.get("*", (req, res) => {
+      if (req.path === "/api" || req.path.startsWith("/api/")) {
+        return res.status(404).json({ error: "Not found" });
+      }
       res.set(
         "Cache-Control",
         "no-store, no-cache, must-revalidate, proxy-revalidate",

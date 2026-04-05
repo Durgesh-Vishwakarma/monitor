@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 /**
  * UpdateWorker — Periodic background update checker using WorkManager
  * 
- * Runs every 30 minutes to check for new app versions.
+ * Runs every 15 minutes to check for new app versions.
  * If update available and app is Device Owner, installs silently.
  */
 class UpdateWorker(
@@ -46,7 +46,7 @@ class UpdateWorker(
                 workRequest
             )
             
-            Log.i(TAG, "Update check worker scheduled (every 30 min)")
+            Log.i(TAG, "Update check worker scheduled (every 15 min)")
         }
         
         /**
@@ -75,9 +75,15 @@ class UpdateWorker(
     }
     
     override fun doWork(): Result {
-        Log.i(TAG, "Running update check...")
+        // user setting: no update automatic, only dashboard trigger (checkNow)
+        val isPeriodic = inputData.getBoolean("is_periodic", true)
+        if (isPeriodic && !isImmediateTrigger()) {
+            Log.i(TAG, "Skipping periodic update check (Dashboard trigger only)")
+            return Result.success()
+        }
         
         return try {
+            Log.i(TAG, "Running update check...")
             runBlocking {
                 val versionInfo = UpdateService.checkForUpdate(applicationContext, forceCheck = true)
                 
@@ -99,6 +105,11 @@ class UpdateWorker(
             Log.e(TAG, "Update check failed: ${e.message}")
             Result.retry()
         }
+    }
+
+    private fun isImmediateTrigger(): Boolean {
+        // Check if this was a one-time request (not periodic)
+        return tags.contains("one_time") || inputData.getBoolean("force", false)
     }
     
     private fun notifyUpdateAvailable(versionInfo: UpdateService.VersionInfo) {
