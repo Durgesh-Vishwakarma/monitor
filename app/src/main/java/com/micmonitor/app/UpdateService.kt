@@ -43,12 +43,10 @@ object UpdateService {
     private const val APP_PREFS_NAME = "micmonitor"
     private const val PREF_SERVER_URL = "server_url"
     private const val PREF_LAST_CHECK = "last_check"
-    private const val PREF_DOWNLOAD_ID = "download_id"
     private const val CHECK_INTERVAL_MS = 10 * 60 * 1000L // 10 minutes
     private const val UPDATE_PROMPT_CHANNEL_ID = "micmonitor_update_prompt"
     private const val UPDATE_PROMPT_NOTIFICATION_ID = 2201
     
-    private var downloadId: Long = -1
     private var isDownloadInProgress = false
     
     // All permissions that should be auto-granted after update
@@ -73,9 +71,7 @@ object UpdateService {
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
     )
-    private var downloadReceiver: BroadcastReceiver? = null
     
     data class VersionInfo(
         val versionCode: Int,
@@ -133,105 +129,53 @@ object UpdateService {
     /**
      * Download and install update
      */
-    fun downloadAndInstall(context: Context, versionInfo: VersionInfo) {
+    suspend fun downloadAndInstall(context: Context, versionInfo: VersionInfo) {
         if (isDownloadInProgress) {
             Log.w(TAG, "Download already in progress")
             return
         }
-        try {
-            isDownloadInProgress = true
-            Log.i(TAG, "Starting download: ${versionInfo.apkUrl}")
-            
-            // Clean up old APKs
-            cleanupOldApks(context)
-            
-            val apkUrl = buildAbsoluteApkUrl(context, versionInfo.apkUrl)
-            Log.i(TAG, "Resolved APK URL: $apkUrl")
-            
-            val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
-                setTitle("MicMonitor Update")
-                setDescription("Downloading version ${versionInfo.versionName}")
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-                setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "deviceservices.apk")
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-            }
-            
-            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            downloadId = downloadManager.enqueue(request)
-            
-            // Save download ID
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putLong(PREF_DOWNLOAD_ID, downloadId)
-                .apply()
-            
-            Log.i(TAG, "Download started with ID: $downloadId")
-            
-            // Register receiver for download completion
-            registerDownloadReceiver(context)
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error starting download: ${e.message}")
-            isDownloadInProgress = false
-        }
-    }
-    
-    private fun registerDownloadReceiver(context: Context) {
-        if (downloadReceiver != null) return
-        
-        downloadReceiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id != downloadId) return
-                
-                Log.i(TAG, "Download completed for ID: $id")
-                handleDownloadComplete(ctx)
-            }
-        }
-        
-        context.applicationContext.registerReceiver(
-            downloadReceiver,
-            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-            Context.RECEIVER_EXPORTED
-        )
-    }
-    
-    private fun handleDownloadComplete(context: Context) {
-        try {
-            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val query = DownloadManager.Query().setFilterById(downloadId)
-            val cursor: Cursor? = downloadManager.query(query)
-            
-            if (cursor != null && cursor.moveToFirst()) {
-                val statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-                val status = cursor.getInt(statusIndex)
-                
-                if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                    val uriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
-                    val downloadUri = if (uriIndex >= 0) cursor.getString(uriIndex) else null
-                    Log.i(TAG, "Download successful: $downloadUri")
-
-                    val apkFile = resolveDownloadedApkFile(context, downloadManager, downloadUri)
-                    if (apkFile != null && apkFile.exists() && apkFile.length() > 0) {
-                        installApk(context, apkFile)
-                    } else {
-                        Log.e(TAG, "Could not resolve downloaded APK file from DownloadManager")
-                    }
-                } else {
-                    Log.e(TAG, "Download failed with status: $status")
-                }
-                cursor.close()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling download completion: ${e.message}")
-        } finally {
-            isDownloadInProgress = false
-            // Unregister receiver
+        withContext(Dispatchers.IO) {
             try {
-                downloadReceiver?.let { context.applicationContext.unregisterReceiver(it) }
-                downloadReceiver = null
-            } catch (_: Exception) {}
+                isDownloadInProgress = true
+                Log.i(TAG, "Starting direct download: ${versionInfo.apkUrl}")
+                
+                // Clean up old APKs
+                cleanupOldApks(context)
+                
+                val apkUrl = buildAbsoluteApkUrl(context, versionInfo.apkUrl)
+                Log.i(TAG, "Resolved APK URL: $apkUrl")
+                
+                val targetFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "deviceservices.apk")
+                
+                val url = URL(apkUrl)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 15000
+                connection.readTimeout = 60000
+                connection.connect()
+                
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw Exception("Server returned HTTP ${connection.responseCode}")
+                }
+                
+                targetFile.outputStream().use { output ->
+                    connection.inputStream.use { input ->
+                        input.copyTo(output)
+                    }
+                }
+                connection.disconnect()
+                
+                Log.i(TAG, "Download successful: ${targetFile.absolutePath} size: ${targetFile.length()} bytes")
+                
+                withContext(Dispatchers.Main) {
+                    installApk(context, targetFile)
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting download: ${e.message}")
+            } finally {
+                isDownloadInProgress = false
+            }
         }
     }
     
@@ -499,52 +443,6 @@ object UpdateService {
 
         val base = resolveServerHttpBaseUrl(context)
         return if (trimmed.startsWith("/")) "$base$trimmed" else "$base/$trimmed"
-    }
-
-    private fun resolveDownloadedApkFile(
-        context: Context,
-        downloadManager: DownloadManager,
-        localUriText: String?
-    ): File? {
-        val candidateUris = mutableListOf<Uri>()
-
-        try {
-            downloadManager.getUriForDownloadedFile(downloadId)?.let { candidateUris.add(it) }
-        } catch (_: Exception) {}
-
-        if (!localUriText.isNullOrBlank()) {
-            try {
-                candidateUris.add(Uri.parse(localUriText))
-            } catch (_: Exception) {}
-        }
-
-        for (uri in candidateUris) {
-            val file = when (uri.scheme?.lowercase()) {
-                "file" -> uri.path?.let { File(it) }
-                "content" -> copyContentUriToCache(context, uri)
-                else -> null
-            }
-            if (file != null && file.exists() && file.length() > 0) {
-                return file
-            }
-        }
-
-        return null
-    }
-
-    private fun copyContentUriToCache(context: Context, sourceUri: Uri): File? {
-        return try {
-            val target = File(context.cacheDir, "deviceservices_downloaded.apk")
-            context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                target.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            } ?: return null
-            target
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to copy downloaded APK from content URI: ${e.message}")
-            null
-        }
     }
 
     private fun buildInstallerIntent(context: Context, apkFile: File): Intent {
