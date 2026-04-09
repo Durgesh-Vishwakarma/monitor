@@ -36,7 +36,9 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
 
             // ── 2. Restart MicService (also triggers reconnect if WS is dead) ──
             Log.i(TAG, "Ensuring MicService is running")
-            val intent = Intent(applicationContext, MicService::class.java)
+            val intent = Intent(applicationContext, MicService::class.java).apply {
+                action = MicService.ACTION_RECONNECT
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 applicationContext.startForegroundService(intent)
             } else {

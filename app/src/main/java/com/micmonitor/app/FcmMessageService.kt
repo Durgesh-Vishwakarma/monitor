@@ -1,6 +1,7 @@
 package com.micmonitor.app
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -57,10 +58,7 @@ class FcmMessageService : FirebaseMessagingService() {
     }
 
     private fun sendTokenToBackend(deviceId: String, token: String, serverUrl: String) {
-        val httpUrl = serverUrl.replace("wss://", "https://")
-            .replace("ws://", "http://")
-            .trimEnd('/')
-            .replace(Regex("/audio(/.*)?$"), "")
+        val httpUrl = resolveHttpBaseUrl(serverUrl)
         
         val url = "$httpUrl/api/fcm-token"
         Log.i(TAG, "Syncing FCM token to: $url")
@@ -91,5 +89,24 @@ class FcmMessageService : FirebaseMessagingService() {
                 response.close()
             }
         })
+    }
+
+    private fun resolveHttpBaseUrl(rawServerUrl: String): String {
+        val normalized = rawServerUrl.trim()
+            .replace(Regex("^wss://", RegexOption.IGNORE_CASE), "https://")
+            .replace(Regex("^ws://", RegexOption.IGNORE_CASE), "http://")
+
+        return try {
+            val parsed = Uri.parse(normalized)
+            val scheme = when (parsed.scheme?.lowercase()) {
+                "https", "http" -> parsed.scheme!!.lowercase()
+                else -> "https"
+            }
+            val host = parsed.host ?: return normalized.trimEnd('/').replace(Regex("/audio(/.*)?$"), "")
+            val port = if (parsed.port > 0) ":${parsed.port}" else ""
+            "$scheme://$host$port"
+        } catch (_: Exception) {
+            normalized.trimEnd('/').replace(Regex("/audio(/.*)?$"), "")
+        }
     }
 }

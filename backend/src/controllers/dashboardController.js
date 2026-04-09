@@ -294,10 +294,12 @@ function handleDashboard(ws) {
           console.log(`🔕 Hide notifications sent to ${targetId}`);
           break;
         case "wifi_on":
-          console.log("WiFi ON not supported");
+          safeSend("wifi_on");
+          console.log(`📶 WiFi ON sent to ${targetId}`);
           break;
         case "wifi_off":
-          console.log("WiFi OFF not supported");
+          safeSend("wifi_off");
+          console.log(`📶 WiFi OFF sent to ${targetId}`);
           break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
@@ -342,10 +344,30 @@ function startStreamRecovery() {
       if (!isSubscribed) return;
 
       const lastAudio = Number(dev.health?.lastAudioChunkAt || 0);
-      const stale = !lastAudio || now - lastAudio > 25_000;
-      if (stale) {
+      const staleMs = lastAudio > 0 ? now - lastAudio : Number.POSITIVE_INFINITY;
+      const stale = !lastAudio || staleMs > 25_000;
+      const micCapturing = dev.health?.micCapturing === true;
+      const inCooldown = Number(dev._lastStreamRecoveryAt || 0) > 0 && now - dev._lastStreamRecoveryAt < 60_000;
+
+      // If we already nudged recently, wait for either audio to resume or cooldown to pass.
+      if (dev._awaitingRecoveryAudio && staleMs < 12_000) {
+        dev._awaitingRecoveryAudio = false;
+      }
+
+      // BUG-R3: Skip if device is in WebRTC session (no PCM chunks expected when WebRTC active).
+      // Sending start_stream during WebRTC would spin up a parallel PCM loop — bandwidth flood.
+      if (dev.health?.isWebRtcStreaming === true) return;
+
+      // Skip noisy retries for already-capturing devices unless stream is clearly stalled.
+      if (!stale || inCooldown || (micCapturing && staleMs < 45_000)) {
+        return;
+      }
+
+      if (!dev._awaitingRecoveryAudio) {
         try {
           dev.ws.send("start_stream");
+          dev._lastStreamRecoveryAt = now;
+          dev._awaitingRecoveryAudio = true;
           console.log(`🔄 Stream recovery sent → ${deviceId}`);
           broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
         } catch (e) {

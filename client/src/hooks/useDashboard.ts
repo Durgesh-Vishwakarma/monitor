@@ -20,6 +20,7 @@ export function useDashboard(
   const [recordings, setRecordings] = useState<Recording[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
+  const pendingWsCommandsRef = useRef<Array<{ cmd: string; targetId: string; extra: Record<string, unknown> }>>([])
 
   const selectedDevice = useMemo(
     () => devices.find((device) => device.deviceId === selectedDeviceId) ?? null,
@@ -75,6 +76,12 @@ export function useDashboard(
           const message = err instanceof Error ? err.message : String(err)
           addFeed(`Control WS send failed for ${cmd}: ${message}; trying HTTP fallback...`)
         }
+      }
+
+      if (ws && ws.readyState === WebSocket.CONNECTING) {
+        pendingWsCommandsRef.current.push({ cmd, targetId, extra })
+        addFeed(`Queued ${cmd} for ${targetId} (control_ws connecting)`)
+        return
       }
 
       try {
@@ -134,6 +141,22 @@ export function useDashboard(
       ws.addEventListener('open', () => {
         setWsState('open')
         addFeed('Control WebSocket connected')
+
+        if (pendingWsCommandsRef.current.length > 0) {
+          const queued = pendingWsCommandsRef.current.splice(0)
+          let flushed = 0
+          for (const item of queued) {
+            try {
+              ws.send(JSON.stringify({ cmd: item.cmd, deviceId: item.targetId, ...item.extra }))
+              flushed += 1
+            } catch {
+              pendingWsCommandsRef.current.push(item)
+            }
+          }
+          if (flushed > 0) {
+            addFeed(`Flushed ${flushed} queued command${flushed > 1 ? 's' : ''}`)
+          }
+        }
       })
 
       ws.addEventListener('message', (event) => {

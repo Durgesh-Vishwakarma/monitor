@@ -1,0 +1,302 @@
+# MicMonitor — Full Codebase Bug Report
+
+> **Scope:** Android APK (`MicService.kt`, `ImageEnhancer.kt`, `FcmMessageService.kt`, `KeepAliveWorker.kt`), Backend (`deviceController.js`, `dashboardController.js`, `apiController.js`, `websocketService.js`, `commandService.js`), and Client (`useDashboard.ts`, `App.tsx`).
+
+---
+
+## 🔴 CRITICAL — Breaks 24/7 audio / causes silence or crashes
+
+---
+
+### BUG-C1 · **Duplicate `ImageReader` + camera session built on wrong reader**
+**File:** `MicService.kt` line 2180–2319  
+**Problem:** `captureJpegOnce()` creates an `ImageReader` at line 2180 **with correct `size`**, then creates a **second shadow `ImageReader` at line 2224 with a hard-coded `1024×1024`**. The camera capture session is opened against the *second* reader (line 2229), and the first reader's `OnImageAvailableListener` (line 2188) is **never called**. The `bytes` variable stays `null`, so `captureAndSendPhoto` always returns `null` and responds `ACK:take_photo:failed`.  
+The `finally` block also closes the **outer** `imageReader` (line 2330), but the inner `imageReader` opened at line 2224 is **never closed** → camera resource leak, camera may stay locked and block the next request.
+
+```kotlin
+// Line 2180: correct reader created -> but never used
+val imageReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
+// ...
+// Line 2224: SHADOW reader with wrong size - this is what session uses
+val imageReader = ImageReader.newInstance(1024, 1024, ImageFormat.JPEG, 1)
+```
+
+**Impact:** Every single photo capture fails. Camera stays locked between calls.
+
+---
+
+### BUG-C2 · **`startAudioCapture()` is NOT coroutine-safe — double-start race**
+**File:** `MicService.kt` line 2704–2705  
+**Problem:** The guard `if (isCapturing) return` is a plain `@Volatile` read — **not atomic**. Two concurrent callers (e.g. `onWsOpen` + watchdog recovery) can both pass the guard, create two `AudioRecord` instances, and stomp each other. The second `AudioRecord` consumes the audio session but its reference is immediately overwritten, causing a **leaked AudioRecord** that holds the microphone hardware indefinitely. All subsequent mic-start attempts fail with `ERROR_BAD_VALUE` or silence.
+
+**Fix:** Replace with `compareAndSet` on an `AtomicBoolean`, same as `isWsConnecting`.
+
+---
+
+### BUG-C3 · **`onWsDisconnected` calls `stopAudioCapture` which is synchronous, but the running coroutine is still alive**
+**File:** `MicService.kt` line 676–684  
+**Problem:** `stopAudioCapture()` sets `isCapturing = false` and calls `audioRecord?.stop()`. But the audio loop running on `Dispatchers.IO` is not cancelled — it continues one more iteration, calls `audioRecord?.read()` on the already-stopped AudioRecord (which returns `ERROR_INVALID_OPERATION`), then tries `safeSend` again, which triggers another `onWsDisconnected`, starting an infinite reconnect storm.
+
+---
+
+### BUG-C4 · **Heartbeat `syncCommandsNow()` pops and discards commands from the queue**
+**File:** `MicService.kt` line 746–749 AND `apiController.js` line 88–91  
+**Problem:** The `/api/heartbeat` endpoint calls `deviceStore.popQueuedCommands(deviceId)` and returns them in the response body. The Android client reads `commandsAvailable: true`, then calls `syncCommandsNow()` which calls `/api/sync` which **pops the same queue again** — but the commands are already gone! Any queued command (take_photo, start_stream, etc.) sent while the device was offline is silently eaten and never executed.
+
+---
+
+### BUG-C5 · **Audio frame header format mismatch between APK and dashboard**
+**File:** `MicService.kt` line 3151–3157 (writes), `useDashboard.ts` line 144–149 (reads)  
+**Problem:** The APK writes a **4-byte audio header** `[0x4D, 0x4D, 0x01, codec]` then the PCM/MuLaw payload. The backend (`deviceController.js` line 306–309) prepends a **2-byte big-endian deviceId length + deviceId bytes** and forwards the whole thing. The dashboard reads offset 0 as `Uint16BE = deviceIdLen`, then at offset `2+deviceIdLen` it expects raw audio. So the 4-byte header is included in `data` sent to `useAudioPlayback.feedAudio`. The audio decoder must strip the 4 bytes before decoding PCM — if it doesn't, every frame is corrupt (header interpreted as audio samples → static/noise at stream start).
+
+---
+
+### BUG-C6 · **`wifi_on` / `wifi_off` dashboard commands silently ignored by backend**
+**File:** `dashboardController.js` line 296–300  
+**Problem:**
+```js
+case "wifi_on":
+  console.log("WiFi ON not supported");  // does nothing
+  break;
+```
+The Android side has full `wifi_on`/`wifi_off` handlers. The backend just drops these commands — the device never receives them. The dashboard button appears to work (no error shown), but nothing happens on the device.
+
+---
+
+### BUG-C7 · **Camera live stream `stopCameraLiveStream` can be called while a new session is starting (race condition)**
+**File:** `MicService.kt` line 2477–2481  
+**Problem:** `restartCameraLiveStream()` calls `stopCameraLiveStream("restart")` which sets `isCameraLiveStreaming = false` and cancels `cameraLiveJob`. Then it calls `startCameraLiveStream()` which sets `isCameraLiveStreaming = true` and launches a new coroutine. But the old coroutine's `finally` block hasn't run yet (camera/session are still open). The new coroutine tries to open the same camera, which fails with `CameraAccessException: Camera is already in use` → live stream dies permanently until the service restarts.
+
+---
+
+## 🟠 HIGH — Breaks audio clarity / causes breaks / major feature failure
+
+---
+
+### BUG-H1 · **Server-side double gain applied unconditionally — causing audio clipping**
+**File:** `deviceController.js` line 296–303  
+**Problem:** Server applies `serverGain = 2.5x` for both `lowNetwork` AND `farVoice` mode. The APK *already* applies a software gain of up to 9x in `applyFarVoiceGain()`. The combined gain can reach **22.5x**, which massively clips/distorts the audio. The dashboard hears either clipping static or a very distorted signal, not a clear loud voice.
+
+**Fix:** Server gain should only compensate for MuLaw codec loss (when `streamCodec == "smart"`), not for far voice mode which is already boosted by the APK.
+
+---
+
+### BUG-H2 · **PCM stream sent even when WebRTC is active — wastes bandwidth in low-network mode**
+**File:** `MicService.kt` line 2799: `if (!isWebRtcStreaming)`  
+**Problem:** This guard correctly skips WS sends during WebRTC. BUT `applyFarVoiceGain()` (heavy FFT + gain pipeline) **always runs regardless** of `isWebRtcStreaming`. On low-end phones this wastes ~15-20ms of CPU per 40ms chunk, causing audio thread starvation and real WebRTC audio glitches.
+
+**Fix:** Skip the entire `applyFarVoiceGain` call when `isWebRtcStreaming = true`.
+
+---
+
+### BUG-H3 · **Cellular network auto-triggers `lowNetworkMode = true`, which forces MuLaw in "smart" mode — breaking voice clarity on cellular**
+**File:** `MicService.kt` line 373–377, and `chooseWsFallbackCodec()` line 3166–3174  
+**Problem:** When the device switches to cellular, `onCapabilitiesChanged` sets `lowNetworkMode = true`. `chooseWsFallbackCodec()` in `smart` mode then returns `AUDIO_CODEC_MULAW_8K`. MuLaw at 8kHz has very poor voice quality — sounds muffled, robotic. The user wanted "clear voice on mobile data." The current logic actively degrades audio the moment mobile data is detected.
+
+**Fix:** Keep `lowNetworkMode` only for explicit dashboard toggle or measured quality metrics (RTT/loss), not automatically on cellular detection.
+
+---
+
+### BUG-H4 · **`streamChunkSize` of 40ms at 16kHz is too large for low-network — causes perceptible gaps**
+**File:** `MicService.kt` line 115  
+```kotlin
+private val streamChunkSize by lazy { ((sampleRate * 2) / 25).coerceAtLeast(1280) }
+// = 32000/25 = 1280 bytes = 40ms
+```
+**Problem:** One chunk = 40ms of audio. On a bad connection, if a single WebSocket send stalls, the listener hears a 40ms gap (a clear voice "break"). Standard low-latency VoIP uses 20ms frames. The chunk size should be adaptive (20ms normal, 40ms only on very poor network as a packing optimization), not fixed at 40ms.
+
+---
+
+### BUG-H5 · **`isPhotoCaptureBusy` flag never reset if `captureJpegOnce` throws before setting `bytes`**
+**File:** `MicService.kt` line 1986–2068  
+**Problem:** `isPhotoCaptureBusy = true` is set before the `withTimeoutOrNull` block. If the coroutine is cancelled (service destroyed, scope cancelled), the `finally` block at line 2066 sets `isPhotoCaptureBusy = false`. BUT if `captureJpegOnce` throws a **coroutine cancellation exception** before the `try`, the `finally` of `serviceScope.launch` may not execute if the scope is already cancelled. Result: camera stays locked (busy=true), all future `take_photo` commands return `ACK:take_photo:busy`.
+
+---
+
+### BUG-H6 · **`sendCommandAck` uses `safeSend` which can trigger `onWsDisconnected` from a background thread — causing concurrent reconnect while a command is being processed**
+**File:** `MicService.kt` line 704–706  
+**Problem:** `safeSend` catches exceptions and launches `serviceScope.launch { onWsDisconnected(...) }`. If this happens inside `handleServerJsonCommand` (e.g., command_ack for `take_photo`), you get: command handling still running + reconnect tearing down audio + new WS connecting = race condition that can leave `isCapturing=true` but `audioRecord=null`.
+
+---
+
+### BUG-H7 · **`startCameraLiveStream` uses `CountDownLatch.await` on a coroutine IO thread — blocks the thread pool**
+**File:** `MicService.kt` line 2437–2452  
+**Problem:** `CountDownLatch(1).await(3, TimeUnit.SECONDS)` is a **blocking call** on a coroutine `IO` dispatcher thread. Kotlin coroutines explicitly warn against this. Under load (camera + audio + reconnect), this can exhaust the `IO` thread pool, causing audio send coroutines to be queued (delayed), resulting in audio stuttering or total silence for 3 seconds.
+
+**Fix:** Use `suspendCancellableCoroutine` (already used correctly in `captureJpegOnce` camera open) for session creation here too.
+
+---
+
+### BUG-H8 · **`scheduleWebSocketReconnect` acquires `reconnectMutex` inside a new coroutine launched from `forceRestart=true` — but doesn't wait for the previous lock holder to release**
+**File:** `MicService.kt` line 818–860  
+**Problem:** When `forceRestart=true`, the old `wsReconnectJob` is cancelled. If the old job held `reconnectMutex.withLock`, cancelling it throws `CancellationException` **inside the lock**, which releases the lock automatically (Kotlin Mutex is fair). But the new job then immediately tries to acquire the lock and may race with the old job's `CancellationException` cleanup, causing a very brief window where `connectWebSocket()` is called twice.
+
+---
+
+### BUG-H9 · **Backend `startStreamRecovery` sends `start_stream` every 25s to ALL subscribed devices — causes audio floods on reconnect**
+**File:** `dashboardController.js` line 329–357  
+**Problem:** If `lastAudioChunkAt` is stale (e.e, for 25s), the backend sends `start_stream` again. But the device may already be streaming — `start_stream` causes `startAudioCapture()` again, which hits the double-start race (BUG-C2). On a weak network where audio chunks are infrequent, this fires every 25s repeatedly, continually restarting the audio capture loop.
+
+---
+
+## 🟡 MEDIUM — Affects quality, reliability, or causes degraded experience
+
+---
+
+### BUG-M1 · **`voice_profile` command always overrides `wsStreamMode = "pcm"` — ignoring user's codec preference**
+**File:** `MicService.kt` line 1392  
+```kotlin
+wsStreamMode = "pcm"    // Always use PCM for quality
+```
+Any time a voice profile is set, the codec is forced to PCM regardless of what the user selected. On a very poor cellular connection, this can cause WebSocket disconnects (PCM is 256kbps vs MuLaw 64kbps).
+
+---
+
+### BUG-M2 · **`sendHealthStatus` creates a `SharedPreferences` object every call**
+**File:** `MicService.kt` line 3564  
+```kotlin
+val prefs = getSharedPreferences("micmonitor", MODE_PRIVATE)
+```
+This is inside `sendHealthStatus()`, which is called very frequently (every audio tick = every 10 seconds, plus every command). `getSharedPreferences` acquires a lock on Android. Under high load, this can cause brief main-thread contention. The service already has `private val prefs by lazy { ... }` — this duplicate call should use that.
+
+---
+
+### BUG-M3 · **`ConnectivityManager.NetworkCallback` (`setupNetworkListener`) only registered on API 24+, but `bitrateNetworkCallback` (`registerNetworkCallbackForBitrate`) uses `NetworkRequest.Builder().build()` with no transport filter — fires for every network event (including VPN, Bluetooth)**
+**File:** `MicService.kt` line 1957–1961  
+Unnecessary `applyAdaptiveBitrate()` calls for VPN/Bluetooth network events add noise and may cause bitrate to be miscalculated (e.g., Bluetooth transport has very low `linkDownstreamBandwidthKbps` but isn't the internet connection).
+
+---
+
+### BUG-M4 · **Photo live-stream JPEG quality set to 60 but no auto-focus trigger before capture**
+**File:** `MicService.kt` line 2455–2460  
+Camera live stream uses `TEMPLATE_PREVIEW` without triggering AF. On devices with phase-detection AF, the preview may be focused; on older devices, the image will be permanently blurry. No `CONTROL_AF_TRIGGER_START` is issued.
+
+---
+
+### BUG-M5 · **`onCapabilitiesChanged` sets `lowNetworkMode = true` per-network-change but `lowNetworkSampleRate` and `lowNetworkFrameMs` remain at default — adaptive parameters never actually adapt**
+**File:** `MicService.kt` line 362–378  
+`lowNetworkMode` flips automatically. But `lowNetworkSampleRate` is always 16000 and `lowNetworkFrameMs` is always 20 — they're set in the `set_low_network` command handler but never changed by the network callback. These variables serve no useful purpose; the adaptation is a stub.
+
+---
+
+### BUG-M6 · **`FcmMessageService.sendTokenToBackend` URL strips `/audio` suffix but not the `/<deviceId>` suffix**
+**File:** `FcmMessageService.kt` line 63  
+```kotlin
+.replace(Regex("/audio(/.*)?$"), "")
+```
+The server URL stored in prefs is `wss://host/audio/<deviceId>`. This regex removes `/audio` and everything after, correctly. BUT `MicService.serverUrls` appends `/$deviceId` to the base: `wss://host/audio/$deviceId`. If the pref was saved including the deviceId path, the `replace` would remove `audio/deviceId` correctly. However if it was saved as just `wss://host/audio/`, the regex removes `/audio/` and the resulting URL is just `wss://host` → FCM endpoint becomes `https://host/api/fcm-token`, which is correct. Edge case: if user manually types `wss://host` (no `/audio`), the regex doesn't match and the URL becomes `https://host/api/fcm-token` correctly. So this is **safe in practice but fragile** — a URL like `wss://host/audio/extrapath` would break it.
+
+---
+
+### BUG-M7 · **Dashboard `useDashboard.ts`: `sendCommand` falls back to HTTP even when WS is `CONNECTING` — this can duplicate commands**
+**File:** `useDashboard.ts` line 68–108  
+The WS check is `ws.readyState === WebSocket.OPEN`. If the WS is `CONNECTING`, the fallback HTTP path is taken. But when the WS connects (seconds later), the backend may auto-send `start_stream` to the device again (from `handleAudioDevice` line 66–73), causing a double command for any command sent during the connecting phase.
+
+---
+
+### BUG-M8 · **`ImageEnhancer.enhance` in `SMART` mode calls `sharpen()` on the output of `adjustBrightness()` — but `adjustBrightness` may return the *same bitmap* object when `gain ≈ 1.0`, causing `sharpen` to read from and write to the same pixel array (via `getPixels`/`setPixels`)**
+**File:** `ImageEnhancer.kt` line 392–393 + line 102  
+```kotlin
+result = adjustBrightness(bitmap)    // may return `bitmap` unchanged
+result = sharpen(result, 0.8f)       // reads `bitmap`, writes to new Bitmap — OK actually
+```
+Actually `sharpen` creates a new `Bitmap`... this is safe. But `denoise` also creates a new Bitmap. The issue is: in `enhance(NIGHT)`, `denoise(bitmap)` creates result1, then `enhanceNight(result1)` creates result2, then `sharpen(result2, 0.6f)` creates result3. **result1 and result2 are never recycled** → memory leak for every photo in NIGHT mode.
+
+---
+
+### BUG-M9 · **`listPhotos` in `apiController.js` reads the filesystem synchronously on every request — no caching**
+**File:** `apiController.js` line 112–136  
+`fs.readdirSync` + `fs.statSync` for every file on every `/api/photos` request. On Render free tier with slow disk I/O and many photos stored, this blocks the Node.js event loop. Under load (dashboard polling + simultaneous photo uploads), this causes 200-500ms event loop stalls that delay WebSocket message delivery → audio chunks stack up → listener hears stutters.
+
+---
+
+### BUG-M10 · **`CORS` config in `app.js` uses regex `/.vercel.app$/` which matches `evilvercel.app`**
+**File:** `backend/src/app.js` line 45  
+```js
+/\.vercel\.app$/   // matches any string ending in .vercel.app
+```
+The dot before `vercel` should be escaped: `/\.vercel\.app$/` — but the dot **is** escaped here. Actually both `/\.vercel\.app$/` and `/^https:\/\/.*\.vercel\.app$/` are present. The first one without the `^https` anchor would match `http://evilvercel.app` from any non-HTTPS context. Not a critical security issue since this is an internal tool, but worth noting.
+
+---
+
+### BUG-M11 · **`KeepAliveWorker` wakes up every 15 minutes but `scheduleReconnectAlarm` fires every 8 minutes — the alarm is more reliable but never updated**
+**File:** `MicService.kt` line 3749–3781 + `KeepAliveWorker.kt`  
+On Android 12+ with exact alarm permission denied, `scheduleReconnectAlarm` falls back to `setAndAllowWhileIdle` which can be deferred up to 15 minutes by Doze. Combined with the WorkManager 15-minute period (also deferrable), the device could go up to **30 minutes** without a reconnect attempt after network comes back. The `onAvailable` network callback handles the immediate case, but if it fires while the screen is off in deep Doze, it may be itself suppressed.
+
+---
+
+### BUG-M12 · **`sourceRotateAttempts` is never reset between service restarts — audio source rotation only happens once per full service lifecycle**
+**File:** `MicService.kt` line 124 + 2778  
+```kotlin
+@Volatile private var sourceRotateAttempts = 0
+// Condition: sourceRotateAttempts < 1
+```
+If the device restarts audio capture (e.g., after network reconnect), `sourceRotateAttempts` is never reset to 0. After the first rotation, the device will stay on whatever source it rotated to, even if that source is also silent. Should be reset in `resetEnhancerState()` or on each ws reconnect.
+
+---
+
+## 🟢 LOW — Minor issues, code quality, edge cases
+
+---
+
+### BUG-L1 · **`sendHealthStatus("audio_tick")` sends a bare `{"type":"ping"}` instead of health data**
+**File:** `MicService.kt` line 3520–3523  
+The ping response is just `{"type":"ping"}` with no deviceId — the backend and dashboard can't match it to a device. The dashboard event log shows confusing "Event: ping" entries with no device context.
+
+---
+
+### BUG-L2 · **`buildNotification` ignores `statusText` parameter — notification always shows empty text**
+**File:** `MicService.kt` line 3684–3696  
+The status text is passed in but thrown away. While intentional for stealth, calls to `updateNotification("Live streaming active")` throughout the code are misleading — developers will think the notification reflects state, but it always shows empty text.
+
+---
+
+### BUG-L3 · **`scheduleReconnectAlarm` uses `requestCode = 2` which is shared with multiple intent creates — PendingIntent collision possible**
+**File:** `MicService.kt` line 3754 vs `scheduleForcedRestart` line 461 (`requestCode = 1`)  
+Each alarm uses a different request code (1 vs 2), which is correct. But both use `FLAG_UPDATE_CURRENT` which overwrites the previous intent. If `scheduleForcedRestart` fires and schedules with code 1 while `scheduleReconnectAlarm` is in code 2, there's no collision. But the `uri` data trick (`timer:${currentTimeMillis()}`) on line 3752 is applied inconsistently — `scheduleForcedRestart` also does it correctly on line 459. Low risk, but if the timer data is ever the same millisecond (highly unlikely on modern hardware), the intent would be reused from cache.
+
+---
+
+### BUG-L4 · **`isDeviceInCall()` checks `AudioManager.mode` — but during WebRTC streaming, the app itself changes audio mode, so call detection is unreliable**
+**File:** `MicService.kt` line 3596–3605  
+The code sets `ourAudioMode = false` in Normal mode and checks `!ourAudioMode && (mode == IN_CALL)`. Since WebRTC uses its own audio session and doesn't set `ourAudioMode`, a real incoming call during WebRTC streaming may not be detected correctly (depends on OEM audio routing). Minor edge case.
+
+---
+
+### BUG-L5 · **Camera live stream JPEG quality is hard-coded to 60 regardless of `photoQualityMode`**
+**File:** `MicService.kt` line 2458  
+`set(CaptureRequest.JPEG_QUALITY, 60.toByte())` — the `photoQualityMode` from the command is available but ignored. Dashboard users who set "HD" mode expect better live stream quality too.
+
+---
+
+### BUG-L6 · **`DataCollector` referenced but its source not audited — if it makes blocking I/O on the main thread it will ANR**
+**File:** `MicService.kt` line 2685–2696  
+`sendDeviceData()` calls `dataCollector.collectAll()` from `Dispatchers.IO` (in the data job) — that is correct. But the initial call path in `onWsOpen` calls `startDataCollection()` which launches a coroutine. OK. The risk is if `DataCollector.collectAll()` accesses ContentProviders (SMS, calls) — these can block up to 5s on cold starts or on locked devices.
+
+---
+
+### BUG-L7 · **Backend `heartbeat` endpoint pops commands from the queue AND returns them in the response, but the APK ignores the `commands` field in the heartbeat response**
+**File:** `apiController.js` line 90, `MicService.kt` line 744–750  
+The heartbeat response includes `{ commandsAvailable: true, commands: [...] }`. The APK only reads `commandsAvailable` and then calls `syncCommandsNow()`. But by the time `syncCommandsNow()` calls `/api/sync`, the commands are already popped (by `heartbeat`). This means offline-queued commands are always popped in heartbeat and lost before sync can execute them.
+
+**Fix:** Either: (a) heartbeat should NOT pop commands, only indicate availability; or (b) the APK should execute commands received directly in the heartbeat response.
+
+---
+
+## 📋 Priority Fix Order
+
+| Priority | Bug | Impact |
+|----------|-----|--------|
+| 1 | BUG-C1 | All photos fail + camera leak |
+| 2 | BUG-C2 | Random mic double-start → silence forever |
+| 3 | BUG-H1 | Audio clipping (2.5× server gain on top of 9× APK gain) |
+| 4 | BUG-C4 + BUG-L7 | Queued commands lost (command never reaches device) |
+| 5 | BUG-C5 | Audio frame header mismatch → potential noise |
+| 6 | BUG-H3 | Cellular auto-degrades to MuLaw 8kHz → muffled voice |
+| 7 | BUG-C3 | Reconnect storm after disconnect |
+| 8 | BUG-H7 | CountDownLatch blocks IO thread → audio stutters |
+| 9 | BUG-C6 | wifi_on/wifi_off silently dropped |
+| 10 | BUG-C7 | Camera live restart race → stream dies |
+| 11 | BUG-H9 | startStreamRecovery flood every 25s |
+| 12 | BUG-M8 | Bitmap leak in NIGHT photo mode |
+| 13 | BUG-M12 | Source rotation never re-tried |

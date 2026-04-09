@@ -1,10 +1,10 @@
 {
-  "versionCode": 34,
-  "versionName": "1.11.12",
+  "versionCode": 37,
+  "versionName": "1.12.3",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "Low-network gain boost + premium dashboard redesign",
+  "changelog": "- Critical Stability Fixes: Atomic camera & mic guards implemented\n- 24/7 Reliability: Fixed memory leaks in NIGHT photo mode\n- Network Resilience: Fixed heartbeat & sync packet loss\n- Backend: Optimized stream recovery & non-blocking IO",
   "minVersionCode": 20,
   "apkAvailable": true,
   "apkSize": 49049137,
-  "updatedAt": "2026-03-30T10:48:00+05:30"
+  "updatedAt": "2026-04-09T18:20:00+05:30"
 }

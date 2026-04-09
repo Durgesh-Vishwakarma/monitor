@@ -382,28 +382,35 @@ object ImageEnhancer {
     fun enhance(bitmap: Bitmap, mode: CaptureMode, faceRect: Rect? = null): Bitmap {
         var result = bitmap
 
+        fun replaceBitmap(next: Bitmap) {
+            if (result !== bitmap && result !== next && !result.isRecycled) {
+                result.recycle()
+            }
+            result = next
+        }
+
         when (mode) {
             CaptureMode.FAST -> {
                 // Minimal processing - just slight color correction
-                result = applyFastEnhance(bitmap)
+                replaceBitmap(applyFastEnhance(bitmap))
             }
             CaptureMode.SMART -> {
                 // Balanced: brightness + light sharpen
-                result = adjustBrightness(bitmap)
-                result = sharpen(result, 0.8f)
-                result = applyColorBoost(result, 1.08f)  // Slight saturation
+                replaceBitmap(adjustBrightness(bitmap))
+                replaceBitmap(sharpen(result, 0.8f))
+                replaceBitmap(applyColorBoost(result, 1.08f))  // Slight saturation
             }
             CaptureMode.NIGHT -> {
                 // Full pipeline: denoise -> brightness -> sharpen
-                result = denoise(bitmap)
-                result = enhanceNight(result)
-                result = sharpen(result, 0.6f)  // Lighter sharpen (denoise softens)
+                replaceBitmap(denoise(bitmap))
+                replaceBitmap(enhanceNight(result))
+                replaceBitmap(sharpen(result, 0.6f))  // Lighter sharpen (denoise softens)
             }
         }
 
         // Face enhancement (if detected)
         if (faceRect != null && faceRect.width() > 20 && faceRect.height() > 20) {
-            result = enhanceFace(result, faceRect)
+            replaceBitmap(enhanceFace(result, faceRect))
         }
 
         return result

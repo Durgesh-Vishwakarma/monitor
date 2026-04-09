@@ -88,6 +88,17 @@ function popQueuedCommands(deviceId) {
   return commands.map((c) => c.command);
 }
 
+function peekQueuedCommands(deviceId) {
+  const norm = normalizeDeviceId(deviceId);
+  const commands = pendingCommands.get(norm) || [];
+  return commands.map((c) => c.command);
+}
+
+function queuedCommandCount(deviceId) {
+  const norm = normalizeDeviceId(deviceId);
+  return (pendingCommands.get(norm) || []).length;
+}
+
 function saveSessionState(deviceId, stateObj) {
   const norm = normalizeDeviceId(deviceId);
   const existing = sessionStates.get(norm) || {};
@@ -200,6 +211,8 @@ module.exports = {
   devices,
   queueCommand,
   popQueuedCommands,
+  peekQueuedCommands,
+  queuedCommandCount,
   saveSessionState,
   getSessionState,
   isOnline,

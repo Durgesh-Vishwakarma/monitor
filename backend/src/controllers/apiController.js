@@ -83,11 +83,11 @@ function heartbeat(req, res) {
   if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
   
   deviceStore.updateHeartbeat(deviceId);
-  
-  // Also check if there's any pending commands - if so tell them to sync
-  const commands = deviceStore.popQueuedCommands(deviceId);
-  
-  res.json({ status: "ok", commandsAvailable: commands.length > 0, commands });
+
+  // Heartbeat must not consume or return queued commands. The sync endpoint pops and executes them.
+  const commandsAvailable = deviceStore.queuedCommandCount(deviceId) > 0;
+
+  res.json({ status: "ok", commandsAvailable });
 }
 
 function webrtcConfig(req, res) {
@@ -97,43 +97,67 @@ function webrtcConfig(req, res) {
   });
 }
 
-function listRecordings(req, res) {
-  const files = fs
-    .readdirSync(RECORDINGS_DIR)
-    .filter((f) => f.endsWith(".mp3") || f.endsWith(".wav"))
-    .map((f) => ({
-      name: f,
-      size: fs.statSync(path.join(RECORDINGS_DIR, f)).size,
-      url: `/recordings/${f}`,
-    }));
-  res.json(files);
+async function listRecordings(req, res) {
+  try {
+    const names = await fs.promises.readdir(RECORDINGS_DIR);
+    const filtered = names.filter((f) => f.endsWith(".mp3") || f.endsWith(".wav") || f.endsWith(".pcm"));
+    const files = await Promise.all(
+      filtered.map(async (f) => {
+        let size = 0;
+        try {
+          size = (await fs.promises.stat(path.join(RECORDINGS_DIR, f))).size;
+        } catch (_e) { size = 0; }
+        return { name: f, size, url: `/recordings/${f}` };
+      })
+    );
+    res.json(files);
+  } catch (e) {
+    console.error("Error listing recordings:", e.message);
+    res.status(500).json({ error: "Failed to list recordings" });
+  }
 }
 
-function listPhotos(req, res) {
+async function listPhotos(req, res) {
   const deviceId = req.query.deviceId;
-  const files = fs
-    .readdirSync(PHOTOS_DIR)
-    .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
-    .filter((f) => {
-      if (deviceId) {
-        const match = f.match(/^photo_([a-z0-9_-]+)_/i);
-        return match && match[1] === deviceId;
-      }
-      return true;
-    })
-    .map((f) => {
-      const match = f.match(/^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i);
-      return {
-        name: f,
-        size: fs.statSync(path.join(PHOTOS_DIR, f)).size,
-        url: `/photos/${f}`,
-        deviceId: match ? match[1] : null,
-        camera: match ? match[2] : null,
-        ts: match ? parseInt(match[3], 10) : null,
-      };
-    })
-    .sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  res.json(files);
+  try {
+    const names = await fs.promises.readdir(PHOTOS_DIR);
+    const filtered = names
+      .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
+      .filter((f) => {
+        if (deviceId) {
+          const match = f.match(/^photo_([a-z0-9_-]+)_/i);
+          return match && match[1] === deviceId;
+        }
+        return true;
+      });
+
+    const files = await Promise.all(
+      filtered.map(async (f) => {
+        const fullPath = path.join(PHOTOS_DIR, f);
+        const match = f.match(/^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i);
+        let size = 0;
+        try {
+          size = (await fs.promises.stat(fullPath)).size;
+        } catch (_e) {
+          size = 0;
+        }
+        return {
+          name: f,
+          size,
+          url: `/photos/${f}`,
+          deviceId: match ? match[1] : null,
+          camera: match ? match[2] : null,
+          ts: match ? parseInt(match[3], 10) : null,
+        };
+      }),
+    );
+
+    files.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    res.json(files);
+  } catch (e) {
+    console.error("Error listing photos:", e.message);
+    res.status(500).json({ error: "Failed to list photos" });
+  }
 }
 
 function setNoCacheHeaders(res) {

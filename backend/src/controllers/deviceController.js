@@ -289,13 +289,12 @@ function handleAudioDevice(ws, req) {
       });
     }
 
-    // ── Server-side gain boost for low-network / far-voice mode ─────────────
-    // When the device is in low-network mode or far voice profile, the phone
-    // sends lower-bitrate / compressed audio. We apply a 2x PCM amplification
-    // here so the dashboard operator always hears a loud, clear signal.
-    const isLowNet = dev?.health?.lowNetwork === true;
-    const isFarVoice = dev?.health?.voiceProfile === "far";
-    const serverGain = (isLowNet || isFarVoice) ? 2.5 : 1.0;
+    // ── Server-side gain compensation ───────────────────────────────────────
+    // Only compensate mildly for MuLaw streams to restore perceived loudness.
+    // Far-voice profile is already boosted on-device; re-boosting here clips.
+    const streamCodec = String(dev?.health?.streamCodec || "").toLowerCase();
+    const isMuLawStream = streamCodec === "smart" || parsedAudio.sampleRate === 8000;
+    const serverGain = isMuLawStream ? 1.35 : 1.0;
     const amplifiedPayload = buildAmplifiedPayload(
       parsedAudio.forwardPayload,
       parsedAudio.pcm16,

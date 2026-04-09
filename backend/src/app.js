@@ -37,16 +37,25 @@ function createApp() {
 
   const app = express();
   
-  // CORS configuration for Vercel frontend
-  app.use(cors({
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      /\.vercel\.app$/,
-      /^https:\/\/.*\.vercel\.app$/
-    ],
-    credentials: true
-  }));
+  // CORS configuration for dashboard frontend
+  const allowedOrigins = new Set([
+    "http://localhost:5173",
+    "http://localhost:3000",
+  ]);
+  const vercelOriginPattern = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.has(origin) || vercelOriginPattern.test(origin)) {
+          return callback(null, true);
+        }
+        return callback(new Error("Not allowed by CORS"));
+      },
+      credentials: true,
+    }),
+  );
   
   app.use(express.json({ limit: "10mb" }));
 

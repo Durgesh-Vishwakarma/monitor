@@ -118,13 +118,26 @@ function muLawByteToLinearSample(value) {
  */
 function amplifyPcm16(pcmBuffer, gainFactor = 2.0) {
   if (!pcmBuffer || pcmBuffer.length < 2 || gainFactor === 1.0) return pcmBuffer;
-  const out = Buffer.allocUnsafe(pcmBuffer.length);
+
   const numSamples = Math.floor(pcmBuffer.length / 2);
+  let peak = 0;
+  for (let i = 0; i < numSamples; i++) {
+    const sample = Math.abs(pcmBuffer.readInt16LE(i * 2));
+    if (sample > peak) peak = sample;
+  }
+
+  if (peak <= 0) return pcmBuffer;
+
+  const maxTarget = 30000;
+  const effectiveGain = Math.max(1.0, Math.min(gainFactor, maxTarget / peak));
+  const out = Buffer.allocUnsafe(pcmBuffer.length);
   for (let i = 0; i < numSamples; i++) {
     const offset = i * 2;
     const raw = pcmBuffer.readInt16LE(offset);
-    const boosted = Math.max(-32768, Math.min(32767, Math.round(raw * gainFactor)));
-    out.writeInt16LE(boosted, offset);
+    const normalized = raw / 32768;
+    const boosted = normalized * effectiveGain;
+    const limited = Math.tanh(boosted * 1.15) / Math.tanh(1.15);
+    out.writeInt16LE(Math.round(limited * 32767), offset);
   }
   // Copy any trailing odd byte unchanged
   if (pcmBuffer.length % 2 !== 0) {
