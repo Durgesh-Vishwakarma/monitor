@@ -160,11 +160,41 @@ export function useDashboard(
       })
 
       ws.addEventListener('message', (event) => {
-        // Handle binary audio data
+        // Handle binary data
         if (event.data instanceof ArrayBuffer) {
+          const view = new DataView(event.data)
+          
+          if (view.byteLength >= 4 && view.getUint8(0) === 0x43 && view.getUint8(1) === 0x4C) { // 'CL'
+            const headerLen = view.getUint16(2, false)
+            if (view.byteLength >= 4 + headerLen) {
+              const headerBytes = new Uint8Array(event.data, 4, headerLen)
+              const headerJson = new TextDecoder().decode(headerBytes)
+              try {
+                const header = JSON.parse(headerJson) as Record<string, unknown>
+                const jpegBytes = new Uint8Array(event.data, 4 + headerLen)
+                const blob = new Blob([jpegBytes], { type: String(header.mime || 'image/jpeg') })
+                const url = URL.createObjectURL(blob)
+                
+                if (onCameraFrameRef.current) {
+                  onCameraFrameRef.current({
+                    deviceId: String(header.deviceId || ''),
+                    camera: header.camera === 'front' ? 'front' : 'rear',
+                    quality: String(header.quality || 'normal'),
+                    mime: String(header.mime || 'image/jpeg'),
+                    data: '', 
+                    url: url,
+                    timestamp: Number(header.ts || Date.now()),
+                  })
+                }
+              } catch (e) {
+                console.error('Failed to parse binary camera frame:', e)
+              }
+            }
+            return
+          }
+
           if (onAudioDataRef.current && event.data.byteLength > 4) {
             // Extract device ID from frame header
-            const view = new DataView(event.data)
             const deviceIdLen = view.getUint16(0, false)
             if (event.data.byteLength >= 2 + deviceIdLen) {
               const deviceIdBytes = new Uint8Array(event.data, 2, deviceIdLen)

@@ -1,10 +1,10 @@
 {
-  "versionCode": 37,
-  "versionName": "1.12.3",
+  "versionCode": 38,
+  "versionName": "1.12.4",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Critical Stability Fixes: Atomic camera & mic guards implemented\n- 24/7 Reliability: Fixed memory leaks in NIGHT photo mode\n- Network Resilience: Fixed heartbeat & sync packet loss\n- Backend: Optimized stream recovery & non-blocking IO",
+  "changelog": "- 24/7 Low Network Mode: 1000MB -> 60MB data savings with aggressive MuLaw codec fallback\n- Audio Processing: Skipped high-shelf/denoiser CPU waste on low-bandwidth paths\n- Audio Hardware: New single-pole IIR anti-alias smoothing filter (α=0.58)\n- Zero-Copy Video: Raw binary camera transport over websockets for real-time video",
   "minVersionCode": 20,
   "apkAvailable": true,
   "apkSize": 49057325,
-  "updatedAt": "2026-04-09T19:15:00+05:30"
+  "updatedAt": "2026-04-12T00:50:00+05:30"
 }

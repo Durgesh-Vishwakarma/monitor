@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { CameraFrame, Photo } from '../../types/dashboard'
 
 type CameraLiveFeedProps = {
@@ -13,6 +13,14 @@ export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onS
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [rotation, setRotation] = useState<number>(0)
   const [modalRotation, setModalRotation] = useState<number>(0)
+
+  useEffect(() => {
+    return () => {
+      if (frame?.url && frame.url.startsWith('blob:')) {
+        URL.revokeObjectURL(frame.url)
+      }
+    }
+  }, [frame])
 
   return (
     <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 overflow-hidden">
@@ -63,7 +71,7 @@ export function CameraLiveFeed({ frame, photos, onTakePhoto, onSwitchCamera, onS
           <div className="relative">
             <div className="w-full h-48 bg-black rounded overflow-hidden flex items-center justify-center">
               <img
-                src={`data:${frame.mime};base64,${frame.data}`}
+                src={frame.url || `data:${frame.mime};base64,${frame.data}`}
                 alt="Live camera feed"
                 className="max-w-full max-h-full object-contain transition-transform"
                 style={{ transform: `rotate(${rotation}deg)` }}

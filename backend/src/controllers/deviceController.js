@@ -265,7 +265,19 @@ function handleAudioDevice(ws, req) {
       return;
     }
 
-    const parsedAudio = parseAudioPayload(Buffer.from(data));
+    const buf = Buffer.from(data);
+
+    // ── Binary Camera Live Frame Routing ────────────────────────────────────
+    if (buf.length >= 4 && buf[0] === 0x43 && buf[1] === 0x4C) { // 'C', 'L'
+      dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
+        if (client.readyState !== WebSocket.OPEN) return;
+        if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) return;
+        client.send(buf);
+      });
+      return; // Skip audio processing
+    }
+
+    const parsedAudio = parseAudioPayload(buf);
 
     if (!dev._lastAudioLogAt || Date.now() - dev._lastAudioLogAt > 5000) {
       dev._lastAudioLogAt = Date.now();
@@ -289,12 +301,10 @@ function handleAudioDevice(ws, req) {
       });
     }
 
-    // ── Server-side gain compensation ───────────────────────────────────────
-    // Only compensate mildly for MuLaw streams to restore perceived loudness.
-    // Far-voice profile is already boosted on-device; re-boosting here clips.
-    const streamCodec = String(dev?.health?.streamCodec || "").toLowerCase();
-    const isMuLawStream = streamCodec === "smart" || parsedAudio.sampleRate === 8000;
-    const serverGain = isMuLawStream ? 1.35 : 1.0;
+    // Far-voice profile is already boosted on-device. Server-side boost for
+    // MuLaw is disabled because building amplified payload converts to PCM16
+    // without changing the MuLaw codec header, which corrupts playback.
+    const serverGain = 1.0;
     const amplifiedPayload = buildAmplifiedPayload(
       parsedAudio.forwardPayload,
       parsedAudio.pcm16,

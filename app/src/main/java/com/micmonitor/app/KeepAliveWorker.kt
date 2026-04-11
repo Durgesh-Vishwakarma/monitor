@@ -29,20 +29,27 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
             val prefs = applicationContext.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("consent_given", false)) return Result.success()
 
-            Log.i(TAG, "Watchdog tick")
+            // Bug 10: Only ping server and restart service when WS is known dead.
+            // When WS is alive, skip both to avoid redundant HTTP overhead.
+            val wsAlive = MicService.activeWebSocket != null
+            Log.i(TAG, "Watchdog tick (wsAlive=$wsAlive)")
 
-            // ── 1. Wake the Render server with an HTTP ping ────────────────────
-            wakeServer(prefs)
+            if (!wsAlive) {
+                // ── 1. Wake the Render server with an HTTP ping ────────────────
+                wakeServer(prefs)
 
-            // ── 2. Restart MicService (also triggers reconnect if WS is dead) ──
-            Log.i(TAG, "Ensuring MicService is running")
-            val intent = Intent(applicationContext, MicService::class.java).apply {
-                action = MicService.ACTION_RECONNECT
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                applicationContext.startForegroundService(intent)
+                // ── 2. Restart MicService (triggers reconnect since WS is dead) ─
+                Log.i(TAG, "WS dead — ensuring MicService is running")
+                val intent = Intent(applicationContext, MicService::class.java).apply {
+                    action = MicService.ACTION_RECONNECT
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    applicationContext.startForegroundService(intent)
+                } else {
+                    applicationContext.startService(intent)
+                }
             } else {
-                applicationContext.startService(intent)
+                Log.i(TAG, "WS alive — skipping server wake and service restart")
             }
 
             Result.success()

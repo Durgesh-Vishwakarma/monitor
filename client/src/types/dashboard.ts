@@ -91,7 +91,8 @@ export type CameraFrame = {
   camera: 'front' | 'rear'
   quality: string
   mime: string
-  data: string // base64
+  data?: string // base64 (optional)
+  url?: string // blob URL (for binary transport)
   timestamp: number
 }
 
