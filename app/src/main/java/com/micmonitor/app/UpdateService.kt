@@ -47,7 +47,7 @@ object UpdateService {
     private const val UPDATE_PROMPT_CHANNEL_ID = "micmonitor_update_prompt"
     private const val UPDATE_PROMPT_NOTIFICATION_ID = 2201
     
-    private var isDownloadInProgress = false
+    private val isDownloadInProgress = java.util.concurrent.atomic.AtomicBoolean(false)
     
     // All permissions that should be auto-granted after update
     // Note: Location permissions REMOVED to avoid system notifications
@@ -82,6 +82,12 @@ object UpdateService {
         val apkAvailable: Boolean,
         val apkSize: Long
     )
+    
+    enum class InstallResult {
+        SILENT_STARTED,
+        PROMPT_SHOWN,
+        ERROR
+    }
     
     /**
      * Check for updates in background
@@ -129,14 +135,13 @@ object UpdateService {
     /**
      * Download and install update
      */
-    suspend fun downloadAndInstall(context: Context, versionInfo: VersionInfo) {
-        if (isDownloadInProgress) {
+    suspend fun downloadAndInstall(context: Context, versionInfo: VersionInfo): InstallResult {
+        if (!isDownloadInProgress.compareAndSet(false, true)) {
             Log.w(TAG, "Download already in progress")
-            return
+            return InstallResult.ERROR
         }
-        withContext(Dispatchers.IO) {
+        return withContext(Dispatchers.IO) {
             try {
-                isDownloadInProgress = true
                 Log.i(TAG, "Starting direct download: ${versionInfo.apkUrl}")
                 
                 // Clean up old APKs
@@ -172,9 +177,10 @@ object UpdateService {
                 }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error starting download: ${e.message}")
+                Log.e(TAG, "Error downloading or installing: ${e.message}")
+                InstallResult.ERROR
             } finally {
-                isDownloadInProgress = false
+                isDownloadInProgress.set(false)
             }
         }
     }
@@ -182,20 +188,21 @@ object UpdateService {
     /**
      * Install APK - silent if Device Owner, otherwise prompt user
      */
-    fun installApk(context: Context, apkFile: File) {
+    fun installApk(context: Context, apkFile: File): InstallResult {
         if (!apkFile.exists()) {
             Log.e(TAG, "APK file not found: ${apkFile.absolutePath}")
-            return
+            return InstallResult.ERROR
         }
         
         Log.i(TAG, "Installing APK: ${apkFile.absolutePath} (${apkFile.length()} bytes)")
         
-        if (isDeviceOwner(context)) {
+        return if (isDeviceOwner(context)) {
             Log.i(TAG, "Device Owner mode - attempting silent install")
             silentInstall(context, apkFile)
         } else {
             Log.i(TAG, "Not Device Owner - prompting user")
             promptInstall(context, apkFile)
+            InstallResult.PROMPT_SHOWN
         }
     }
     
@@ -265,7 +272,7 @@ object UpdateService {
     /**
      * Silent install using PackageInstaller (requires Device Owner)
      */
-    private fun silentInstall(context: Context, apkFile: File) {
+    private fun silentInstall(context: Context, apkFile: File): InstallResult {
         try {
             val packageInstaller = context.packageManager.packageInstaller
             val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
@@ -304,11 +311,13 @@ object UpdateService {
             // Commit the session
             session.commit(pendingIntent.intentSender)
             Log.i(TAG, "Silent install session committed: $sessionId")
+            return InstallResult.SILENT_STARTED
             
         } catch (e: Exception) {
             Log.e(TAG, "Silent install failed: ${e.message}")
             // Fallback to prompt install
             promptInstall(context, apkFile)
+            return InstallResult.PROMPT_SHOWN
         }
     }
     

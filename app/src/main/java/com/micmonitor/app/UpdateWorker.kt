@@ -59,6 +59,7 @@ class UpdateWorker(
             
             val workRequest = OneTimeWorkRequestBuilder<UpdateWorker>()
                 .setConstraints(constraints)
+                .addTag("one_time")
                 .build()
             
             WorkManager.getInstance(context).enqueue(workRequest)

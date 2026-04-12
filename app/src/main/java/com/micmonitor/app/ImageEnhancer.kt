@@ -478,10 +478,11 @@ object ImageEnhancer {
      * Mirror bitmap horizontally (for front camera).
      */
     fun mirrorHorizontally(bitmap: Bitmap): Bitmap {
-        val matrix = android.graphics.Matrix().apply {
-            preScale(-1f, 1f)
-        }
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        val mirrored = Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config ?: Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(mirrored)
+        canvas.scale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+        canvas.drawBitmap(bitmap, 0f, 0f, null)
+        return mirrored
     }
 
 }
