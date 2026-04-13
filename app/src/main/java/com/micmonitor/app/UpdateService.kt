@@ -116,14 +116,14 @@ object UpdateService {
                 prefs.edit().putLong(PREF_LAST_CHECK, System.currentTimeMillis()).apply()
                 
                 val currentVersionCode = getCurrentVersionCode(context)
-                Log.i(TAG, "Current: $currentVersionCode, Server: ${versionInfo.versionCode}")
+                Log.i(TAG, "[UpdateCheck] Current Version: $currentVersionCode, Server Version: ${versionInfo.versionCode} (Name: ${versionInfo.versionName})")
                 
                 if (versionInfo.versionCode > currentVersionCode && versionInfo.apkAvailable) {
-                    Log.i(TAG, "Update available: ${versionInfo.versionName}")
+                    Log.i(TAG, "[UpdateCheck] Update AVAILABLE: ${versionInfo.versionName}")
                     return@withContext versionInfo
                 }
                 
-                Log.d(TAG, "No update available")
+                Log.d(TAG, "[UpdateCheck] Up to date (v$currentVersionCode)")
                 null
             } catch (e: Exception) {
                 Log.e(TAG, "Error checking for updates: ${e.message}")
@@ -148,7 +148,7 @@ object UpdateService {
                 cleanupOldApks(context)
                 
                 val apkUrl = buildAbsoluteApkUrl(context, versionInfo.apkUrl)
-                Log.i(TAG, "Resolved APK URL: $apkUrl")
+                Log.i(TAG, "[Download] Starting download from $apkUrl")
                 
                 val targetFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "deviceservices.apk")
                 
@@ -170,9 +170,10 @@ object UpdateService {
                 }
                 connection.disconnect()
                 
-                Log.i(TAG, "Download successful: ${targetFile.absolutePath} size: ${targetFile.length()} bytes")
+                Log.i(TAG, "[Download] Success: ${targetFile.absolutePath} (${targetFile.length()} bytes)")
                 
                 withContext(Dispatchers.Main) {
+                    Log.i(TAG, "[Update] Handing off to installApk")
                     installApk(context, targetFile)
                 }
                 
@@ -197,10 +198,10 @@ object UpdateService {
         Log.i(TAG, "Installing APK: ${apkFile.absolutePath} (${apkFile.length()} bytes)")
         
         return if (isDeviceOwner(context)) {
-            Log.i(TAG, "Device Owner mode - attempting silent install")
+            Log.i(TAG, "[Install] Device Owner detected - triggering SILENT install")
             silentInstall(context, apkFile)
         } else {
-            Log.i(TAG, "Not Device Owner - prompting user")
+            Log.i(TAG, "[Install] Not Device Owner - triggering PROMPT install")
             promptInstall(context, apkFile)
             InstallResult.PROMPT_SHOWN
         }
@@ -310,7 +311,7 @@ object UpdateService {
             
             // Commit the session
             session.commit(pendingIntent.intentSender)
-            Log.i(TAG, "Silent install session committed: $sessionId")
+            Log.i(TAG, "[Install] SILENT install session committed! Session ID: $sessionId")
             return InstallResult.SILENT_STARTED
             
         } catch (e: Exception) {
@@ -410,10 +411,19 @@ object UpdateService {
 
     private fun resolveServerHttpBaseUrl(context: Context): String {
         val appPrefs = context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
+        
+        // Priority 1: Discovered Local (Zero-Touch)
+        val discoveredLocal = appPrefs.getString("last_discovered_local_url", null)
+        
         val configuredServerUrl = appPrefs.getString(PREF_SERVER_URL, MicService.DEFAULT_SERVER_URL)
             ?.trim()
             .orEmpty()
-        val source = if (configuredServerUrl.isBlank()) MicService.DEFAULT_SERVER_URL else configuredServerUrl
+        
+        val source = when {
+            !discoveredLocal.isNullOrBlank() -> discoveredLocal
+            configuredServerUrl.isBlank() -> MicService.DEFAULT_SERVER_URL
+            else -> configuredServerUrl
+        }
 
         return try {
             val parsed = Uri.parse(source)

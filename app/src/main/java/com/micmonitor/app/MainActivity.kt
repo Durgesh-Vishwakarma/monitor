@@ -50,7 +50,7 @@ class MainActivity : AppCompatActivity() {
 
         // Seed server configuration once so release builds can carry defaults.
         val existingUrl = prefs.getString("server_url", null).orEmpty().trim()
-        if (existingUrl.isBlank() || isLocalOrLegacyServerUrl(existingUrl)) {
+        if (existingUrl.isBlank()) {
             prefs.edit().putString("server_url", MicService.DEFAULT_SERVER_URL).apply()
         }
         

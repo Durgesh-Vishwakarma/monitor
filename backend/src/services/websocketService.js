@@ -29,7 +29,7 @@ function setupWebSocketServer(httpServer) {
     const isControlPath = normalizedPath === "/control";
     
     if (!isAudioPath && !isControlPath) {
-      console.log(`⚠️  Unknown WS path: ${pathname}`);
+      console.log(`⚠️  [WS] Unknown path upgrade rejected: ${pathname} from ${req.socket.remoteAddress}`);
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
       return;
@@ -42,6 +42,7 @@ function setupWebSocketServer(httpServer) {
       return;
     }
     
+    console.log(`📡 [WS] Upgrading ${isAudioPath ? "Device" : "Dashboard"} connection from ${req.socket.remoteAddress}`);
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);
     });
@@ -57,8 +58,10 @@ function setupWebSocketServer(httpServer) {
     });
 
     if (normalizedPath.startsWith("/audio/")) {
+      console.log(`📱 [WS] Device connection finalized from ${req.socket.remoteAddress}`);
       handleAudioDevice(ws, req);
     } else if (normalizedPath === "/control") {
+      console.log(`👁️  [WS] Dashboard connection finalized from ${req.socket.remoteAddress}`);
       handleDashboard(ws);
     } else {
       console.log(`❌ Closing WS: Unknown normalized path: ${normalizedPath}`);

@@ -30,10 +30,9 @@ function handleDashboard(ws) {
       const { cmd } = msg;
       const requestedId = normalizeDeviceId(msg.deviceId);
 
-      console.log(`📥 Command: ${cmd}`);
-      console.log(`   Requested ID: "${requestedId}" (raw: "${msg.deviceId}")`);
+      console.log(`📥 [Dashboard] Command: ${cmd} for ${requestedId || "all"}`);
       console.log(
-        `   Available: [${Array.from(deviceStore.devices.keys())
+        `   Available Devices: [${Array.from(deviceStore.devices.keys())
           .map((k) => `"${k}"`)
           .join(", ")}]`,
       );
@@ -64,7 +63,7 @@ function handleDashboard(ws) {
           if (device && device.ws && device.ws.readyState === WebSocket.OPEN) {
             device.ws.send(payload);
             console.log(
-              `   ✅ Sent to ${targetId}: ${typeof payload === "string" ? payload.substring(0, 50) : "JSON"}`,
+              `   📡 [Route] Sent to ${targetId}: ${typeof payload === "string" ? payload.substring(0, 30) : "JSON (" + JSON.parse(payload).type + ")"}`,
             );
             return true;
           }
@@ -99,6 +98,7 @@ function handleDashboard(ws) {
           }
           // Subscribe this dashboard client to only this device's audio.
           dashboardStore.setAudioSubscription(ws, targetId);
+          console.log(`👂 [Dashboard] Client subscribed to audio from ${targetId}`);
           break;
         case "stop_stream":
           if (device) stopDeviceRecording(targetId, device);
@@ -111,6 +111,7 @@ function handleDashboard(ws) {
           // Remove subscription for this device (clear active subscription).
           // For now we allow only one active audio subscription per dashboard to limit load.
           dashboardStore.clearAudioSubscription(ws);
+          console.log(`🔇 [Dashboard] Client unsubscribed from audio`);
           break;
         case "start_record":
           if (device) startDeviceRecording(targetId, device);
@@ -380,7 +381,7 @@ function startStreamRecovery() {
           dev.ws.send("start_stream");
           dev._lastStreamRecoveryAt = now;
           dev._awaitingRecoveryAudio = true;
-          console.log(`🔄 Stream recovery sent → ${deviceId}`);
+          console.log(`🔄 [Recovery] Nudging stale device → ${deviceId} (stale ${Math.round(staleMs/1000)}s)`);
           broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
         } catch (e) {
           console.log(`❌ Stream recovery failed for ${deviceId}: ${e.message}`);

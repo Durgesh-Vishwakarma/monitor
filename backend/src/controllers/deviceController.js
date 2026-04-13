@@ -105,7 +105,7 @@ function handleAudioDevice(ws, req) {
           if (appVersionName) dev.appVersionName = appVersionName;
           if (appVersionCode > 0) dev.appVersionCode = appVersionCode;
         }
-        console.log(`ℹ️  ${deviceId} → ${model} (SDK ${sdk})`);
+        console.log(`ℹ️ [Device] ${deviceId} identified: ${model} (SDK ${sdk}, v${appVersionName})`);
         broadcastToDashboard({
           type: "device_info",
           deviceId,
@@ -178,7 +178,9 @@ function handleAudioDevice(ws, req) {
               // Persist FCM token for Layer 4 wake-up
               if (json.fcmToken && json.fcmToken.length > 10) {
                 deviceStore.saveFcmToken(deviceId, json.fcmToken);
-              }            }
+              }
+              console.log(`📊 [Health] ${deviceId}: ${json.reason || "periodic"} (WS=${json.wsConnected}, Mic=${json.micCapturing}, Bat=${json.batteryPct}%)`);
+            }
             broadcastToDashboard({
               type: "device_health",
               deviceId,
@@ -215,7 +217,9 @@ function handleAudioDevice(ws, req) {
               data: String(json.data || ""),
               ts: Number(json.ts || Date.now()),
             });
+            // Don't log frames to avoid stdout flood, but keep track
           } else if (json.type === "command_ack") {
+            console.log(`✅ [ACK] ${deviceId} command result: ${json.command} = ${json.status} (${json.detail || "no detail"})`);
             broadcastToDashboard({
               type: "command_ack",
               deviceId,
@@ -309,7 +313,7 @@ function handleAudioDevice(ws, req) {
     if (!dev._lastAudioLogAt || Date.now() - dev._lastAudioLogAt > 5000) {
       dev._lastAudioLogAt = Date.now();
       console.log(
-        `🎵 Audio from ${deviceId}: ${data.length} bytes, HQ=${parsedAudio.isHqMode}`,
+        `🎵 [Audio] from ${deviceId}: ${data.length} bytes, HQ=${parsedAudio.isHqMode}`,
       );
       
       // Automatically keep dashboard in sync every time we receive mic audio

@@ -62,6 +62,7 @@ function sync(req, res) {
   const deviceId = req.query.deviceId || req.headers["x-device-id"];
   if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
   
+  console.log(`📡 [HTTP-Sync] Request from ${deviceId}`);
   // Register heartbeat since they reached out
   deviceStore.updateHeartbeat(deviceId);
   

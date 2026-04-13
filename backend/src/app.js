@@ -23,6 +23,7 @@ const { registerStaticRoutes } = require("./routes/staticRoutes");
 const { errorHandler } = require("./middleware/errorHandler");
 const { setupWebSocketServer } = require("./services/websocketService");
 const { startStreamRecovery } = require("./controllers/dashboardController");
+const { startDiscovery } = require("./services/discoveryService");
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -101,6 +102,7 @@ function startServer() {
   const httpServer = http.createServer(app);
   setupWebSocketServer(httpServer);
   startStreamRecovery();
+  startDiscovery();
 
   httpServer.listen(PORT, () => {
     console.log(`🌐 Dashboard:  http://localhost:${PORT}`);

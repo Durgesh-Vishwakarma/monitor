@@ -79,12 +79,12 @@ class UpdateWorker(
         // user setting: no update automatic, only dashboard trigger (checkNow)
         val isPeriodic = inputData.getBoolean("is_periodic", true)
         if (isPeriodic && !isImmediateTrigger()) {
-            Log.i(TAG, "Skipping periodic update check (Dashboard trigger only)")
+            Log.i(TAG, "[Worker] Skipping periodic check (Dashboard trigger only)")
             return Result.success()
         }
         
         return try {
-            Log.i(TAG, "Running update check...")
+            Log.i(TAG, "[Worker] Starting update check lifecycle")
             runBlocking {
                 val versionInfo = UpdateService.checkForUpdate(applicationContext, forceCheck = true)
                 
@@ -95,9 +95,10 @@ class UpdateWorker(
                     notifyUpdateAvailable(versionInfo)
                     
                     // Start download and install
+                    Log.i(TAG, "[Worker] Found new version, triggering UpdateService")
                     UpdateService.downloadAndInstall(applicationContext, versionInfo)
                 } else {
-                    Log.d(TAG, "No update available")
+                    Log.d(TAG, "[Worker] No update needed (already on latest)")
                 }
             }
             
