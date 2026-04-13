@@ -66,13 +66,15 @@ function sync(req, res) {
   deviceStore.updateHeartbeat(deviceId);
   
   // Get queued commands (Layer 9)
-  const commands = deviceStore.popQueuedCommands(deviceId);
+  const popResult = deviceStore.popQueuedCommands(deviceId);
   
   // Sync state (Layer 10)
   const sessionState = deviceStore.getSessionState(deviceId);
 
   res.json({
-    commands,
+    commands: popResult.commands,
+    syncGeneration: popResult.generation,
+    replayed: popResult.replayed === true,
     sessionState,
     ts: Date.now()
   });

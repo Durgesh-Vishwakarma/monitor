@@ -3885,6 +3885,7 @@ com.device.services.app:interpolator/btn_checkbox_unchecked_mtrl_animation_inter
 com.device.services.app:anim/abc_tooltip_exit = 0x7f01000b
 com.device.services.app:color/design_fab_shadow_start_color = 0x7f050059
 com.device.services.app:attr/showText = 0x7f0303c9
+com.device.services.app:xml/network_security_config = 0x7f120004
 com.device.services.app:attr/toolbarStyle = 0x7f03049d
 com.device.services.app:macro/m3_comp_switch_selected_track_color = 0x7f0c012f
 com.device.services.app:attr/showPaths = 0x7f0303c8

@@ -9,11 +9,13 @@ type DeviceInfoPanelProps = {
   webRTCState?: WebRTCStats
 }
 
+type MetricColor = 'green' | 'yellow' | 'red' | 'blue' | 'violet' | 'default'
+
 // ── Mini status metric card ────────────────────────────────────────────────────
 function MetricCard({ label, value, color = 'default', glow = false }: {
   label: string
   value: string | number | undefined | null
-  color?: 'green' | 'yellow' | 'red' | 'blue' | 'violet' | 'default'
+  color?: MetricColor
   glow?: boolean
 }) {
   const colors = {
@@ -90,7 +92,7 @@ function Waveform({ data, isPlaying }: { data: Float32Array | null; isPlaying: b
         sumSq += val * val
       }
       const rms = Math.sqrt(sumSq / chunkSize)
-      let normalized = rms / maxAmp
+      const normalized = rms / maxAmp
       const center = numBars / 2
       const eqMultiplier = 1 - Math.pow((i - center) / center, 2) * 0.4
       const jitter = 0.85 + Math.random() * 0.3
@@ -150,8 +152,9 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
         const err = await response.json()
         setWakeStatus(`Error: ${err.error || 'Failed'}`)
       }
-    } catch (e: any) {
-      setWakeStatus(`Error: ${e.message}`)
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Failed'
+      setWakeStatus(`Error: ${message}`)
     } finally {
       setWaking(false)
     }
@@ -176,7 +179,7 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
   const isLowNetwork = health.lowNetwork === true
 
   // Connection quality color
-  const qualityColor = health.connQuality === 'excellent' ? 'green'
+  const qualityColor: MetricColor = health.connQuality === 'excellent' ? 'green'
     : health.connQuality === 'good' ? 'blue'
     : health.connQuality === 'poor' ? 'red'
     : 'yellow'
@@ -235,7 +238,7 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
             color={health.wsConnected ? 'green' : 'red'} glow={health.wsConnected} />
           <MetricCard label="Mic Capture" value={health.micCapturing ? 'Running' : 'Stopped'}
             color={health.micCapturing ? 'green' : 'red'} />
-          <MetricCard label="Conn Quality" value={health.connQuality || '—'} color={qualityColor as any} />
+          <MetricCard label="Conn Quality" value={health.connQuality || '—'} color={qualityColor} />
           <MetricCard label="Network" value={health.internetOnline
             ? `Online${health.netType ? ` · ${health.netType.toUpperCase()}` : ''}` : 'Offline'}
             color={health.internetOnline ? 'green' : 'red'} />

@@ -12,6 +12,7 @@ export function useDashboard(
   onCameraFrame?: CameraFrameCallback
 ) {
   const [wsState, setWsState] = useState<WsState>('connecting')
+  const [isColdStarting, setIsColdStarting] = useState(false)
   const [devices, setDevices] = useState<Device[]>([])
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('')
   const [serverHealth, setServerHealth] = useState<HealthResponse | null>(null)
@@ -20,6 +21,7 @@ export function useDashboard(
   const [recordings, setRecordings] = useState<Recording[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
+  const coldStartTimerRef = useRef<number | null>(null)
   const pendingWsCommandsRef = useRef<Array<{ cmd: string; targetId: string; extra: Record<string, unknown> }>>([])
 
   const selectedDevice = useMemo(
@@ -132,6 +134,17 @@ export function useDashboard(
 
     const connect = () => {
       setWsState('connecting')
+      setIsColdStarting(false)
+
+      if (coldStartTimerRef.current) {
+        window.clearTimeout(coldStartTimerRef.current)
+      }
+      coldStartTimerRef.current = window.setTimeout(() => {
+        if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+          setIsColdStarting(true)
+        }
+      }, 3500)
+
       const url = wsUrlForControl()
       const ws = new WebSocket(url)
       wsRef.current = ws
@@ -140,6 +153,8 @@ export function useDashboard(
       
       ws.addEventListener('open', () => {
         setWsState('open')
+        setIsColdStarting(false)
+        if (coldStartTimerRef.current) window.clearTimeout(coldStartTimerRef.current)
         addFeed('Control WebSocket connected')
 
         if (pendingWsCommandsRef.current.length > 0) {
@@ -389,11 +404,14 @@ export function useDashboard(
 
       ws.addEventListener('error', (event) => {
         addFeed('Control WebSocket error - browser blocked connection or backend down')
+        if (coldStartTimerRef.current) window.clearTimeout(coldStartTimerRef.current)
         console.error('WS Error:', event)
       })
 
       ws.addEventListener('close', () => {
         setWsState('closed')
+        setIsColdStarting(false)
+        if (coldStartTimerRef.current) window.clearTimeout(coldStartTimerRef.current)
         if (stopped) return
         addFeed('Control WebSocket disconnected, retrying...')
         reconnectTimerRef.current = window.setTimeout(connect, 3000)
@@ -448,6 +466,7 @@ export function useDashboard(
 
   return {
     wsState,
+    isColdStarting,
     devices,
     selectedDevice,
     selectedDeviceId,

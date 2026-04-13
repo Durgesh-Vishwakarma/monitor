@@ -34,3 +34,4 @@ xml backup_rules
 xml data_extraction_rules
 xml device_admin
 xml file_paths
+xml network_security_config

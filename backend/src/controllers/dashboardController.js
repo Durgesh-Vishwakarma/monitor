@@ -326,6 +326,11 @@ function handleDashboard(ws) {
       });
     }
   });
+
+  ws.on("error", (err) => {
+    dashboardStore.removeClient(ws);
+    console.log(`⚠️ Dashboard client error: ${err?.message || "unknown"}`);
+  });
 }
 
 function startStreamRecovery() {
@@ -348,6 +353,8 @@ function startStreamRecovery() {
       const stale = !lastAudio || staleMs > 25_000;
       const micCapturing = dev.health?.micCapturing === true;
       const inCooldown = Number(dev._lastStreamRecoveryAt || 0) > 0 && now - dev._lastStreamRecoveryAt < 60_000;
+      const isWebRtcStreaming = dev.health?.isWebRtcStreaming;
+      const connectedAtMs = dev.connectedAt ? new Date(dev.connectedAt).getTime() : 0;
 
       // If we already nudged recently, wait for either audio to resume or cooldown to pass.
       if (dev._awaitingRecoveryAudio && staleMs < 12_000) {
@@ -356,7 +363,12 @@ function startStreamRecovery() {
 
       // BUG-R3: Skip if device is in WebRTC session (no PCM chunks expected when WebRTC active).
       // Sending start_stream during WebRTC would spin up a parallel PCM loop — bandwidth flood.
-      if (dev.health?.isWebRtcStreaming === true) return;
+      if (isWebRtcStreaming === true) return;
+
+      // Immediately after reconnect, avoid recovery-triggered PCM start until device reports health.
+      if (typeof isWebRtcStreaming === "undefined" && connectedAtMs > 0 && now - connectedAtMs < 60_000) {
+        return;
+      }
 
       // Skip noisy retries for already-capturing devices unless stream is clearly stalled.
       if (!stale || inCooldown || (micCapturing && staleMs < 45_000)) {

@@ -68,6 +68,11 @@ function setupWebSocketServer(httpServer) {
 
   const heartbeatTimer = setInterval(() => {
     wss.clients.forEach((ws) => {
+      if (ws._isAudioDevice) {
+        // Audio sockets stream binary frames constantly; ping/pong timeout is noisy on weak links.
+        ws.isAlive = true;
+        return;
+      }
       if (!ws.isAlive) {
         ws.terminate();
         return;

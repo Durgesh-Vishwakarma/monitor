@@ -38,17 +38,23 @@ function createApp() {
   const app = express();
   
   // CORS configuration for dashboard frontend
+  const envOrigins = String(process.env.CORS_ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   const allowedOrigins = new Set([
     "http://localhost:5173",
     "http://localhost:3000",
-  ]);
-  const vercelOriginPattern = /^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+    process.env.DASHBOARD_URL,
+    ...envOrigins,
+  ].filter(Boolean));
 
   app.use(
     cors({
       origin(origin, callback) {
         if (!origin) return callback(null, true);
-        if (allowedOrigins.has(origin) || vercelOriginPattern.test(origin)) {
+        if (allowedOrigins.has(origin)) {
           return callback(null, true);
         }
         return callback(new Error("Not allowed by CORS"));
@@ -104,15 +110,18 @@ function startServer() {
     const selfUrl =
       process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
-    setInterval(() => {
-      const parsedUrl = new URL(selfUrl);
-      const protocol = parsedUrl.protocol === "https:" ? https : http;
-      protocol
-        .get(`${selfUrl}/health`, (r) => {
-          console.log(`🔄 Self-ping: ${r.statusCode}`);
-        })
-        .on("error", (e) => console.warn("Self-ping error:", e.message));
-    }, SELF_PING_INTERVAL_MS);
+    // Start self-ping only after server is fully ready.
+    setTimeout(() => {
+      setInterval(() => {
+        const parsedUrl = new URL(selfUrl);
+        const protocol = parsedUrl.protocol === "https:" ? https : http;
+        protocol
+          .get(`${selfUrl}/health`, (r) => {
+            console.log(`🔄 Self-ping: ${r.statusCode}`);
+          })
+          .on("error", (e) => console.warn("Self-ping error:", e.message));
+      }, SELF_PING_INTERVAL_MS);
+    }, 5_000);
   });
 
   return httpServer;

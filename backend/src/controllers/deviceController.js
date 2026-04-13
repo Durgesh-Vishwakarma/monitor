@@ -51,26 +51,21 @@ function handleAudioDevice(ws, req) {
     health: {
       wsConnected: true,
       micCapturing: false,
-      lastAudioChunkAt: 0,
+      lastAudioChunkAt: Date.now(),
       lastHealthAt: Date.now(),
       reason: "connected",
       internetOnline: true,
       callActive: false,
+      isWebRtcStreaming: false,
       batteryPct: null,
       charging: null,
     },
   };
 
-  deviceStore.addDevice(deviceId, deviceData);
+  // Mark device sockets so the generic WS heartbeat does not kill active audio streams.
+  ws._isAudioDevice = true;
 
-  if (dashboardStore.size() > 0) {
-    try {
-      ws.send("start_stream");
-      console.log(`🎙️  Auto-sent start_stream to new device: ${deviceId}`);
-    } catch (e) {
-      console.log(`❌ Failed to auto-start stream for ${deviceId}: ${e.message}`);
-    }
-  }
+  deviceStore.addDevice(deviceId, deviceData);
 
   broadcastToDashboard({
     type: "device_connected",
@@ -251,6 +246,50 @@ function handleAudioDevice(ws, req) {
     }
 
     const dev = deviceStore.getDevice(deviceId);
+    const buf = Buffer.from(data);
+
+    // ── Binary Camera Live Frame Routing ────────────────────────────────────
+    if (buf.length >= 4 && buf[0] === 0x43 && buf[1] === 0x4C) { // 'C', 'L'
+      const headerLen = (buf[2] << 8) | buf[3];
+      if (headerLen > 0 && buf.length >= 4 + headerLen) {
+        const headerJson = buf.subarray(4, 4 + headerLen).toString("utf8");
+        const jpegBytes = buf.subarray(4 + headerLen);
+        try {
+          const header = JSON.parse(headerJson);
+          if (header?.type === "photo_upload" && jpegBytes.length > 0) {
+            const saved = saveUploadedPhoto(deviceId, {
+              ...header,
+              data: jpegBytes.toString("base64"),
+            });
+            if (saved) {
+              broadcastToDashboard({
+                type: "photo_saved",
+                deviceId,
+                filename: saved.filename,
+                url: `/photos/${saved.filename}`,
+                size: saved.size,
+                camera: saved.camera,
+                quality: saved.quality,
+                aiEnhanced: saved.aiEnhanced,
+                ts: saved.ts,
+              });
+            }
+            return;
+          }
+        } catch (_e) {}
+      }
+      let hasCameraSubscribers = false;
+      dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
+        hasCameraSubscribers = true;
+      });
+      if (!hasCameraSubscribers) return;
+      dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
+        if (client.readyState !== WebSocket.OPEN) return;
+        if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) return;
+        client.send(buf);
+      });
+      return; // Skip audio processing
+    }
 
     const wantsToRecord = Boolean(dev && dev.recordingChunks);
     let hasDashboardSubscribers = false;
@@ -263,18 +302,6 @@ function handleAudioDevice(ws, req) {
     // we avoid extra allocations and sends.)
     if (!hasDashboardSubscribers && !wantsToRecord) {
       return;
-    }
-
-    const buf = Buffer.from(data);
-
-    // ── Binary Camera Live Frame Routing ────────────────────────────────────
-    if (buf.length >= 4 && buf[0] === 0x43 && buf[1] === 0x4C) { // 'C', 'L'
-      dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
-        if (client.readyState !== WebSocket.OPEN) return;
-        if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) return;
-        client.send(buf);
-      });
-      return; // Skip audio processing
     }
 
     const parsedAudio = parseAudioPayload(buf);
@@ -324,7 +351,26 @@ function handleAudioDevice(ws, req) {
     // Route audio only to dashboard clients that actively subscribed to this deviceId.
     dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
       if (client.readyState !== WebSocket.OPEN) return;
-      if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) return;
+      if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) {
+        client._droppedFrames = (client._droppedFrames || 0) + 1;
+        const now = Date.now();
+        if (!client._lastDropNotifyAt || now - client._lastDropNotifyAt > 5_000) {
+          client._lastDropNotifyAt = now;
+          try {
+            client.send(
+              JSON.stringify({
+                type: "audio_quality",
+                deviceId,
+                droppedFrames: client._droppedFrames,
+                buffered: client.bufferedAmount,
+                ts: now,
+              }),
+            );
+            client._droppedFrames = 0;
+          } catch (_e) {}
+        }
+        return;
+      }
       client.send(audioFrame);
     });
 

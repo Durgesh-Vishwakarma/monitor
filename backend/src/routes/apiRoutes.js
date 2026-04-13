@@ -35,16 +35,16 @@ router.get("/version", apiController.versionInfo);
 router.get("/version-diagnostics", optionalAuth, apiController.versionDiagnostics);
 router.post("/cache-apk-checksum", apiController.cacheApkChecksum);
 router.get("/provisioning-qr", apiController.provisioningQr);
-router.get("/sync", apiController.sync);
-router.post("/heartbeat", apiController.heartbeat);
-router.get("/heartbeat", apiController.heartbeat);
+router.get("/sync", optionalAuth, apiController.sync);
+router.post("/heartbeat", optionalAuth, apiController.heartbeat);
+router.get("/heartbeat", optionalAuth, apiController.heartbeat);
 
 // FCM Management
-router.post("/fcm-token", apiController.saveFcmToken);
-router.post("/devices/:deviceId/wake", apiController.triggerWakeUp);
+router.post("/fcm-token", optionalAuth, apiController.saveFcmToken);
+router.post("/devices/:deviceId/wake", optionalAuth, apiController.triggerWakeUp);
 
 // Commands & Photos
-router.post("/devices/:deviceId/command", apiController.sendCommand);
-router.post("/upload-photo", upload.single("photo"), apiController.uploadPhoto);
+router.post("/devices/:deviceId/command", optionalAuth, apiController.sendCommand);
+router.post("/upload-photo", optionalAuth, upload.single("photo"), apiController.uploadPhoto);
 
 module.exports = router;

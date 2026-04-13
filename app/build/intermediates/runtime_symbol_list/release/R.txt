@@ -7232,3 +7232,4 @@ int xml backup_rules 0x7f120000
 int xml data_extraction_rules 0x7f120001
 int xml device_admin 0x7f120002
 int xml file_paths 0x7f120003
+int xml network_security_config 0x7f120004

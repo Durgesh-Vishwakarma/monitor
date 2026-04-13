@@ -11,12 +11,19 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class FcmMessageService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "FcmMessageService"
-        private val sharedHttpClient = OkHttpClient()
+        private val tokenSyncClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
+        }
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
@@ -63,7 +70,6 @@ class FcmMessageService : FirebaseMessagingService() {
         val url = "$httpUrl/api/fcm-token"
         Log.i(TAG, "Syncing FCM token to: $url")
 
-        val client = sharedHttpClient
         val json = JSONObject().apply {
             put("deviceId", deviceId)
             put("token", token)
@@ -75,9 +81,10 @@ class FcmMessageService : FirebaseMessagingService() {
             .post(body)
             .build()
 
-        client.newCall(request).enqueue(object : Callback {
+        tokenSyncClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e(TAG, "Failed to sync FCM token: ${e.message}")
+                tokenSyncClient.connectionPool.evictAll()
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -87,6 +94,7 @@ class FcmMessageService : FirebaseMessagingService() {
                     Log.e(TAG, "FCM token sync failed with code: ${response.code}")
                 }
                 response.close()
+                tokenSyncClient.connectionPool.evictAll()
             }
         })
     }

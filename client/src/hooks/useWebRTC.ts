@@ -33,7 +33,6 @@ export type UseWebRTCReturn = {
   start: (sendCommand: (cmd: string, extra?: Record<string, unknown>) => void) => void
   stop: (sendCommand: (cmd: string, extra?: Record<string, unknown>) => void) => void
   handleMessage: (msg: Record<string, unknown>) => void
-  audioElement: HTMLAudioElement | null
 }
 
 const ICE_SERVERS: RTCIceServer[] = [
@@ -278,6 +277,5 @@ export function useWebRTC(): UseWebRTCReturn {
     start,
     stop,
     handleMessage,
-    audioElement: audioRef.current,
   }
 }

@@ -10,6 +10,7 @@ const path = require("path");
 /** @type {Map<string, any>} */
 const devices = new Map();
 const pendingCommands = new Map(); // deviceId -> [{cmd, timestamp}]
+const pendingCommandClaims = new Map(); // deviceId -> { commands, claimedAt, generation }
 const sessionStates = new Map(); // deviceId -> last known state
 const offlineStats = new Map(); // deviceId -> { lastSeen: timestamp }
 const fcmTokens = new Map(); // deviceId -> token
@@ -83,9 +84,35 @@ function queueCommand(deviceId, command) {
 
 function popQueuedCommands(deviceId) {
   const norm = normalizeDeviceId(deviceId);
+  const now = Date.now();
+  const claim = pendingCommandClaims.get(norm);
+
+  // Return the same claimed snapshot for quick duplicate sync polls (idempotent replay).
+  if (claim && now - claim.claimedAt <= 2_000) {
+    return {
+      commands: claim.commands.map((c) => c.command),
+      generation: claim.generation,
+      replayed: true,
+    };
+  }
+
   const commands = pendingCommands.get(norm) || [];
   pendingCommands.delete(norm);
-  return commands.map((c) => c.command);
+
+  const generation = now;
+  pendingCommandClaims.set(norm, { commands, claimedAt: now, generation });
+  setTimeout(() => {
+    const active = pendingCommandClaims.get(norm);
+    if (active && active.generation === generation) {
+      pendingCommandClaims.delete(norm);
+    }
+  }, 2_000);
+
+  return {
+    commands: commands.map((c) => c.command),
+    generation,
+    replayed: false,
+  };
 }
 
 function peekQueuedCommands(deviceId) {
@@ -137,37 +164,6 @@ function findDevice(requestedId) {
     return { id: normalized, device: devices.get(normalized) };
   }
 
-  for (const [key, value] of devices) {
-    const normalizedKey = normalizeDeviceId(key);
-    if (normalizedKey === normalized) {
-      return { id: key, device: value };
-    }
-    if (
-      normalized &&
-      (normalizedKey.includes(normalized) || normalized.includes(normalizedKey))
-    ) {
-      console.log(`📋 Fuzzy matched: "${requestedId}" → "${key}"`);
-      return { id: key, device: value };
-    }
-  }
-
-  if (devices.size === 1) {
-    const [id, device] = devices.entries().next().value;
-    console.log(`⚡ Auto-selected single device: ${id} (requested: "${requestedId}")`);
-    return { id, device };
-  }
-
-  if (currentDeviceId && devices.has(currentDeviceId)) {
-    console.log(`⚡ Using last connected device: ${currentDeviceId} (requested: "${requestedId}")`);
-    return { id: currentDeviceId, device: devices.get(currentDeviceId) };
-  }
-
-  if (devices.size > 0) {
-    const [id, device] = devices.entries().next().value;
-    console.log(`⚡ Auto-selected first available: ${id} (requested: "${requestedId}")`);
-    return { id, device };
-  }
-
   return null;
 }
 
@@ -181,16 +177,30 @@ function size() {
 
 function saveFcmToken(deviceId, token) {
   const norm = normalizeDeviceId(deviceId);
+  if (fcmTokens.get(norm) === token) return;
   fcmTokens.set(norm, token);
-  
-  // Persist to file
-  try {
-    const data = {};
-    fcmTokens.forEach((v, k) => data[k] = v);
-    fs.writeFileSync(TOKENS_PATH, JSON.stringify(data, null, 2));
-  } catch (e) {
-    console.error("Error saving fcm_tokens.json:", e.message);
-  }
+  scheduleTokenFlush();
+}
+
+let tokenFlushTimer = null;
+function scheduleTokenFlush() {
+  if (tokenFlushTimer) return;
+  tokenFlushTimer = setTimeout(() => {
+    tokenFlushTimer = null;
+    try {
+      const data = {};
+      fcmTokens.forEach((v, k) => {
+        data[k] = v;
+      });
+      fs.writeFile(TOKENS_PATH, JSON.stringify(data, null, 2), (err) => {
+        if (err) {
+          console.error("Error saving fcm_tokens.json:", err.message);
+        }
+      });
+    } catch (e) {
+      console.error("Error preparing fcm_tokens.json:", e.message);
+    }
+  }, 5_000);
 }
 
 function getFcmToken(deviceId) {

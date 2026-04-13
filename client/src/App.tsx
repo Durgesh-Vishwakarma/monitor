@@ -47,6 +47,7 @@ function App() {
 
   const {
     wsState,
+    isColdStarting,
     devices,
     selectedDevice,
     selectedDeviceId,
@@ -155,7 +156,7 @@ function App() {
                 <div className="text-sm font-mono font-semibold text-white tracking-widest">{formatTime(now)}</div>
                 <div className="text-[10px] text-slate-500">{formatDate(now)}</div>
               </div>
-              <WsStatusBadge state={wsState} />
+              <WsStatusBadge state={wsState} isColdStarting={isColdStarting} />
             </div>
           </div>
         </header>
@@ -357,15 +358,22 @@ function StatPill({ icon, label, value, color, pulse = false }: {
   )
 }
 
-function WsStatusBadge({ state }: { state: string }) {
+function WsStatusBadge({ state, isColdStarting }: { state: string, isColdStarting?: boolean }) {
+  const isWaking = isColdStarting && state === 'connecting'
   const config = {
     open: { color: '#10b981', bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.3)', label: 'Connected', dot: false },
-    connecting: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)', label: 'Connecting…', dot: true },
+    connecting: { 
+      color: isWaking ? '#818cf8' : '#f59e0b', 
+      bg: isWaking ? 'rgba(129,140,248,0.12)' : 'rgba(245,158,11,0.12)', 
+      border: isWaking ? 'rgba(129,140,248,0.3)' : 'rgba(245,158,11,0.3)', 
+      label: isWaking ? 'Waking up server (~50s)…' : 'Connecting…', 
+      dot: true 
+    },
     closed: { color: '#ef4444', bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)', label: 'Disconnected', dot: true },
   }[state] || { color: '#64748b', bg: 'rgba(100,116,139,0.12)', border: 'rgba(100,116,139,0.3)', label: state, dot: false }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold" style={{
+    <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap" style={{
       background: config.bg, border: `1px solid ${config.border}`, color: config.color
     }}>
       <span className={`w-2 h-2 rounded-full bg-current ${config.dot ? 'animate-pulse' : ''}`} />

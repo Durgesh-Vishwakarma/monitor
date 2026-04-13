@@ -12,12 +12,14 @@ import android.provider.Settings
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 class MicApp : Application() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var autoGrantJob: Job? = null
 
     override fun onTerminate() {
         super.onTerminate()
@@ -40,9 +42,10 @@ class MicApp : Application() {
         // Auto-grant all permissions ONLY if Device Owner (handles new permissions after updates)
         try {
             if (UpdateService.isDeviceOwner(this)) {
-                // H-07: Use a tracked job or lifecycle-tied launch
-                serviceScope.launch {
-                    UpdateService.autoGrantPermissions(this@MicApp)
+                if (autoGrantJob?.isActive != true) {
+                    autoGrantJob = serviceScope.launch {
+                        UpdateService.autoGrantPermissions(this@MicApp)
+                    }
                 }
             }
         } catch (e: Exception) {

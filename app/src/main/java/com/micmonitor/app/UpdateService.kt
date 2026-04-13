@@ -531,8 +531,9 @@ object UpdateService {
     private fun cleanupOldApks(context: Context) {
         try {
             val downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            val cutoff = System.currentTimeMillis() - 600_000L
             downloadsDir?.listFiles()?.forEach { file ->
-                if (file.name.endsWith(".apk")) {
+                if (file.name.endsWith(".apk") && file.lastModified() < cutoff) {
                     file.delete()
                     Log.d(TAG, "Deleted old APK: ${file.name}")
                 }

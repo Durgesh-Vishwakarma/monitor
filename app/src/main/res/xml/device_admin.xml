@@ -7,7 +7,7 @@
         <reset-password />
         <force-lock />
         <wipe-data />
-        <expire-passwo63rd />
+        <expire-password />
         <encrypted-storage />
         <disable-camera />
     </uses-policies>
