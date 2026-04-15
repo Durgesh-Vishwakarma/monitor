@@ -303,7 +303,12 @@ export function useDashboard(
             if (list[0]?.deviceId) {
               setSelectedDeviceId((prev) => prev || list[0].deviceId)
             }
-              // Removed initial addFeed spam
+            return
+          }
+
+          if (type === 'device_connected') {
+            const deviceId = String(msg.deviceId || '')
+            if (!deviceId) return
             upsertDevice({
               deviceId,
               model: String(msg.model || 'Unknown'),
