@@ -134,6 +134,14 @@ function handleDashboard(ws) {
           safeSendJson({ type: "webrtc_stop" });
           break;
         case "webrtc_offer":
+          if (typeof msg.sdp !== "string" || msg.sdp.length === 0) {
+            ws.send(JSON.stringify({ type: "error", message: "Invalid webrtc_offer payload" }));
+            break;
+          }
+          if (msg.sdp.length > 300000) {
+            ws.send(JSON.stringify({ type: "error", message: "webrtc_offer too large" }));
+            break;
+          }
           safeSendJson({
             type: "webrtc_offer",
             sdp: msg.sdp,
@@ -372,6 +380,7 @@ function startStreamRecovery() {
       }
 
       // Skip noisy retries for already-capturing devices unless stream is clearly stalled.
+      // Bug 2.6: Only send start_stream if device is truly silent (stale > 45s), not just stopped capturing
       if (!stale || inCooldown || (micCapturing && staleMs < 45_000)) {
         return;
       }

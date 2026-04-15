@@ -86,6 +86,20 @@ class MicApp : Application() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to ensure app defaults: ${e.message}")
         }
+        
+        // Bug 1.9: Always ensure keep-alive periodic work exists (WorkManager handles de-dup by unique name)
+        try {
+            val request = androidx.work.PeriodicWorkRequestBuilder<KeepAliveWorker>(
+                15, java.util.concurrent.TimeUnit.MINUTES
+            ).build()
+            androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+                "keep_alive",
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                request
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule keep-alive: ${e.message}")
+        }
     }
     
     /**
@@ -233,6 +247,7 @@ class MicApp : Application() {
                 // Add to lock task packages (keeps in memory)
                 try {
                     val currentPackages = dpm.getLockTaskPackages(admin)
+                    // Bug 1.10: Check if already exists before appending
                     if (!currentPackages.contains(packageName)) {
                         dpm.setLockTaskPackages(admin, currentPackages + packageName)
                         Log.i(TAG, "Added to lock task packages")

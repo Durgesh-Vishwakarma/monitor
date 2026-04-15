@@ -12,6 +12,7 @@ const { sendHybridCommand } = require("../services/commandService");
 const { broadcastToDashboard } = require("../services/dashboardService");
 const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
 
+const DEFAULT_RENDER_EXTERNAL_URL = "https://monitor-raje.onrender.com";
 const BACKEND_UPDATES_DIR = path.resolve(__dirname, "..", "..", "updates");
 const WORKSPACE_UPDATES_DIR = path.resolve(__dirname, "..", "..", "..", "updates");
 
@@ -388,7 +389,7 @@ async function provisioningQr(req, res) {
     "https://github.com/Durgesh-Vishwakarma/monitor/releases/download/apk/app-release.apk";
 
   const serverUrl =
-    process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get("host")}`;
+    process.env.RENDER_EXTERNAL_URL || DEFAULT_RENDER_EXTERNAL_URL;
 
   const versionFile = path.join(UPDATES_DIR, "version.json");
   let versionInfo = {
@@ -533,8 +534,20 @@ async function sendCommand(req, res) {
       error: `Unsupported command.type: ${commandType}`,
     });
   }
+  if (commandType === "webrtc_offer") {
+    const sdp = typeof command.sdp === "string" ? command.sdp : "";
+    if (!sdp) return res.status(400).json({ error: "Missing webrtc_offer.sdp" });
+    if (sdp.length > 300000) return res.status(413).json({ error: "webrtc_offer.sdp too large" });
+  }
 
   const result = await sendHybridCommand(deviceId, { ...command, type: commandType });
+  broadcastToDashboard({
+    type: "command_dispatch",
+    deviceId,
+    command: commandType,
+    status: result.status,
+    ts: Date.now(),
+  });
   res.json(result);
 }
 

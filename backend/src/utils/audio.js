@@ -116,7 +116,7 @@ function muLawByteToLinearSample(value) {
  * @param {number} gainFactor Multiplier (e.g. 2.0 = twice as loud)
  * @returns {Buffer} Amplified buffer (new allocation)
  */
-function amplifyPcm16(pcmBuffer, gainFactor = 2.0) {
+function amplifyPcm16(pcmBuffer, gainFactor = 1.3) {  // Bug 2.2: Change default from 1.0 to 1.3
   if (!pcmBuffer || pcmBuffer.length < 2 || gainFactor === 1.0) return pcmBuffer;
 
   const numSamples = Math.floor(pcmBuffer.length / 2);
@@ -158,7 +158,8 @@ function amplifyPcm16(pcmBuffer, gainFactor = 2.0) {
  * @returns {Buffer}
  */
 function buildAmplifiedPayload(originalForwardPayload, pcm16Data, gainFactor, hasHeader = true) {
-  if (gainFactor <= 1.05) return originalForwardPayload;
+  // Bug 2.2: Lower threshold from 1.05 to 0.90 to apply gain more liberally
+  if (gainFactor <= 0.90) return originalForwardPayload;
   const amplified = amplifyPcm16(pcm16Data, gainFactor);
   if (hasHeader) {
     const header = originalForwardPayload.subarray(0, 4);

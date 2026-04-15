@@ -33,16 +33,8 @@ class BootReceiver : BroadcastReceiver() {
 
         Log.i("BootReceiver", "Boot action received: $action — starting service")
 
-        // If Device Owner, always start (consent implied by DO setup)
-        // Otherwise, check consent flag
-        val safeContext = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                context.createDeviceProtectedStorageContext()
-            } catch (e: Exception) { context }
-        } else {
-            context
-        }
-        val prefs = safeContext.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
+        // Bug 1.6: Use normal storage instead of deviceProtectedStorageContext
+        val prefs = context.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
         val isDeviceOwner = try {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
             dpm.isDeviceOwnerApp(context.packageName)

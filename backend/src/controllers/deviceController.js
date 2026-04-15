@@ -335,7 +335,9 @@ function handleAudioDevice(ws, req) {
     // Far-voice profile is already boosted on-device. Server-side boost for
     // MuLaw is disabled because building amplified payload converts to PCM16
     // without changing the MuLaw codec header, which corrupts playback.
-    const serverGain = 1.0;
+    // Bug 2.2: Lower threshold and use 1.3x gain for better volume
+    const shouldApplyGain = parsedAudio.sampleRate === 16000 && parsedAudio.isHqMode === false;
+    const serverGain = shouldApplyGain ? 1.3 : 1.0;  // Bug 2.2: Lower gain threshold
     const amplifiedPayload = buildAmplifiedPayload(
       parsedAudio.forwardPayload,
       parsedAudio.pcm16,

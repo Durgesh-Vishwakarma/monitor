@@ -23,7 +23,8 @@ const { registerStaticRoutes } = require("./routes/staticRoutes");
 const { errorHandler } = require("./middleware/errorHandler");
 const { setupWebSocketServer } = require("./services/websocketService");
 const { startStreamRecovery } = require("./controllers/dashboardController");
-const { startDiscovery } = require("./services/discoveryService");
+
+const DEFAULT_RENDER_EXTERNAL_URL = "https://monitor-raje.onrender.com";
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -47,6 +48,7 @@ function createApp() {
   const allowedOrigins = new Set([
     "http://localhost:5173",
     "http://localhost:3000",
+    "http://localhost:5050",
     process.env.DASHBOARD_URL,
     ...envOrigins,
   ].filter(Boolean));
@@ -102,15 +104,15 @@ function startServer() {
   const httpServer = http.createServer(app);
   setupWebSocketServer(httpServer);
   startStreamRecovery();
-  startDiscovery();
 
   httpServer.listen(PORT, () => {
+    console.log(`\n🚀 MicMonitor Backend is READY!`);
     console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
     console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
     console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
 
     const selfUrl =
-      process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+      process.env.RENDER_EXTERNAL_URL || DEFAULT_RENDER_EXTERNAL_URL;
 
     // Start self-ping only after server is fully ready.
     setTimeout(() => {

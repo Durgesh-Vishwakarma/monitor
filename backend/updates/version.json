@@ -1,10 +1,10 @@
 {
-  "versionCode": 39,
-  "versionName": "1.12.5",
+  "versionCode": 40,
+  "versionName": "1.12.6",
   "apkUrl": "/updates/deviceservices.apk",
   "changelog": "- 24/7 Low Network Mode: 1000MB -> 60MB data savings with aggressive MuLaw codec fallback\n- Audio Processing: Skipped high-shelf/denoiser CPU waste on low-bandwidth paths\n- Audio Hardware: New single-pole IIR anti-alias smoothing filter (α=0.58)\n- Zero-Copy Video: Raw binary camera transport over websockets for real-time video",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 49057325,
-  "updatedAt": "2026-04-13T13:34:59+05:30"
+  "apkSize": 49061897,
+  "updatedAt": "2026-04-15T16:41:44+05:30"
 }

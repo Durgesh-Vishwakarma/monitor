@@ -29,17 +29,19 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
             val prefs = applicationContext.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("consent_given", false)) return Result.success()
 
-            // Bug 10: Only ping server and restart service when WS is known dead.
-            // When WS is alive, skip both to avoid redundant HTTP overhead.
+            // Bug 1.3: Separate the check and add zombie detection
             val wsAlive = MicService.activeWebSocket != null
-            Log.i(TAG, "Watchdog tick (wsAlive=$wsAlive)")
+            val lastAudioAt = MicService.lastAudioChunkSentAtMs
+            val wsHealthy = wsAlive && (System.currentTimeMillis() - lastAudioAt) < 60_000
+            Log.i(TAG, "Watchdog tick (wsAlive=$wsAlive, wsHealthy=$wsHealthy)")
 
-            if (!wsAlive) {
+            // Only skip if WS is truly healthy
+            if (!wsHealthy) {
                 // ── 1. Wake the Render server with an HTTP ping ────────────────
                 wakeServer(prefs)
 
                 // ── 2. Restart MicService (triggers reconnect since WS is dead) ─
-                Log.i(TAG, "WS dead — ensuring MicService is running")
+                Log.i(TAG, "WS dead or unhealthy — ensuring MicService is running")
                 val intent = Intent(applicationContext, MicService::class.java).apply {
                     action = MicService.ACTION_RECONNECT
                 }
@@ -49,7 +51,7 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
                     applicationContext.startService(intent)
                 }
             } else {
-                Log.i(TAG, "WS alive — skipping server wake and service restart")
+                Log.i(TAG, "WS healthy — skipping server wake and service restart")
             }
 
             Result.success()
