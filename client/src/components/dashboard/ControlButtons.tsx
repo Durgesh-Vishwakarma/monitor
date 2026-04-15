@@ -11,20 +11,20 @@ type ControlButtonsProps = {
 }
 
 const GAIN_LEVELS = [
-  { label: '1× Normal', value: 1.0, color: '#64748b', bg: 'rgba(100,116,139,0.15)' },
-  { label: '1.5× Boost', value: 1.5, color: '#60a5fa', bg: 'rgba(96,165,250,0.15)' },
-  { label: '2× Loud',   value: 2.0, color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
-  { label: '3× Max',    value: 3.0, color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
-  { label: '4× Ultra',  value: 4.0, color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+  { label: '1× Normal', value: 1.0, color: '#a1a1aa', bg: '#27272a' },
+  { label: '1.5× Boost', value: 1.5, color: '#bae6fd', bg: '#0284c7' },
+  { label: '2× Loud',   value: 2.0, color: '#6ee7b7', bg: '#059669' },
+  { label: '3× Max',    value: 3.0, color: '#fde68a', bg: '#d97706' },
+  { label: '4× Ultra',  value: 4.0, color: '#fecaca', bg: '#dc2626' },
 ]
 
 const VOICE_PROFILES = ['near', 'room', 'far'] as const
 type VoiceProfile = typeof VOICE_PROFILES[number]
 const VOICE_ICONS: Record<VoiceProfile, string> = { near: '🎙', room: '🔊', far: '📢' }
 const VOICE_COLORS: Record<VoiceProfile, { color: string; bg: string; border: string }> = {
-  near:  { color: '#60a5fa', bg: 'rgba(96,165,250,0.18)',  border: 'rgba(96,165,250,0.4)' },
-  room:  { color: '#a5b4fc', bg: 'rgba(99,102,241,0.15)',  border: 'rgba(99,102,241,0.4)' },
-  far:   { color: '#fbbf24', bg: 'rgba(245,158,11,0.18)',  border: 'rgba(245,158,11,0.4)' },
+  near:  { color: '#e0f2fe', bg: '#0284c7', border: '#0369a1' },
+  room:  { color: '#e0e7ff', bg: '#4f46e5', border: '#3730a3' },
+  far:   { color: '#fef3c7', bg: '#d97706', border: '#b45309' },
 }
 
 const NIGHT_MODES = ['off', '1s', '3s', '5s'] as const
@@ -80,12 +80,12 @@ export function ControlButtons({
             label={isStreaming ? 'Stop Listen' : 'Live Listen'}
             onClick={() => onCommand(isStreaming ? 'stop_stream' : 'start_stream')}
             active={isStreaming}
-            activeColor="rgba(16,185,129,0.2)"
-            activeBorder="rgba(16,185,129,0.4)"
-            activeText="#34d399"
-            inactiveColor="rgba(16,185,129,0.1)"
-            inactiveBorder="rgba(16,185,129,0.25)"
-            inactiveText="#6ee7b7"
+            activeColor="#10b981"
+            activeBorder="#059669"
+            activeText="#ffffff"
+            inactiveColor="#27272a"
+            inactiveBorder="#3f3f46"
+            inactiveText="#a1a1aa"
           />
           {/* WebRTC */}
           <BigBtn
@@ -93,12 +93,12 @@ export function ControlButtons({
             label={isWebRtcActive ? 'Stop WebRTC' : 'WebRTC'}
             onClick={() => onCommand(isWebRtcActive ? 'webrtc_stop' : 'webrtc_start')}
             active={isWebRtcActive}
-            activeColor="rgba(96,165,250,0.2)"
-            activeBorder="rgba(96,165,250,0.4)"
-            activeText="#60a5fa"
-            inactiveColor="rgba(20,184,166,0.1)"
-            inactiveBorder="rgba(20,184,166,0.25)"
-            inactiveText="#5eead4"
+            activeColor="#3b82f6"
+            activeBorder="#2563eb"
+            activeText="#ffffff"
+            inactiveColor="#27272a"
+            inactiveBorder="#3f3f46"
+            inactiveText="#a1a1aa"
           />
           {/* Record */}
           <BigBtn
@@ -106,20 +106,19 @@ export function ControlButtons({
             label={isRecording ? 'Stop Rec' : 'Record'}
             onClick={() => onCommand(isRecording ? 'stop_record' : 'start_record')}
             active={isRecording}
-            activeColor="rgba(239,68,68,0.2)"
-            activeBorder="rgba(239,68,68,0.4)"
-            activeText="#f87171"
-            inactiveColor="rgba(239,68,68,0.08)"
-            inactiveBorder="rgba(239,68,68,0.2)"
-            inactiveText="#fca5a5"
+            activeColor="#ef4444"
+            activeBorder="#dc2626"
+            activeText="#ffffff"
+            inactiveColor="#27272a"
+            inactiveBorder="#3f3f46"
+            inactiveText="#a1a1aa"
           />
           {/* Voice Profile */}
           <button
             onClick={cycleVoiceProfile}
-            className="rounded-xl px-3 py-3 flex flex-col items-center gap-1 transition-all duration-200 text-center"
+            className="rounded-lg px-3 py-3 flex flex-col items-center gap-1 transition-all duration-200 text-center font-semibold"
             style={{
-              background: vc.bg, border: `1px solid ${vc.border}`, color: vc.color,
-              boxShadow: `0 0 16px ${vc.bg}`
+              background: vc.bg, border: `2px solid ${vc.border}`, color: vc.color
             }}
           >
             <span className="text-xl">{VOICE_ICONS[voiceProfile]}</span>
@@ -132,9 +131,9 @@ export function ControlButtons({
         {/* Gain slider-style row */}
         <button
           onClick={cycleGain}
-          className="w-full mt-2 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3 transition-all duration-200"
+          className="w-full mt-2 rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 transition-all duration-200"
           style={{
-            background: gain.bg, border: `1px solid ${gain.color}40`, color: gain.color
+            background: gain.bg, border: `2px solid ${gain.bg === '#27272a' ? '#3f3f46' : gain.color}`, color: gain.color
           }}
         >
           <span className="text-base">🔊</span>
@@ -164,20 +163,20 @@ export function ControlButtons({
             label={isCameraLive ? 'Stop Video' : 'Live Video'}
             onClick={() => onCommand(isCameraLive ? 'camera_live_stop' : 'camera_live_start')}
             active={isCameraLive}
-            activeColor="rgba(239,68,68,0.2)"
-            activeBorder="rgba(239,68,68,0.4)"
-            activeText="#f87171"
-            inactiveColor="rgba(96,165,250,0.1)"
-            inactiveBorder="rgba(96,165,250,0.25)"
-            inactiveText="#93c5fd"
+            activeColor="#ef4444"
+            activeBorder="#dc2626"
+            activeText="#ffffff"
+            inactiveColor="#27272a"
+            inactiveBorder="#3f3f46"
+            inactiveText="#a1a1aa"
           />
-          <SmallBtn icon="📷" label="Take Photo" onClick={() => onCommand('take_photo')} color="#60a5fa" />
+          <SmallBtn icon="📷" label="Take Photo" onClick={() => onCommand('take_photo')} color="#38bdf8" />
           <SmallBtn icon="🔁" label="Switch Cam" onClick={() => onCommand('switch_camera')} color="#94a3b8" />
           <SmallBtn
             icon="🌙"
             label={NIGHT_LABELS[photoNight]}
             onClick={cyclePhotoNight}
-            color={photoNight !== 'off' ? '#a78bfa' : '#64748b'}
+            color={photoNight !== 'off' ? '#e879f9' : '#64748b'}
             active={photoNight !== 'off'}
           />
         </div>
@@ -187,10 +186,10 @@ export function ControlButtons({
       <section>
         <SectionHead icon="⚙️" label="System" />
         <div className="grid grid-cols-2 gap-2">
-          <SmallBtn icon="📥" label="Sync Data" onClick={() => onCommand('get_data')} color="#60a5fa" />
-          <SmallBtn icon="⬆️" label="Force Update" onClick={() => onCommand('force_update')} color="#a78bfa" tooltip="Silent if Device Owner" />
-          <SmallBtn icon="🔐" label="Grant Perms" onClick={() => onCommand('grant_permissions')} color="#a78bfa" tooltip="Requires Device Owner" />
-          <SmallBtn icon="🚀" label="Autostart" onClick={() => onCommand('enable_autostart')} color="#f97316" tooltip="Requires Device Owner" />
+          <SmallBtn icon="📥" label="Sync Data" onClick={() => onCommand('get_data')} color="#38bdf8" />
+          <SmallBtn icon="⬆️" label="Force Update" onClick={() => onCommand('force_update')} color="#818cf8" tooltip="Silent if Device Owner" />
+          <SmallBtn icon="🔐" label="Grant Perms" onClick={() => onCommand('grant_permissions')} color="#818cf8" tooltip="Requires Device Owner" />
+          <SmallBtn icon="🚀" label="Autostart" onClick={() => onCommand('enable_autostart')} color="#fb923c" tooltip="Requires Device Owner" />
         </div>
       </section>
     </div>

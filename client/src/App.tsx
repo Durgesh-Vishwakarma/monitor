@@ -109,36 +109,28 @@ function App() {
   const qualityLabel = health?.connQuality ? String(health.connQuality).toUpperCase() : 'N/A'
 
   return (
-    <div className="relative min-h-screen overflow-hidden text-slate-200" style={{ background: 'radial-gradient(circle at 12% 18%, #1f2a44 0%, #121729 28%, #0a0d16 62%, #06080f 100%)' }}>
+    <div className="relative min-h-screen overflow-hidden text-zinc-100 bg-zinc-950 font-sans">
       <div className="pointer-events-none absolute inset-0">
-        <div className="dashboard-aurora dashboard-aurora-one" />
-        <div className="dashboard-aurora dashboard-aurora-two" />
         <div className="dashboard-grid-overlay" />
       </div>
 
       <div className="relative z-10">
         {/* ─── TOP HEADER BAR ─────────────────────────────────────────────────── */}
-        <header style={{
-          background: 'linear-gradient(90deg, rgba(10,14,26,0.86) 0%, rgba(15,21,39,0.86) 45%, rgba(9,13,24,0.86) 100%)',
-          backdropFilter: 'blur(22px)',
-          borderBottom: '1px solid rgba(56,189,248,0.18)',
-          boxShadow: '0 8px 38px rgba(0,0,0,0.42)'
-        }} className="sticky top-0 z-50 px-5 py-3">
+        <header className="sticky top-0 z-50 px-5 py-3 bg-zinc-950 border-b border-zinc-800">
           <div className="flex items-center justify-between max-w-screen-2xl mx-auto">
             {/* Brand */}
             <div className="flex items-center gap-4">
               <div className="relative">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg text-white"
-                  style={{ background: 'linear-gradient(140deg, #06b6d4, #0ea5e9 55%, #22d3ee)', boxShadow: '0 8px 24px rgba(14,165,233,0.38)' }}>
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center font-black text-lg text-black bg-white ring-2 ring-zinc-800">
                   M
                 </div>
                 {isStreaming && (
-                  <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 animate-pulse border-2 border-[#0a0e1a]" />
+                  <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 animate-pulse border-2 border-zinc-950" />
                 )}
               </div>
               <div>
-                <h1 className="text-base font-bold tracking-wide text-white">MicMonitor</h1>
-                <p className="text-[10px] text-cyan-300 uppercase tracking-widest font-medium">Remote Audio Intelligence</p>
+                <h1 className="text-base font-bold tracking-wide text-zinc-100">MicMonitor</h1>
+                <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Remote Audio Intelligence</p>
               </div>
             </div>
 
@@ -173,16 +165,13 @@ function App() {
 
         {/* ─── HERO LIVE BAR (when streaming) ─────────────────────────────────── */}
         {isStreaming && (
-          <div style={{
-            background: 'linear-gradient(90deg, rgba(14,165,233,0.1) 0%, rgba(34,197,94,0.08) 50%, rgba(16,185,129,0.1) 100%)',
-            borderBottom: '1px solid rgba(45,212,191,0.22)'
-          }} className="px-5 py-2">
+          <div className="px-5 py-2 bg-emerald-950 border-b border-emerald-900/50">
             <div className="max-w-screen-2xl mx-auto flex items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Live Audio Stream Active</span>
               </div>
-              <div className="flex-1 h-0.5 rounded" style={{ background: 'linear-gradient(90deg, #10b981, #6366f1, #8b5cf6, transparent)' }} />
+              <div className="flex-1 h-px bg-emerald-900" />
               <LiveBeatBars />
             </div>
           </div>
@@ -190,24 +179,18 @@ function App() {
 
         {selectedDevice && (
           <div className="px-5 pt-3">
-            <div
-              className="max-w-screen-2xl mx-auto rounded-2xl px-4 py-3 md:px-5 md:py-4"
-              style={{
-                background: 'linear-gradient(118deg, rgba(21,28,45,0.9), rgba(17,25,38,0.78))',
-                border: '1px solid rgba(56,189,248,0.26)',
-                boxShadow: '0 18px 46px rgba(4,8,18,0.56), inset 0 1px 0 rgba(148,163,184,0.12)'
-              }}
-            >
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-screen-2xl mx-auto rounded-xl px-4 py-3 md:px-5 md:py-4 bg-zinc-900 border border-zinc-800 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-indigo-300/90 font-semibold">Device Focus</p>
-                  <h2 className="text-lg font-bold text-white leading-tight">
-                    {selectedDeviceLabel}
+                  <h2 className="text-xl font-bold flex items-center gap-3 text-zinc-100">
+                    <span className="text-2xl">📱</span> {selectedDeviceLabel}
                     {selectedDeviceShortId ? (
-                      <span className="ml-2 text-xs font-mono text-slate-400 align-middle">#{selectedDeviceShortId}</span>
+                      <span className="px-2 py-0.5 rounded-md bg-zinc-800 border border-zinc-700 text-xs font-mono text-zinc-400">
+                        {selectedDeviceShortId}
+                      </span>
                     ) : null}
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">Network {networkTypeLabel} • Link {qualityLabel}</p>
+                  <p className="text-xs text-zinc-400 mt-1">Network {networkTypeLabel} • Link {qualityLabel}</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
