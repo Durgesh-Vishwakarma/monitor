@@ -49,19 +49,19 @@ export function EventLog({ events }: EventLogProps) {
 
   return (
     <div className="rounded-2xl overflow-hidden flex flex-col" style={{
-      background: 'rgba(6,8,18,0.7)',
-      border: '1px solid rgba(99,102,241,0.12)',
+      background: 'linear-gradient(170deg, rgba(8,12,22,0.8), rgba(5,9,18,0.74))',
+      border: '1px solid rgba(34,211,238,0.16)',
       backdropFilter: 'blur(12px)',
-      boxShadow: '0 4px 32px rgba(0,0,0,0.4)'
+      boxShadow: '0 10px 36px rgba(0,0,0,0.45)'
     }}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3" style={{
-        background: 'rgba(99,102,241,0.06)',
-        borderBottom: '1px solid rgba(99,102,241,0.12)'
+        background: 'rgba(14,165,233,0.08)',
+        borderBottom: '1px solid rgba(34,211,238,0.12)'
       }}>
         <div className="w-7 h-7 rounded-lg flex items-center justify-center text-sm" style={{
-          background: 'rgba(99,102,241,0.15)',
-          border: '1px solid rgba(99,102,241,0.3)'
+          background: 'rgba(14,165,233,0.2)',
+          border: '1px solid rgba(34,211,238,0.45)'
         }}>📋</div>
         <span className="text-xs font-bold uppercase tracking-widest text-slate-300">Event Log</span>
         <div className="ml-auto flex items-center gap-2">

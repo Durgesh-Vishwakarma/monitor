@@ -203,8 +203,8 @@ function SectionHead({ icon, label }: { icon: string; label: string }) {
   return (
     <div className="flex items-center gap-2 mb-2">
       <span className="text-sm">{icon}</span>
-      <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500">{label}</span>
-      <span className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.05)' }} />
+      <span className="text-[10px] uppercase tracking-widest font-bold text-cyan-300">{label}</span>
+      <span className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, rgba(34,211,238,0.45), transparent)' }} />
     </div>
   )
 }
@@ -227,7 +227,7 @@ function BigBtn({
       onClick={onClick}
       className="rounded-xl px-3 py-3 flex flex-col items-center gap-1 transition-all duration-200"
       style={{ background: bg, border: `1px solid ${border}`, color,
-               boxShadow: active ? `0 0 20px ${activeColor}` : 'none' }}
+               boxShadow: active ? `0 0 20px ${activeColor}` : '0 10px 20px rgba(2,6,23,0.24)' }}
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1.02)' }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
     >
@@ -247,8 +247,8 @@ function SmallBtn({ icon, label, onClick, color, active = false, tooltip }: {
       title={tooltip}
       className="rounded-xl px-3 py-2.5 flex items-center gap-2 text-left transition-all duration-200 w-full"
       style={{
-        background: active ? `${color}22` : 'rgba(255,255,255,0.04)',
-        border: `1px solid ${active ? `${color}50` : 'rgba(255,255,255,0.07)'}`,
+        background: active ? `${color}22` : 'linear-gradient(165deg, rgba(30,41,59,0.42), rgba(15,23,42,0.34))',
+        border: `1px solid ${active ? `${color}50` : 'rgba(148,163,184,0.14)'}`,
         color: active ? color : '#94a3b8',
       }}
       onMouseEnter={e => {

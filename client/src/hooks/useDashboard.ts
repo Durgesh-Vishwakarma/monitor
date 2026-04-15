@@ -6,6 +6,20 @@ export type AudioDataCallback = (data: ArrayBuffer, deviceId: string) => void
 export type WebRTCMessageCallback = (msg: Record<string, unknown>) => void
 export type CameraFrameCallback = (frame: CameraFrame) => void
 
+type BackendPhoto = {
+  name: string
+  url: string
+  size?: number
+  camera?: string | null
+  ts?: number | null
+}
+
+type BackendRecording = {
+  name: string
+  url: string
+  size?: number
+}
+
 export function useDashboard(
   onAudioData?: AudioDataCallback,
   onWebRTCMessage?: WebRTCMessageCallback,
@@ -55,6 +69,48 @@ export function useDashboard(
   const removeDevice = useCallback((deviceId: string) => {
     setDevices((prev) => prev.filter((item) => item.deviceId !== deviceId))
     setSelectedDeviceId((prev) => (prev === deviceId ? '' : prev))
+  }, [])
+
+  const loadPhotos = useCallback(async (deviceId?: string) => {
+    try {
+      const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : ''
+      const res = await fetch(apiUrl(`/api/photos${query}`))
+      if (!res.ok) return
+      const json = (await res.json()) as BackendPhoto[]
+      const mapped: Photo[] = (json || []).map((item, idx) => ({
+        id: String(item.name || idx),
+        filename: String(item.name || ''),
+        url: apiUrl(String(item.url || '')),
+        camera: item.camera === 'front' ? 'front' : 'rear',
+        quality: 'normal',
+        aiEnhanced: false,
+        size: Number(item.size || 0),
+        timestamp: new Date(Number(item.ts || Date.now())).toISOString(),
+      }))
+      setPhotos(mapped.slice(0, 50))
+    } catch {
+      // Best-effort hydration from backend media index.
+    }
+  }, [])
+
+  const loadRecordings = useCallback(async () => {
+    try {
+      const res = await fetch(apiUrl('/api/recordings'))
+      if (!res.ok) return
+      const json = (await res.json()) as BackendRecording[]
+      const nowIso = new Date().toISOString()
+      const mapped: Recording[] = (json || []).map((item, idx) => ({
+        id: String(item.name || idx),
+        filename: String(item.name || ''),
+        duration: 0,
+        size: Number(item.size || 0),
+        timestamp: nowIso,
+        url: apiUrl(String(item.url || '')),
+      }))
+      setRecordings(mapped.slice(0, 50))
+    } catch {
+      // Best-effort hydration from backend media index.
+    }
   }, [])
 
   const sendCommand = useCallback(
@@ -329,6 +385,7 @@ export function useDashboard(
               timestamp: new Date(Number(msg.ts || Date.now())).toISOString(),
             }
             setPhotos(prev => [photo, ...prev].slice(0, 50))
+            void loadPhotos(selectedDeviceId)
             addFeed(`Photo saved: ${photo.filename}`)
             return
           }
@@ -360,7 +417,24 @@ export function useDashboard(
               url: apiUrl(`/recordings/${msg.filename}`),
             }
             setRecordings(prev => [recording, ...prev].slice(0, 50))
+            void loadRecordings()
             addFeed(`Recording saved: ${recording.filename}`)
+            return
+          }
+
+          if (type === 'command_pending') {
+            const cmd = String(msg.command || '')
+            const route = String(msg.route || 'queue')
+            const prefix = msg.deviceId ? `${String(msg.deviceId).substring(0, 8)}:` : ''
+            addFeed(`⏳ PENDING ${prefix} ${cmd} via ${route}`)
+            return
+          }
+
+          if (type === 'command_dispatch') {
+            const cmd = String(msg.command || '')
+            const status = String(msg.status || 'queued')
+            const prefix = msg.deviceId ? `${String(msg.deviceId).substring(0, 8)}:` : ''
+            addFeed(`🚀 DISPATCH ${prefix} ${cmd} (${status})`)
             return
           }
 
@@ -427,7 +501,7 @@ export function useDashboard(
       }
       wsRef.current?.close()
     }
-  }, [addFeed, removeDevice, upsertDevice])
+  }, [addFeed, removeDevice, selectedDeviceId, loadPhotos, loadRecordings, upsertDevice])
 
   useEffect(() => {
     let stopped = false
@@ -454,6 +528,14 @@ export function useDashboard(
       clearInterval(id)
     }
   }, [])
+
+  useEffect(() => {
+    void loadRecordings()
+  }, [loadRecordings])
+
+  useEffect(() => {
+    void loadPhotos(selectedDeviceId || undefined)
+  }, [loadPhotos, selectedDeviceId])
 
   useEffect(() => {
     if (selectedDeviceId) {

@@ -109,7 +109,7 @@ function App() {
   const qualityLabel = health?.connQuality ? String(health.connQuality).toUpperCase() : 'N/A'
 
   return (
-    <div className="relative min-h-screen overflow-hidden text-slate-200" style={{ background: 'linear-gradient(135deg, #06080f 0%, #0a0e1a 40%, #0d1220 100%)' }}>
+    <div className="relative min-h-screen overflow-hidden text-slate-200" style={{ background: 'radial-gradient(circle at 12% 18%, #1f2a44 0%, #121729 28%, #0a0d16 62%, #06080f 100%)' }}>
       <div className="pointer-events-none absolute inset-0">
         <div className="dashboard-aurora dashboard-aurora-one" />
         <div className="dashboard-aurora dashboard-aurora-two" />
@@ -119,17 +119,17 @@ function App() {
       <div className="relative z-10">
         {/* ─── TOP HEADER BAR ─────────────────────────────────────────────────── */}
         <header style={{
-          background: 'rgba(10,14,26,0.85)',
-          backdropFilter: 'blur(20px)',
-          borderBottom: '1px solid rgba(99,102,241,0.15)',
-          boxShadow: '0 1px 40px rgba(99,102,241,0.08)'
+          background: 'linear-gradient(90deg, rgba(10,14,26,0.86) 0%, rgba(15,21,39,0.86) 45%, rgba(9,13,24,0.86) 100%)',
+          backdropFilter: 'blur(22px)',
+          borderBottom: '1px solid rgba(56,189,248,0.18)',
+          boxShadow: '0 8px 38px rgba(0,0,0,0.42)'
         }} className="sticky top-0 z-50 px-5 py-3">
           <div className="flex items-center justify-between max-w-screen-2xl mx-auto">
             {/* Brand */}
             <div className="flex items-center gap-4">
               <div className="relative">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg text-white"
-                  style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', boxShadow: '0 4px 20px rgba(99,102,241,0.4)' }}>
+                  style={{ background: 'linear-gradient(140deg, #06b6d4, #0ea5e9 55%, #22d3ee)', boxShadow: '0 8px 24px rgba(14,165,233,0.38)' }}>
                   M
                 </div>
                 {isStreaming && (
@@ -138,7 +138,7 @@ function App() {
               </div>
               <div>
                 <h1 className="text-base font-bold tracking-wide text-white">MicMonitor</h1>
-                <p className="text-[10px] text-indigo-400 uppercase tracking-widest font-medium">Remote Audio Intelligence</p>
+                <p className="text-[10px] text-cyan-300 uppercase tracking-widest font-medium">Remote Audio Intelligence</p>
               </div>
             </div>
 
@@ -174,8 +174,8 @@ function App() {
         {/* ─── HERO LIVE BAR (when streaming) ─────────────────────────────────── */}
         {isStreaming && (
           <div style={{
-            background: 'linear-gradient(90deg, rgba(16,185,129,0.05) 0%, rgba(99,102,241,0.08) 50%, rgba(139,92,246,0.05) 100%)',
-            borderBottom: '1px solid rgba(16,185,129,0.15)'
+            background: 'linear-gradient(90deg, rgba(14,165,233,0.1) 0%, rgba(34,197,94,0.08) 50%, rgba(16,185,129,0.1) 100%)',
+            borderBottom: '1px solid rgba(45,212,191,0.22)'
           }} className="px-5 py-2">
             <div className="max-w-screen-2xl mx-auto flex items-center gap-3">
               <div className="flex items-center gap-2">
@@ -193,9 +193,9 @@ function App() {
             <div
               className="max-w-screen-2xl mx-auto rounded-2xl px-4 py-3 md:px-5 md:py-4"
               style={{
-                background: 'linear-gradient(120deg, rgba(30,41,59,0.78), rgba(30,27,75,0.65))',
-                border: '1px solid rgba(99,102,241,0.22)',
-                boxShadow: '0 8px 32px rgba(15,23,42,0.45)'
+                background: 'linear-gradient(118deg, rgba(21,28,45,0.9), rgba(17,25,38,0.78))',
+                border: '1px solid rgba(56,189,248,0.26)',
+                boxShadow: '0 18px 46px rgba(4,8,18,0.56), inset 0 1px 0 rgba(148,163,184,0.12)'
               }}
             >
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -318,10 +318,10 @@ function App() {
 function GlassCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
     <div className={`rounded-2xl p-4 ${className}`} style={{
-      background: 'rgba(15,20,40,0.6)',
-      border: '1px solid rgba(255,255,255,0.07)',
-      backdropFilter: 'blur(12px)',
-      boxShadow: '0 4px 32px rgba(0,0,0,0.3)'
+      background: 'linear-gradient(165deg, rgba(13,19,35,0.82), rgba(9,14,25,0.74))',
+      border: '1px solid rgba(56,189,248,0.16)',
+      backdropFilter: 'blur(14px)',
+      boxShadow: '0 12px 36px rgba(0,0,0,0.34), inset 0 1px 0 rgba(148,163,184,0.08)'
     }}>
       {children}
     </div>
@@ -330,10 +330,10 @@ function GlassCard({ children, className = '' }: { children: React.ReactNode; cl
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10px] uppercase tracking-widest font-bold text-indigo-400 mb-3 flex items-center gap-2">
-      <span className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, rgba(99,102,241,0.4), transparent)' }} />
+    <div className="text-[10px] uppercase tracking-widest font-bold text-cyan-300 mb-3 flex items-center gap-2">
+      <span className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, rgba(34,211,238,0.55), transparent)' }} />
       {children}
-      <span className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.4))' }} />
+      <span className="flex-1 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(34,211,238,0.55))' }} />
     </div>
   )
 }
@@ -343,8 +343,8 @@ function StatPill({ icon, label, value, color, pulse = false }: {
 }) {
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{
-      background: 'rgba(255,255,255,0.04)',
-      border: '1px solid rgba(255,255,255,0.06)'
+      background: 'linear-gradient(160deg, rgba(30,41,59,0.55), rgba(15,23,42,0.38))',
+      border: '1px solid rgba(71,85,105,0.45)'
     }}>
       <span className="text-sm">{icon}</span>
       <div>
@@ -436,7 +436,7 @@ function LiveBeatBars() {
           className="w-1 rounded-sm"
           style={{
             height: `${height}%`,
-            background: `hsl(${145 + i * 4}, 70%, 55%)`,
+            background: `hsl(${185 + i * 3}, 78%, 58%)`,
             animation: `beatBar ${LIVE_BAR_DURATIONS[i]}s ease-in-out infinite alternate`,
             animationDelay: `${i * 0.07}s`
           }}

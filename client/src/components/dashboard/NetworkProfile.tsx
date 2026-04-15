@@ -38,13 +38,13 @@ export function NetworkProfile({
   return (
     <div className="rounded-2xl px-5 py-3 flex items-center justify-between gap-4 flex-wrap" style={{
       background: lowNetwork
-        ? 'linear-gradient(90deg, rgba(245,158,11,0.06) 0%, rgba(239,68,68,0.04) 100%)'
-        : 'linear-gradient(90deg, rgba(99,102,241,0.07) 0%, rgba(16,185,129,0.04) 100%)',
-      border: `1px solid ${lowNetwork ? 'rgba(245,158,11,0.25)' : 'rgba(99,102,241,0.2)'}`,
+        ? 'linear-gradient(90deg, rgba(245,158,11,0.1) 0%, rgba(239,68,68,0.08) 100%)'
+        : 'linear-gradient(90deg, rgba(14,165,233,0.1) 0%, rgba(16,185,129,0.08) 100%)',
+      border: `1px solid ${lowNetwork ? 'rgba(245,158,11,0.35)' : 'rgba(34,211,238,0.28)'}`,
       backdropFilter: 'blur(12px)',
       boxShadow: lowNetwork
-        ? '0 0 30px rgba(245,158,11,0.06)'
-        : '0 0 30px rgba(99,102,241,0.05)'
+        ? '0 0 30px rgba(245,158,11,0.14)'
+        : '0 0 30px rgba(14,165,233,0.14)'
     }}>
       {/* Left — mode label */}
       <div className="flex items-center gap-4">
@@ -125,9 +125,9 @@ export function NetworkProfile({
         style={{
           background: lowNetwork
             ? 'rgba(245,158,11,0.15)'
-            : 'rgba(99,102,241,0.1)',
-          border: `1px solid ${lowNetwork ? 'rgba(245,158,11,0.35)' : 'rgba(99,102,241,0.3)'}`,
-          color: lowNetwork ? '#fbbf24' : '#a5b4fc',
+              : 'rgba(14,165,233,0.14)',
+            border: `1px solid ${lowNetwork ? 'rgba(245,158,11,0.35)' : 'rgba(34,211,238,0.42)'}`,
+            color: lowNetwork ? '#fbbf24' : '#67e8f9',
         }}
         onMouseEnter={(e) => {
           (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.03)'

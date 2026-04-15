@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Device } from '../../types/dashboard'
 import type { AudioPlaybackState } from '../../hooks/useAudioPlayback'
 import type { WebRTCStats } from '../../hooks/useWebRTC'
+import { apiUrl } from '../../lib/helpers'
 
 type DeviceInfoPanelProps = {
   device: Device | null
@@ -144,7 +145,7 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
     setWaking(true)
     setWakeStatus(null)
     try {
-      const response = await fetch(`/api/devices/${device.deviceId}/wake`, { method: 'POST' })
+      const response = await fetch(apiUrl(`/api/devices/${encodeURIComponent(device.deviceId)}/wake`), { method: 'POST' })
       if (response.ok) {
         setWakeStatus('Sent! 🚀')
         setTimeout(() => setWakeStatus(null), 3000)

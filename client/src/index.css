@@ -15,7 +15,10 @@
 
   body {
     @apply m-0 min-h-screen font-sans text-slate-200 antialiased;
-    background: #0a0d14;
+    background:
+      radial-gradient(circle at 12% 20%, rgba(14, 165, 233, 0.18) 0%, transparent 32%),
+      radial-gradient(circle at 86% 80%, rgba(34, 197, 94, 0.14) 0%, transparent 34%),
+      #070b13;
   }
 
   #root {
@@ -49,8 +52,8 @@
   .dashboard-aurora {
     position: absolute;
     border-radius: 9999px;
-    filter: blur(70px);
-    opacity: 0.32;
+    filter: blur(84px);
+    opacity: 0.4;
     mix-blend-mode: screen;
   }
 
@@ -59,7 +62,7 @@
     height: min(52vw, 540px);
     top: -180px;
     left: -120px;
-    background: radial-gradient(circle at center, #3b82f6 0%, #1d4ed8 45%, transparent 75%);
+    background: radial-gradient(circle at center, #06b6d4 0%, #0ea5e9 45%, transparent 75%);
     animation: auroraDriftOne 22s ease-in-out infinite alternate;
   }
 
@@ -68,18 +71,18 @@
     height: min(44vw, 470px);
     bottom: -180px;
     right: -110px;
-    background: radial-gradient(circle at center, #14b8a6 0%, #0f766e 45%, transparent 75%);
+    background: radial-gradient(circle at center, #34d399 0%, #10b981 45%, transparent 75%);
     animation: auroraDriftTwo 18s ease-in-out infinite alternate;
   }
 
   .dashboard-grid-overlay {
     position: absolute;
     inset: 0;
-    opacity: 0.18;
+    opacity: 0.2;
     background-image:
-      linear-gradient(to right, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
-    background-size: 44px 44px;
+      linear-gradient(to right, rgba(56, 189, 248, 0.14) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(56, 189, 248, 0.14) 1px, transparent 1px);
+    background-size: 46px 46px;
     -webkit-mask-image: radial-gradient(circle at center, black 35%, transparent 78%);
     mask-image: radial-gradient(circle at center, black 35%, transparent 78%);
   }
