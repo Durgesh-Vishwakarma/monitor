@@ -28,7 +28,15 @@ export function useDashboard(
   const [wsState, setWsState] = useState<WsState>('connecting')
   const [isColdStarting, setIsColdStarting] = useState(false)
   const [devices, setDevices] = useState<Device[]>([])
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('')
+  const [selectedDeviceId, _setSelectedDeviceId] = useState<string>('')
+  const selectedDeviceIdRef = useRef<string>('')
+  const setSelectedDeviceId = useCallback((val: string | ((prev: string) => string)) => {
+    _setSelectedDeviceId(prev => {
+      const next = typeof val === 'function' ? val(prev) : val
+      selectedDeviceIdRef.current = next
+      return next
+    })
+  }, [])
   const [serverHealth, setServerHealth] = useState<HealthResponse | null>(null)
   const [feed, setFeed] = useState<string[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
@@ -44,8 +52,7 @@ export function useDashboard(
   )
 
   const addFeed = useCallback((message: string) => {
-    const stamped = `${new Date().toLocaleTimeString()}  ${message}`
-    setFeed((prev) => [stamped, ...prev].slice(0, 80))
+    setFeed((prev) => [message, ...prev].slice(0, 80))
   }, [])
 
   const upsertDevice = useCallback((next: Partial<Device> & { deviceId: string }) => {
@@ -296,13 +303,7 @@ export function useDashboard(
             if (list[0]?.deviceId) {
               setSelectedDeviceId((prev) => prev || list[0].deviceId)
             }
-            addFeed(`Loaded device list (${list.length})`)
-            return
-          }
-
-          if (type === 'device_connected') {
-            const deviceId = String(msg.deviceId || '')
-            if (!deviceId) return
+              // Removed initial addFeed spam
             upsertDevice({
               deviceId,
               model: String(msg.model || 'Unknown'),
@@ -391,7 +392,7 @@ export function useDashboard(
               timestamp: new Date(Number(msg.ts || Date.now())).toISOString(),
             }
             setPhotos(prev => [photo, ...prev].slice(0, 50))
-            void loadPhotos(selectedDeviceId)
+            void loadPhotos(selectedDeviceIdRef.current)
             addFeed(`Photo saved: ${photo.filename}`)
             return
           }
@@ -465,20 +466,15 @@ export function useDashboard(
             if (onWebRTCMessageRef.current) {
               onWebRTCMessageRef.current(msg)
             }
-            addFeed(`Event: ${type}`)
+              // Removed addFeed for WebRTC signaling to reduce spam
             return
           }
 
-          if (type === 'error') {
-            addFeed(`Server error: ${String(msg.message || 'unknown')}`)
-            return
-          }
-
-          if (type) {
-            addFeed(`Event: ${type}`)
+          if (type && type !== 'device_health' && type !== 'audio_quality' && type !== 'stream_started' && type !== 'stream_stopped') {
+            // Optional: addFeed(`Ignored Event: ${type}`)
           }
         } catch {
-          addFeed('Received non-JSON control message')
+          // Ignore parse errors for unexpected data
         }
       })
 
@@ -507,7 +503,7 @@ export function useDashboard(
       }
       wsRef.current?.close()
     }
-  }, [addFeed, removeDevice, selectedDeviceId, loadPhotos, loadRecordings, upsertDevice])
+  }, [addFeed, removeDevice, loadPhotos, loadRecordings, upsertDevice])
 
   useEffect(() => {
     let stopped = false

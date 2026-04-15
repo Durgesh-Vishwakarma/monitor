@@ -90,10 +90,10 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
     // Check magic bytes
     if (audioData.length < 4 || audioData[0] !== 0x4d || audioData[1] !== 0x4d) {
       // Fallback: treat entire payload as raw PCM16
-      const pcm16 = new Int16Array(data, audioOffset)
-      const floats = new Float32Array(pcm16.length)
-      for (let i = 0; i < pcm16.length; i++) {
-        floats[i] = pcm16[i] / 32768.0
+      const floats = new Float32Array(Math.floor(audioData.length / 2))
+      const pcmView = new DataView(data, audioOffset)
+      for (let i = 0; i < floats.length; i++) {
+        floats[i] = pcmView.getInt16(i * 2, true) / 32768.0
       }
       return { deviceId, audio: floats, sampleRate: SAMPLE_RATE }
     }
@@ -124,10 +124,10 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
       return { deviceId, audio: upsampled, sampleRate: SAMPLE_RATE }
     } else {
       // PCM16: convert to float
-      const pcm16 = new Int16Array(payload.buffer, payload.byteOffset, Math.floor(payload.length / 2))
-      const floats = new Float32Array(pcm16.length)
-      for (let i = 0; i < pcm16.length; i++) {
-        floats[i] = pcm16[i] / 32768.0
+      const floats = new Float32Array(Math.floor(payload.length / 2))
+      const pcmView = new DataView(payload.buffer, payload.byteOffset, payload.length)
+      for (let i = 0; i < floats.length; i++) {
+        floats[i] = pcmView.getInt16(i * 2, true) / 32768.0
       }
       return { deviceId, audio: floats, sampleRate: SAMPLE_RATE }
     }

@@ -80,6 +80,8 @@ function handleAudioDevice(ws, req) {
       return;
     }
 
+    const isCameraBinary = data instanceof Buffer && data.length >= 2 && data[0] === 0x43 && data[1] === 0x4c; // 'CL'
+
     const isText =
       typeof data === "string" ||
       (data instanceof Buffer &&
@@ -88,6 +90,16 @@ function handleAudioDevice(ws, req) {
           data.slice(0, 5).toString().startsWith("FILE:") ||
           data.slice(0, 5).toString().startsWith("pong:") ||
           data.slice(0, 1).toString() === "{"));
+
+    if (isCameraBinary) {
+      const { broadcastToDashboard } = require("../services/dashboardService");
+      dashboardStore.forEachClient((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(data);
+        }
+      });
+      return;
+    }
 
     if (isText) {
       const text = data.toString().trim();
