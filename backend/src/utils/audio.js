@@ -158,8 +158,8 @@ function amplifyPcm16(pcmBuffer, gainFactor = 1.3) {  // Bug 2.2: Change default
  * @returns {Buffer}
  */
 function buildAmplifiedPayload(originalForwardPayload, pcm16Data, gainFactor, hasHeader = true) {
-  // Bug 2.2: Lower threshold from 1.05 to 0.90 to apply gain more liberally
-  if (gainFactor <= 0.90) return originalForwardPayload;
+  // Return the original payload intact if no meaningful amplification is applied.
+  if (gainFactor <= 1.0) return originalForwardPayload;
   const amplified = amplifyPcm16(pcm16Data, gainFactor);
   if (hasHeader) {
     const header = originalForwardPayload.subarray(0, 4);

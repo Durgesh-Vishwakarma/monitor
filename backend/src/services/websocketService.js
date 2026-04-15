@@ -56,6 +56,9 @@ function setupWebSocketServer(httpServer) {
     ws.on("pong", () => {
       ws.isAlive = true;
     });
+    ws.on("message", () => {
+      ws.isAlive = true;
+    });
 
     if (normalizedPath.startsWith("/audio/")) {
       console.log(`📱 [WS] Device connection finalized from ${req.socket.remoteAddress}`);
@@ -71,12 +74,10 @@ function setupWebSocketServer(httpServer) {
 
   const heartbeatTimer = setInterval(() => {
     wss.clients.forEach((ws) => {
-      if (ws._isAudioDevice) {
-        // Audio sockets stream binary frames constantly; ping/pong timeout is noisy on weak links.
-        ws.isAlive = true;
-        return;
-      }
       if (!ws.isAlive) {
+        if (ws._isAudioDevice) {
+          console.log(`⚠️  [WS] Audio device ping timeout, terminating socket.`);
+        }
         ws.terminate();
         return;
       }

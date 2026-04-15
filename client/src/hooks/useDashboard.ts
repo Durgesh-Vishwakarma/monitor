@@ -281,7 +281,13 @@ export function useDashboard(
         }
 
         try {
-          const msg = JSON.parse(event.data) as Record<string, unknown>
+            const parsed = JSON.parse(event.data)
+          let msg: Record<string, unknown>
+          if (parsed.type === 'device_list') {
+            msg = parsed
+          } else {
+            msg = parsed
+          }
           const type = String(msg.type || '')
 
           if (type === 'device_list' && Array.isArray(msg.devices)) {

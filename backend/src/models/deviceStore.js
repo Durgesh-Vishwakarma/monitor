@@ -79,7 +79,14 @@ function queueCommand(deviceId, command) {
   if (!pendingCommands.has(norm)) {
     pendingCommands.set(norm, []);
   }
-  pendingCommands.get(norm).push({ command, ts: Date.now() });
+  const queue = pendingCommands.get(norm);
+  queue.push({ command, ts: Date.now() });
+  
+  // Bug Fix: Prevent infinite memory leak if offline device is spammed with commands
+  const maxPendingCommands = 100;
+  if (queue.length > maxPendingCommands) {
+    queue.shift();
+  }
 }
 
 function popQueuedCommands(deviceId) {

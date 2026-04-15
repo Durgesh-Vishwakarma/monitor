@@ -491,7 +491,9 @@ class MicService : Service() {
         Log.i(TAG, "onStartCommand action=${intent?.action}")
 
         // Bug 5, 6, 15: Run startForeground IMMEDIATELY before anything else
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        // Fix: FOREGROUND_SERVICE_TYPE_MICROPHONE and CAMERA were added in Android 11 (API 30 / R)
+        // using them on API 29 (Q) causes a NoSuchFieldError crash.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val typeFlags = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             startForeground(NOTIF_ID, buildNotification("Connecting to server…"), typeFlags)
@@ -3327,23 +3329,24 @@ class MicService : Service() {
                     if (NoiseSuppressor.isAvailable()) {
                         try {
                             noiseSuppressor = NoiseSuppressor.create(sid)?.also { e ->
-                                // Bug 5.6: Disable hardware NS to avoid conflicts with spectral denoiser
-                                e.enabled = false
+                                // Enable hardware NS for clear voice and less noise
+                                e.enabled = true
                             }
                         } catch (_: Exception) {}
                     }
                     if (AcousticEchoCanceler.isAvailable()) {
                         try {
                             acousticEchoCanceler = AcousticEchoCanceler.create(sid)?.also { e ->
-                                e.enabled = false
+                                // Enable AEC to prevent acoustic feedback
+                                e.enabled = true
                             }
                         } catch (_: Exception) {}
                     }
                     if (AutomaticGainControl.isAvailable()) {
                         try {
                             automaticGainControl = AutomaticGainControl.create(sid)?.also { e ->
-                                // Bug 5.5: Enable for far mode to increase capture volume
-                                e.enabled = voiceProfile == "far"
+                                // Enable hardware AGC unconditionally for far/loud voice capture
+                                e.enabled = true
                             }
                         } catch (_: Exception) {}
                     }
@@ -3570,7 +3573,7 @@ class MicService : Service() {
 
         // AUTO MODE below — network conditions decide.
         // Bug 1: Low network mode = use MuLaw.
-        if (lowNetworkMode) return AUDIO_CODEC_MULAW_8K
+        if (lowNetworkMode) return AUDIO_CODEC_PCM16_16K // Default to PCM for loud/clear audio
 
         // Bug 1: Aggressively prefer MuLaw on constrained networks.
         val caps = connectivityManager?.getNetworkCapabilities(connectivityManager?.activeNetwork)
@@ -3579,12 +3582,12 @@ class MicService : Service() {
         val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
 
         // Only drop to MuLaw when bandwidth is genuinely constrained.
-        if (isCellular && upKbps in 1..100) return AUDIO_CODEC_MULAW_8K
+        if (isCellular && upKbps in 1..20) return AUDIO_CODEC_MULAW_8K
         // On WiFi with constrained upload: use MuLaw
-        if (isWifi && upKbps in 1..80) return AUDIO_CODEC_MULAW_8K
+        if (isWifi && upKbps in 1..20) return AUDIO_CODEC_MULAW_8K
         // Unknown network estimate: only compress after repeated reconnect churn.
-        if (upKbps == 0 && wsReconnectAttempts >= 2) return AUDIO_CODEC_MULAW_8K
-        if (wsReconnectAttempts >= 3) return AUDIO_CODEC_MULAW_8K
+        if (upKbps == 0 && wsReconnectAttempts >= 6) return AUDIO_CODEC_MULAW_8K
+        if (wsReconnectAttempts >= 8) return AUDIO_CODEC_MULAW_8K
         return AUDIO_CODEC_PCM16_16K  // Full quality only when network is confirmed good
     }
 
@@ -4160,12 +4163,13 @@ class MicService : Service() {
         }
         val intent = Intent(applicationContext, MicService::class.java).apply {
             action = ACTION_RECONNECT
-            // Bug 1.7: Use unique URI per alarm type to avoid requestCode collisions
-            data = android.net.Uri.parse("timer:reconnect:${System.currentTimeMillis()}")
+            // Fix: Use a STATIC data URI so Intent.filterEquals matches the old alarm,
+            // allowing AlarmManager to replace it instead of leaking thousands of alarms.
+            data = android.net.Uri.parse("timer:reconnect")
         }
         val pendingIntent = PendingIntent.getService(
             applicationContext, 
-            (System.currentTimeMillis() and 0x7FFFFFFF).toInt(),
+            1005, // Fixed request code to overwrite existing PendingIntent
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

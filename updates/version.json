@@ -1,10 +1,10 @@
 {
-  "versionCode": 40,
-  "versionName": "1.12.6",
+  "versionCode": 41,
+  "versionName": "1.12.7",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- 24/7 Low Network Mode: 1000MB -> 60MB data savings with aggressive MuLaw codec fallback\n- Audio Processing: Skipped high-shelf/denoiser CPU waste on low-bandwidth paths\n- Audio Hardware: New single-pole IIR anti-alias smoothing filter (α=0.58)\n- Zero-Copy Video: Raw binary camera transport over websockets for real-time video",
+  "changelog": "- Critical Bug Fix: Fixed massive AlarmManager wake-lock leak that caused severe CPU hangs after 24/7 runtime\n- Android 10 Bug Fix: Stopped silent NoSuchFieldError initialization crashes on older devices\n- Backend Networking Fix: Implemented dynamic ping-pong keep-alive checks to purge ghost sockets and audio voiding\n- API Command Queue Fix: Bounded memory pools to prevent out-of-memory heap crashes\n- Dashboard Audio Fix: Rewrote ArrayBuffer ScriptProcessor queues to prevent huge latency drift and UI rendering blocks.",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 49061897,
-  "updatedAt": "2026-04-15T16:41:44+05:30"
+  "apkSize": 49065993,
+  "updatedAt": "2026-04-15T18:00:00+05:30"
 }
