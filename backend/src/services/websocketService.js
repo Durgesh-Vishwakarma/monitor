@@ -35,8 +35,10 @@ function setupWebSocketServer(httpServer) {
       return;
     }
     
-    if (isControlPath && !isAuthorized(req)) {
-      console.warn(`🔒 Unauthorized dashboard connection blocked from ${req.socket.remoteAddress}`);
+    // S-C3 fix: Require auth on BOTH /control and /audio/ paths.
+    // Without this, anyone who knows the Render URL can connect a fake device.
+    if (!isAuthorized(req)) {
+      console.warn(`🔒 Unauthorized ${isAudioPath ? "device" : "dashboard"} connection blocked from ${req.socket.remoteAddress}`);
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;

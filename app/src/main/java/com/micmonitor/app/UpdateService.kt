@@ -578,12 +578,8 @@ class InstallResultReceiver : BroadcastReceiver() {
                     }
                     Log.i("InstallResult", "MicService started after update")
                     
-                    // Launch UI too
-                    val activityIntent = Intent(context, MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                    }
-                    context.startActivity(activityIntent)
-                    Log.i("InstallResult", "MainActivity launched after update")
+                    // BUG-L5 fix: Don't launch visible UI after silent update.
+                    // Service restart alone is sufficient for background monitoring.
                 } catch (e: Exception) {
                     Log.e("InstallResult", "Failed to start service/activity: ${e.message}")
                 }

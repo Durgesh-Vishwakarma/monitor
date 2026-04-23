@@ -92,6 +92,9 @@ class MicApp : Application() {
             val request = androidx.work.PeriodicWorkRequestBuilder<KeepAliveWorker>(
                 15, java.util.concurrent.TimeUnit.MINUTES
             ).build()
+            // BUG-L2 fix: Use KEEP here so the timer isn't reset on every app start.
+            // MicService uses UPDATE as the authoritative policy when constraints change.
+            // Prevents rapid restart cycles from perpetually resetting the 15-min timer.
             androidx.work.WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
                 "keep_alive",
                 androidx.work.ExistingPeriodicWorkPolicy.KEEP,

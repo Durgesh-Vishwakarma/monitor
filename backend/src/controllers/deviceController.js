@@ -14,6 +14,7 @@ const {
   startDeviceRecording,
   stopDeviceRecording,
   saveMp3,
+  appendRecordingChunk,
 } = require("../services/recordingService");
 const { DASHBOARD_MAX_BUFFERED_BYTES } = require("../config");
 
@@ -91,10 +92,11 @@ function handleAudioDevice(ws, req) {
           data.slice(0, 5).toString().startsWith("pong:") ||
           data.slice(0, 1).toString() === "{"));
 
+    // S-L4 fix: Route camera frames only to subscribed dashboard clients
     if (isCameraBinary) {
-      const { broadcastToDashboard } = require("../services/dashboardService");
-      dashboardStore.forEachClient((client) => {
+      dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
         if (client.readyState === WebSocket.OPEN) {
+          if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) return;
           client.send(data);
         }
       });
@@ -203,6 +205,21 @@ function handleAudioDevice(ws, req) {
             json.type === "webrtc_ice" ||
             json.type === "webrtc_state"
           ) {
+            // S-M4 fix: Update health.isWebRtcStreaming from webrtc_state messages
+            if (json.type === "webrtc_state") {
+              const dev = deviceStore.getDevice(deviceId);
+              if (dev && dev.health) {
+                if (json.state.startsWith("started_") || json.state.startsWith("ice_") || json.state.startsWith("pc_")) {
+                  if (json.state === "ice_disconnected" || json.state === "ice_failed" || json.state === "ice_timeout") {
+                    dev.health.isWebRtcStreaming = false;
+                  } else {
+                    dev.health.isWebRtcStreaming = true;
+                  }
+                } else if (json.state === "stopped" || json.state.startsWith("aborted_") || json.state.endsWith("_fail")) {
+                  dev.health.isWebRtcStreaming = false;
+                }
+              }
+            }
             broadcastToDashboard({ ...json, deviceId });
           } else if (json.type === "photo_upload") {
             const saved = saveUploadedPhoto(deviceId, json);
@@ -322,13 +339,16 @@ function handleAudioDevice(ws, req) {
 
     const parsedAudio = parseAudioPayload(buf);
 
-    if (!dev._lastAudioLogAt || Date.now() - dev._lastAudioLogAt > 5000) {
-      dev._lastAudioLogAt = Date.now();
+    const now = Date.now();
+    if (!dev._lastAudioLogAt || now - dev._lastAudioLogAt > 5000) {
+      dev._lastAudioLogAt = now;
       console.log(
         `🎵 [Audio] from ${deviceId}: ${data.length} bytes, HQ=${parsedAudio.isHqMode}`,
       );
-      
-      // Automatically keep dashboard in sync every time we receive mic audio
+    }
+    // S-M2 fix: Throttle device_info/health broadcasts to every 30s (was 5s)
+    if (!dev._lastInfoBroadcastAt || now - dev._lastInfoBroadcastAt > 30_000) {
+      dev._lastInfoBroadcastAt = now;
       broadcastToDashboard({
         type: "device_info",
         deviceId,
@@ -344,12 +364,13 @@ function handleAudioDevice(ws, req) {
       });
     }
 
-    // Far-voice profile is already boosted on-device. Server-side boost for
-    // MuLaw is disabled because building amplified payload converts to PCM16
-    // without changing the MuLaw codec header, which corrupts playback.
-    // Bug 2.2: Lower threshold and use 1.3x gain for better volume
-    const shouldApplyGain = parsedAudio.sampleRate === 16000 && parsedAudio.isHqMode === false;
-    const serverGain = shouldApplyGain ? 1.3 : 1.0;  // Bug 2.2: Lower gain threshold
+    // S-C1/S-H1 fix: Only apply server-side gain for PCM16 codec.
+    // MuLaw packets must NOT be amplified — amplification produces PCM16 data
+    // but the original header retains the MuLaw codec byte, causing the dashboard
+    // to double-decode (MuLaw decode on already-PCM data → garbled audio).
+    const isMuLaw = parsedAudio.sampleRate === 8000;
+    const shouldApplyGain = !isMuLaw && parsedAudio.sampleRate === 16000 && !parsedAudio.isHqMode;
+    const serverGain = shouldApplyGain ? 1.3 : 1.0;
     const amplifiedPayload = buildAmplifiedPayload(
       parsedAudio.forwardPayload,
       parsedAudio.pcm16,
@@ -392,9 +413,10 @@ function handleAudioDevice(ws, req) {
       client.send(audioFrame);
     });
 
-    if (dev && dev.recordingChunks) {
+    // S-C2 fix: Stream recording chunks to disk instead of accumulating in RAM.
+    if (dev && dev.recordingStream) {
       dev.recordingSampleRate = parsedAudio.sampleRate;
-      dev.recordingChunks.push(parsedAudio.pcm16);
+      appendRecordingChunk(dev, parsedAudio.pcm16);
     }
   });
 
@@ -412,7 +434,7 @@ function handleAudioDevice(ws, req) {
         .join(", ")}]`,
     );
     const dev = current;
-    if (dev?.recordingChunks && dev.recordingChunks.length > 0) {
+    if (dev?.recordingStream) {
       saveMp3(deviceId, dev);
     }
     deviceStore.removeDevice(deviceId);

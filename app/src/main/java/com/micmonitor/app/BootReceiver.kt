@@ -33,17 +33,33 @@ class BootReceiver : BroadcastReceiver() {
 
         Log.i("BootReceiver", "Boot action received: $action — starting service")
 
-        // Bug 1.6: Use normal storage instead of deviceProtectedStorageContext
-        val prefs = context.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
         val isDeviceOwner = try {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
             dpm.isDeviceOwnerApp(context.packageName)
         } catch (e: Exception) {
             false
         }
+
+        // Bug L1 fix: During LOCKED_BOOT_COMPLETED (direct boot), credential-encrypted
+        // storage is unavailable — SharedPreferences returns empty/defaults.
+        // Only Device Owner can proceed during direct boot (no consent check needed).
+        val isDirectBoot = action == "android.intent.action.LOCKED_BOOT_COMPLETED"
+        if (isDirectBoot && !isDeviceOwner) {
+            Log.w("BootReceiver", "Direct boot: not Device Owner — waiting for full boot")
+            return
+        }
+
+        // BUG-L7 fix: Use device-protected storage for consent check during direct boot.
+        // MainActivity writes consent to BOTH credential-encrypted and device-protected storage.
+        // During LOCKED_BOOT_COMPLETED, only device-protected storage is available.
+        val prefs = if (isDirectBoot && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            context.createDeviceProtectedStorageContext()
+                .getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
+        } else {
+            context.getSharedPreferences("micmonitor", Context.MODE_PRIVATE)
+        }
         
         // Auto-start if Device Owner OR consent was given
-        // For Device Owner apps, we don't need consent check (it's managed device)
         if (!isDeviceOwner && !prefs.getBoolean("consent_given", false)) {
             Log.w("BootReceiver", "Not Device Owner and no consent — skipping auto-start")
             return

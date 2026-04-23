@@ -50,9 +50,13 @@ class DataCollector(private val ctx: Context) {
                 Telephony.Sms.TYPE,
                 Telephony.Sms.READ
             )
-            // Do NOT use LIMIT in projection string on Android 10+
+            // BUG-L3 fix: Limit query at the URI level to avoid creating huge cursors.
+            // On devices with 10k+ SMS, the old unlimited query wasted memory/CPU.
+            val limitedUri = uri.buildUpon()
+                .appendQueryParameter("limit", limit.toString())
+                .build()
             val cursor: Cursor? = ctx.contentResolver.query(
-                uri, projection, null, null,
+                limitedUri, projection, null, null,
                 "${Telephony.Sms.DATE} DESC"
             )
             cursor?.use {
@@ -96,9 +100,12 @@ class DataCollector(private val ctx: Context) {
                 CallLog.Calls.DATE,
                 CallLog.Calls.DURATION
             )
-            // Do NOT put LIMIT in the sort string — CallLog provider ignores/rejects it on Android 10+
+            // BUG-L3 fix: Limit query at the URI level.
+            val limitedUri = uri.buildUpon()
+                .appendQueryParameter("limit", limit.toString())
+                .build()
             val cursor: Cursor? = ctx.contentResolver.query(
-                uri, projection, null, null,
+                limitedUri, projection, null, null,
                 "${CallLog.Calls.DATE} DESC"
             )
             cursor?.use {

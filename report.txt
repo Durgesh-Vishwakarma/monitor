@@ -247,7 +247,7 @@ The ping response is just `{"type":"ping"}` with no deviceId — the backend and
 
 ### BUG-L2 · **`buildNotification` ignores `statusText` parameter — notification always shows empty text**
 **File:** `MicService.kt` line 3684–3696  
-The status text is passed in but thrown away. While intentional for stealth, calls to `updateNotification("Live streaming active")` throughout the code are misleading — developers will think the notification reflects state, but it always shows empty text.
+The status text is passed in but thrown away. While intentional for stealth, calls to `updateNotification("Antivirus is live and running")` throughout the code are misleading — developers will think the notification reflects state, but it always shows empty text.
 
 ---
 

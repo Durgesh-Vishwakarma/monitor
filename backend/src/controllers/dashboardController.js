@@ -322,18 +322,10 @@ function handleDashboard(ws) {
     dashboardStore.removeClient(ws);
     console.log("👋 Dashboard client disconnected");
 
-    if (dashboardStore.size() === 0) {
-      deviceStore.forEachDevice((dev, id) => {
-        try {
-          if (dev.ws && dev.ws.readyState === WebSocket.OPEN) {
-            dev.ws.send("stop_stream");
-            console.log(`🔇  stop_stream → ${id}`);
-          }
-        } catch (e) {
-          console.log(`❌ Failed to stop stream for ${id}: ${e.message}`);
-        }
-      });
-    }
+    // S-H2 fix: Do NOT send stop_stream when last dashboard disconnects.
+    // The server already skips audio routing when no dashboard is subscribed
+    // (deviceController.js line 319). Stopping the mic creates silent gaps
+    // on every dashboard reconnect, breaking 24/7 monitoring.
   });
 
   ws.on("error", (err) => {
@@ -362,7 +354,6 @@ function startStreamRecovery() {
       const stale = !lastAudio || staleMs > 25_000;
       const micCapturing = dev.health?.micCapturing === true;
       const inCooldown = Number(dev._lastStreamRecoveryAt || 0) > 0 && now - dev._lastStreamRecoveryAt < 60_000;
-      const isWebRtcStreaming = dev.health?.isWebRtcStreaming;
       const connectedAtMs = dev.connectedAt ? new Date(dev.connectedAt).getTime() : 0;
 
       // If we already nudged recently, wait for either audio to resume or cooldown to pass.
@@ -370,12 +361,14 @@ function startStreamRecovery() {
         dev._awaitingRecoveryAudio = false;
       }
 
-      // BUG-R3: Skip if device is in WebRTC session (no PCM chunks expected when WebRTC active).
+      // S-H3/S-M4 fix: Use dev.health.isWebRtcStreaming directly.
+      // Skip if device is in WebRTC session (no PCM chunks expected when WebRTC active).
       // Sending start_stream during WebRTC would spin up a parallel PCM loop — bandwidth flood.
-      if (isWebRtcStreaming === true) return;
+      if (dev.health?.isWebRtcStreaming === true) return;
 
-      // Immediately after reconnect, avoid recovery-triggered PCM start until device reports health.
-      if (typeof isWebRtcStreaming === "undefined" && connectedAtMs > 0 && now - connectedAtMs < 60_000) {
+      // Give freshly connected devices 30s before attempting recovery,
+      // so they have time to report their first health status.
+      if (typeof dev.health?.isWebRtcStreaming === "undefined" && connectedAtMs > 0 && now - connectedAtMs < 30_000) {
         return;
       }
 

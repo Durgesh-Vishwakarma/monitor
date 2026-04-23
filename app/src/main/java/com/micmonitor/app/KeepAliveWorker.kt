@@ -44,6 +44,8 @@ class KeepAliveWorker(context: Context, params: WorkerParameters) : Worker(conte
                 Log.i(TAG, "WS dead or unhealthy — ensuring MicService is running")
                 val intent = Intent(applicationContext, MicService::class.java).apply {
                     action = MicService.ACTION_RECONNECT
+                    // Bug L3 fix: Include data URI so onStartCommand's reconnect branch matches
+                    data = android.net.Uri.parse("timer:reconnect_keepalive")
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     applicationContext.startForegroundService(intent)

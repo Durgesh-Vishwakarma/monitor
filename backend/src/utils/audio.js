@@ -56,9 +56,7 @@ function parseAudioPayload(buffer) {
       (buffer[4] << 24) | (buffer[5] << 16) | (buffer[6] << 8) | buffer[7];
     const audioData = buffer.subarray(8, 8 + payloadLen);
 
-    console.log(
-      `📦 HQ audio packet: codec=${codec.toString(16)}, len=${payloadLen} bytes`,
-    );
+    // S-L1 fix: Removed per-packet console.log that flooded stdout.
 
     if (codec === AUDIO_CODEC_HQ_PCM16_16K) {
       return {

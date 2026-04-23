@@ -32,8 +32,8 @@ function App() {
   const formatDate = (d: Date) =>
     d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
 
-  const handleAudioData = useCallback((data: ArrayBuffer, deviceId: string) => {
-    audioPlayback.feedAudio(data, deviceId)
+  const handleAudioData = useCallback((data: ArrayBuffer) => {
+    audioPlayback.feedAudio(data)
   }, [audioPlayback])
 
   const handleWebRTCMessage = useCallback((msg: Record<string, unknown>) => {
@@ -91,6 +91,15 @@ function App() {
       audioPlayback.start()
     }
   }, [isListening, audioPlayback])
+
+  // Automatically resend subscriptions if the dashboard reconnects
+  useEffect(() => {
+    if (wsState === 'open') {
+      if (isListening && selectedDeviceId) {
+        sendCommand('start_stream')
+      }
+    }
+  }, [wsState, isListening, selectedDeviceId, sendCommand])
 
   useEffect(() => {
     if (!isCameraLive) {

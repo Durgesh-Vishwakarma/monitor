@@ -50,6 +50,7 @@ function createApp() {
     "http://localhost:3000",
     "http://localhost:5050",
     process.env.DASHBOARD_URL,
+    process.env.RENDER_EXTERNAL_URL, // S-L3 fix: Include Render URL for same-origin dashboard
     ...envOrigins,
   ].filter(Boolean));
 

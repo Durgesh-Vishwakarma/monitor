@@ -52,11 +52,20 @@ function scheduleWake(deviceId, opts = {}) {
           deviceId,
         )})`,
       );
-      await sendFcmMessage(token, {
+      const success = await sendFcmMessage(token, {
         action: "force_reconnect",
         ts: Date.now(),
         attempt,
       });
+      // S-L2 fix: If FCM send succeeded, give the device a moment to reconnect
+      // then check — if it came back online, stop retrying immediately.
+      if (success) {
+        await new Promise(resolve => setTimeout(resolve, 3_000));
+        if (deviceStore.isOnline(deviceId)) {
+          inflight.delete(deviceId);
+          return;
+        }
+      }
     } catch (_) {
       // Ignore individual send errors; retry loop continues.
     }

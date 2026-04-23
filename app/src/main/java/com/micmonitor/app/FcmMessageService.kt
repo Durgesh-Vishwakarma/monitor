@@ -42,6 +42,10 @@ class FcmMessageService : FirebaseMessagingService() {
             null -> MicService.ACTION_RECONNECT
             else -> action
         }
+        // BUG-H3 fix: Set data URI so onStartCommand routes to fast-reconnect path.
+        // Without this, FCM wake-ups fall through to the generic start branch and
+        // skip the forced reconnect logic that cancels sleeping reconnect jobs.
+        intent.data = android.net.Uri.parse("timer:reconnect_fcm")
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -75,11 +79,18 @@ class FcmMessageService : FirebaseMessagingService() {
             put("token", token)
         }
 
+        // BUG-L6 fix: Include auth token so sync isn't rejected by auth-protected backends.
+        val prefs = getSharedPreferences("micmonitor", MODE_PRIVATE)
+        val authToken = prefs.getString("server_token", "") ?: ""
+
         val body = json.toString().toRequestBody("application/json".toMediaType())
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(url)
             .post(body)
-            .build()
+        if (authToken.isNotBlank()) {
+            requestBuilder.addHeader("X-Auth-Token", authToken)
+        }
+        val request = requestBuilder.build()
 
         tokenSyncClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {

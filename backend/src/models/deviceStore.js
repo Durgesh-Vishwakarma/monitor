@@ -94,8 +94,10 @@ function popQueuedCommands(deviceId) {
   const now = Date.now();
   const claim = pendingCommandClaims.get(norm);
 
-  // Return the same claimed snapshot for quick duplicate sync polls (idempotent replay).
-  if (claim && now - claim.claimedAt <= 2_000) {
+  // S-M3 fix: Reduced idempotency window from 2s to 500ms.
+  // The 2s window caused command loss: rapid device reconnect → re-sync within 2s
+  // → replayed=true → device skips commands → commands silently dropped.
+  if (claim && now - claim.claimedAt <= 500) {
     return {
       commands: claim.commands.map((c) => c.command),
       generation: claim.generation,
@@ -113,7 +115,7 @@ function popQueuedCommands(deviceId) {
     if (active && active.generation === generation) {
       pendingCommandClaims.delete(norm);
     }
-  }, 2_000);
+  }, 500);
 
   return {
     commands: commands.map((c) => c.command),

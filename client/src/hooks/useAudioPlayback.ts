@@ -46,7 +46,7 @@ export type AudioPlaybackState = {
 
 export type UseAudioPlaybackReturn = {
   state: AudioPlaybackState
-  feedAudio: (data: ArrayBuffer, deviceId: string) => void
+  feedAudio: (data: ArrayBuffer) => void  // S-H5 fix: removed unused deviceId param
   setVolume: (volume: number) => void
   start: () => void
   stop: () => void
@@ -69,6 +69,10 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null)
   const waveformRef = useRef<Float32Array>(new Float32Array(128))
   const lastDeviceIdRef = useRef<string | null>(null)
+  // S-M5 fix: Use ref for volume to avoid stale closure in initAudioContext
+  const volumeRef = useRef(1.0)
+  // S-M1 fix: Throttle setState to ~10Hz instead of every audio frame
+  const lastStateUpdateRef = useRef(0)
 
   // Parse audio frame from server
   const parseAudioFrame = useCallback((data: ArrayBuffer): { deviceId: string; audio: Float32Array; sampleRate: number } | null => {
@@ -134,6 +138,7 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
   }, [])
 
   // Initialize audio context
+  // S-M5 fix: No dependency on state.volume — use volumeRef instead
   const initAudioContext = useCallback(() => {
     if (audioContextRef.current) return
 
@@ -141,7 +146,7 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
     audioContextRef.current = ctx
 
     const gainNode = ctx.createGain()
-    gainNode.gain.value = state.volume
+    gainNode.gain.value = volumeRef.current
     gainNode.connect(ctx.destination)
     gainNodeRef.current = gainNode
 
@@ -185,18 +190,23 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
         waveform[i] = sum / step
       }
 
-      // Update state periodically
-      const bufferHealth = Math.min(1, queue.reduce((acc, c) => acc + c.length, 0) / (SAMPLE_RATE * 0.5))
-      setState(prev => ({
-        ...prev,
-        bufferHealth,
-        waveform: new Float32Array(waveform),
-      }))
+      // S-M1 fix: Throttle setState to ~10Hz (every 100ms) instead of every audio frame.
+      // This prevents 60 React re-renders/sec that cause dashboard UI jank.
+      const now = Date.now()
+      if (now - lastStateUpdateRef.current >= 100) {
+        lastStateUpdateRef.current = now
+        const bufferHealth = Math.min(1, queue.reduce((acc, c) => acc + c.length, 0) / (SAMPLE_RATE * 0.5))
+        setState(prev => ({
+          ...prev,
+          bufferHealth,
+          waveform: new Float32Array(waveform),
+        }))
+      }
     }
 
     scriptProcessor.connect(gainNode)
     scriptProcessorRef.current = scriptProcessor
-  }, [state.volume])
+  }, [])  // S-M5 fix: Empty dependency — volume is accessed via volumeRef
 
   // Start playback
   const start = useCallback(() => {
@@ -216,7 +226,7 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
     setState(prev => ({ ...prev, isPlaying: false, bufferHealth: 0 }))
   }, [])
 
-  // Feed audio data
+  // Feed audio data — S-H5 fix: signature matches type (no unused deviceId param)
   const feedAudio = useCallback((data: ArrayBuffer) => {
     if (!isPlayingRef.current) return
 
@@ -233,8 +243,10 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
     // Add to queue
     audioQueueRef.current.push(parsed.audio)
 
-    // Limit buffer size (max 2 seconds)
-    const maxSamples = SAMPLE_RATE * 2
+    // S-H4 fix: Limit buffer to 0.5 seconds (was 2s) for low latency.
+    // ScriptProcessorNode runs on the main thread and can drift behind the audio clock;
+    // a smaller buffer cap keeps latency under 500ms instead of up to 2000ms.
+    const maxSamples = SAMPLE_RATE * 0.5
     let totalSamples = audioQueueRef.current.reduce((acc, c) => acc + c.length, 0)
     while (totalSamples > maxSamples && audioQueueRef.current.length > 1) {
       const removed = audioQueueRef.current.shift()
@@ -251,6 +263,8 @@ export function useAudioPlayback(): UseAudioPlaybackReturn {
   // Set volume
   const setVolume = useCallback((volume: number) => {
     const clamped = Math.max(0, Math.min(1, volume))
+    // S-M5 fix: Update ref so initAudioContext always has current volume
+    volumeRef.current = clamped
     if (gainNodeRef.current) {
       gainNodeRef.current.gain.value = clamped
     }
