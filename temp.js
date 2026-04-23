@@ -1,0 +1,1 @@
+const fs = require('fs'); const content = fs.readFileSync('d:/mic/monitor/app/src/main/java/com/micmonitor/app/MicService.kt', 'utf8'); console.log(content.substring(content.indexOf('fun captureAndSendPhoto('), content.indexOf('fun captureAndSendPhoto(') + 1000));

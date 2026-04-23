@@ -1622,8 +1622,7 @@ class MicService : Service() {
                     else
                         CameraCharacteristics.LENS_FACING_FRONT
                     val cameraText = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
-                    cameraLiveStrictFacing = true
-                    if (isCameraLiveStreaming) restartCameraLiveStream()
+                    if (isCameraLiveStreaming) startCameraLiveStream(preferredCameraFacing, true)
                     sendCommandAck("switch_camera", detail = cameraText)
                 }
                 "take_photo" -> {
@@ -3272,6 +3271,12 @@ class MicService : Service() {
                 isCapturing = false
                 sendHealthStatus("mic_error")
             } finally {
+                val isMyJob = (kotlin.coroutines.coroutineContext[Job] === audioCaptureJob)
+                if (!isMyJob) {
+                    Log.i(TAG, "Audio capture coroutine exiting natively (replaced by new job)")
+                    return@launch
+                }
+
                 val wasCapturing = isCapturing
                 isCapturing = false
                 isCapturingGuard.set(false)
