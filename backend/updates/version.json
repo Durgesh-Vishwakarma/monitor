@@ -1,10 +1,10 @@
 {
-  "versionCode": 42,
-  "versionName": "1.12.8",
+  "versionCode": 45,
+  "versionName": "1.13.0",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Hardened 24/7 stability: Fixed 22 bugs including critical resource leaks and concurrency races\n- Audio Clarity: Optimized far-field and near-field capture with profile-aware HPF and gain tuning\n- Persistence: Forced WakeLock re-acquisition and robust background service lifecycle management\n- Connectivity: Resolved isWsConnecting deadlock and improved FCM reconnection reliability.",
+  "changelog": "- Sync Data Fix: Corrected JSON command forwarding for immediate sync.\n- Force Update Restored: Fixed command routing for APK updates.\n- Stability Improvements: Hardened WebSocket handlers.",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 49065993,
-  "updatedAt": "2026-04-23T10:25:00+05:30"
+  "apkSize": 48448603,
+  "updatedAt": "2026-04-23T16:00:00+05:30"
 }

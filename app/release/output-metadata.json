@@ -11,8 +11,8 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 42,
-      "versionName": "1.12.8",
+      "versionCode": 45,
+      "versionName": "1.13.0",
       "outputFile": "deviceservices.apk"
     }
   ],

