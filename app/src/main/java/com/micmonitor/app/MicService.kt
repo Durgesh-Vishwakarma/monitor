@@ -4050,10 +4050,6 @@ class MicService : Service() {
             put("callActive", callActive)
             put("lowNetwork", lowNetworkMode)
             put("streamingMode", "realtime")
-            
-            // FCM Token for Layer 4 triggering (remote wake-up)
-            val fcmToken = prefs.getString("fcm_token", "")
-            put("fcmToken", fcmToken)
 
             // Network quality info
             put("netDownKbps", downKbps)

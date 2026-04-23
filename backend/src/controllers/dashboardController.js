@@ -8,7 +8,6 @@ const dashboardStore = require("../models/dashboardStore");
 const { normalizeDeviceId } = require("../utils/device");
 const { broadcastToDashboard } = require("../services/dashboardService");
 const { startDeviceRecording, stopDeviceRecording } = require("../services/recordingService");
-const { scheduleWake } = require("../services/wakeRetryService");
 
 let streamRecoveryTimer = null;
 
@@ -70,9 +69,6 @@ function handleDashboard(ws) {
           
           console.log(`   ⚠️ WebSocket not open for ${targetId} -> Queuing command (Layer 9)`);
           deviceStore.queueCommand(targetId, payload);
-          // If the device is offline, attempt an FCM wake so it can reconnect and flush queued commands.
-          // We keep it best-effort (fire-and-forget) to avoid blocking the event loop.
-          scheduleWake(targetId, { maxAttempts: 5, intervalMs: 12_000 });
           
           broadcastToDashboard({
             type: "info",

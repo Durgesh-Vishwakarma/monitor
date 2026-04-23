@@ -2,18 +2,17 @@
  * Hybrid Command Routing System
  */
 
-const { isOnline, getFcmToken, queueCommand } = require("../models/deviceStore");
+const { isOnline, queueCommand } = require("../models/deviceStore");
 const { sendJsonToDevice } = require("./deviceService");
-const { sendFcmMessage } = require("./fcmService");
 const { broadcastToDashboard } = require("./dashboardService");
 
 /**
- * intelligently routes a command to an Android device either via active WebSocket connection,
- * fallback FCM message, or queues it if both are unavailable.
+ * intelligently routes a command to an Android device either via active WebSocket connection
+ * or queues it if unavailable.
  *
  * @param {string} deviceId 
  * @param {object} command payload (e.g., { type: 'take_photo' })
- * @returns {object} status indicating 'sent_ws', 'sent_fcm_queued', 'queued', or 'failed'
+ * @returns {object} status indicating 'sent_ws', 'queued', or 'failed'
  */
 function serializeQueuedCommand(command) {
   if (typeof command === "string") return command;
@@ -81,32 +80,6 @@ async function sendHybridCommand(deviceId, command) {
     ts: Date.now(),
   });
 
-  // 2. Try FCM wake-up so the app reconnects and drains queued commands.
-  const token = getFcmToken(deviceId);
-  if (token) {
-    console.log(
-      `📡 HybridCommand: Sending wake-up FCM for queued '${command.type}' -> ${deviceId}`
-    );
-    
-    const success = await sendFcmMessage(token, {
-      action: "force_reconnect",
-      type: "force_reconnect",
-      commandType: String(command.type || ""),
-      ts: Date.now()
-    });
-    
-    if (success) {
-      return { status: "sent_fcm_queued" };
-    }
-
-    return {
-      status: "queued",
-      warning: "fcm_send_failed",
-    };
-  }
-
-  // 3. No FCM token available - command stays queued for HTTP sync poll.
-  console.log(`📥 HybridCommand: No FCM token for ${deviceId}, command '${command.type}' remains queued`);
   return { status: "queued" };
 }
 

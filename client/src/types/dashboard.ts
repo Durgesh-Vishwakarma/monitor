@@ -33,7 +33,6 @@ export type DeviceHealth = {
   lastHealthAt?: number
   appVersionName?: string
   appVersionCode?: number
-  fcmToken?: string
 }
 
 export type Device = {

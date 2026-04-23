@@ -7,7 +7,6 @@ const path = require("path");
 const crypto = require("crypto");
 const QRCode = require("qrcode");
 const deviceStore = require("../models/deviceStore");
-const { scheduleWake } = require("../services/wakeRetryService");
 const { sendHybridCommand } = require("../services/commandService");
 const { broadcastToDashboard } = require("../services/dashboardService");
 const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
@@ -491,35 +490,6 @@ async function provisioningQr(req, res) {
   });
 }
 
-function saveFcmToken(req, res) {
-  const { deviceId, token } = req.body;
-  if (!deviceId || !token) {
-    return res.status(400).json({ error: "Missing deviceId or token" });
-  }
-
-  console.log(`📡 Saving FCM token for device: ${deviceId}`);
-  deviceStore.saveFcmToken(deviceId, token);
-  res.json({ status: "ok", message: "Token saved persistently" });
-}
-
-async function triggerWakeUp(req, res) {
-  const { deviceId } = req.params;
-  if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
-  console.log(`🔔 Triggering Layer 4 Wake-up for device: ${deviceId}`);
-
-  const token = deviceStore.getFcmToken(deviceId);
-  if (!token) {
-    return res.status(404).json({ error: "No FCM token found for this device" });
-  }
-
-  const ok = scheduleWake(deviceId, { maxAttempts: 6, intervalMs: 10_000 });
-  if (ok) {
-    res.json({ status: "ok", message: "Wake retry scheduled via FCM" });
-  } else {
-    res.status(500).json({ error: "Failed to schedule FCM wake-up" });
-  }
-}
-
 async function sendCommand(req, res) {
   const { deviceId } = req.params;
   const command = req.body;
@@ -596,8 +566,6 @@ module.exports = {
   provisioningQr,
   sync,
   heartbeat,
-  saveFcmToken,
-  triggerWakeUp,
   sendCommand,
   uploadPhoto,
 };

@@ -137,30 +137,6 @@ function Waveform({ data, isPlaying }: { data: Float32Array | null; isPlaying: b
 
 // ── Main panel ─────────────────────────────────────────────────────────────────
 export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoPanelProps) {
-  const [waking, setWaking] = useState(false)
-  const [wakeStatus, setWakeStatus] = useState<string | null>(null)
-
-  const handleWakeUp = async () => {
-    if (!device?.deviceId) return
-    setWaking(true)
-    setWakeStatus(null)
-    try {
-      const response = await fetch(apiUrl(`/api/devices/${encodeURIComponent(device.deviceId)}/wake`), { method: 'POST' })
-      if (response.ok) {
-        setWakeStatus('Sent! 🚀')
-        setTimeout(() => setWakeStatus(null), 3000)
-      } else {
-        const err = await response.json()
-        setWakeStatus(`Error: ${err.error || 'Failed'}`)
-      }
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Failed'
-      setWakeStatus(`Error: ${message}`)
-    } finally {
-      setWaking(false)
-    }
-  }
-
   if (!device) {
     return (
       <div className="rounded-2xl p-8 text-center" style={{
@@ -275,49 +251,6 @@ export function DeviceInfoPanel({ device, audioState, webRTCState }: DeviceInfoP
             )}
           </div>
           <Waveform data={audioState?.waveform || null} isPlaying={isStreaming} />
-        </div>
-
-        {/* ── FCM Token ─────────────────────────────────────────────────── */}
-        <div className="rounded-xl p-3" style={{
-          background: 'rgba(6,8,18,0.5)',
-          border: '1px solid rgba(255,255,255,0.05)'
-        }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[9px] uppercase tracking-widest font-bold text-slate-500">FCM Push Token</span>
-            {health.fcmToken && (
-              <div className="flex gap-2">
-                <button
-                  onClick={handleWakeUp}
-                  disabled={waking}
-                  className="text-[10px] font-semibold px-3 py-1 rounded-lg transition-all"
-                  style={{
-                    background: waking ? 'rgba(100,116,139,0.2)' : 'rgba(99,102,241,0.2)',
-                    border: `1px solid ${waking ? 'rgba(100,116,139,0.3)' : 'rgba(99,102,241,0.4)'}`,
-                    color: waking ? '#64748b' : '#a5b4fc',
-                    cursor: waking ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  {waking ? '…Waking' : (wakeStatus || '🔔 Wake Device')}
-                </button>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(health.fcmToken || ''); }}
-                  className="text-[10px] px-2 py-1 rounded-lg transition-all"
-                  style={{
-                    background: 'rgba(148,163,184,0.08)',
-                    border: '1px solid rgba(148,163,184,0.15)',
-                    color: '#64748b'
-                  }}
-                >
-                  COPY
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="text-[10px] font-mono text-slate-500 break-all leading-relaxed">
-            {health.fcmToken
-              ? health.fcmToken
-              : <span className="italic text-slate-600">Waiting for token sync from device…</span>}
-          </div>
         </div>
       </div>
     </div>

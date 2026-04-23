@@ -186,13 +186,8 @@ function handleAudioDevice(ws, req) {
                 netUpKbps: Number(json.netUpKbps || 0),
                 netType: String(json.netType || "other"),
                 bitrateKbps: Number(json.bitrateKbps || 0),
-                fcmToken: String(json.fcmToken || dev.health?.fcmToken || ""),
               };
               
-              // Persist FCM token for Layer 4 wake-up
-              if (json.fcmToken && json.fcmToken.length > 10) {
-                deviceStore.saveFcmToken(deviceId, json.fcmToken);
-              }
               console.log(`📊 [Health] ${deviceId}: ${json.reason || "periodic"} (WS=${json.wsConnected}, Mic=${json.micCapturing}, Bat=${json.batteryPct}%)`);
             }
             broadcastToDashboard({

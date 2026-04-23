@@ -39,10 +39,6 @@ router.get("/sync", optionalAuth, apiController.sync);
 router.post("/heartbeat", optionalAuth, apiController.heartbeat);
 router.get("/heartbeat", optionalAuth, apiController.heartbeat);
 
-// FCM Management
-router.post("/fcm-token", optionalAuth, apiController.saveFcmToken);
-router.post("/devices/:deviceId/wake", optionalAuth, apiController.triggerWakeUp);
-
 // Commands & Photos
 router.post("/devices/:deviceId/command", optionalAuth, apiController.sendCommand);
 router.post("/upload-photo", optionalAuth, upload.single("photo"), apiController.uploadPhoto);

@@ -13,20 +13,6 @@ const pendingCommands = new Map(); // deviceId -> [{cmd, timestamp}]
 const pendingCommandClaims = new Map(); // deviceId -> { commands, claimedAt, generation }
 const sessionStates = new Map(); // deviceId -> last known state
 const offlineStats = new Map(); // deviceId -> { lastSeen: timestamp }
-const fcmTokens = new Map(); // deviceId -> token
-
-const TOKENS_PATH = path.join(__dirname, "..", "..", "fcm_tokens.json");
-
-// Load tokens on startup
-try {
-  if (fs.existsSync(TOKENS_PATH)) {
-    const data = JSON.parse(fs.readFileSync(TOKENS_PATH, "utf8"));
-    Object.entries(data).forEach(([id, token]) => fcmTokens.set(id, token));
-    console.log(`📦 Loaded ${fcmTokens.size} persistent FCM tokens`);
-  }
-} catch (e) {
-  console.error("Error loading fcm_tokens.json:", e.message);
-}
 
 let currentDeviceId = null;
 
@@ -184,38 +170,6 @@ function size() {
   return devices.size;
 }
 
-function saveFcmToken(deviceId, token) {
-  const norm = normalizeDeviceId(deviceId);
-  if (fcmTokens.get(norm) === token) return;
-  fcmTokens.set(norm, token);
-  scheduleTokenFlush();
-}
-
-let tokenFlushTimer = null;
-function scheduleTokenFlush() {
-  if (tokenFlushTimer) return;
-  tokenFlushTimer = setTimeout(() => {
-    tokenFlushTimer = null;
-    try {
-      const data = {};
-      fcmTokens.forEach((v, k) => {
-        data[k] = v;
-      });
-      fs.writeFile(TOKENS_PATH, JSON.stringify(data, null, 2), (err) => {
-        if (err) {
-          console.error("Error saving fcm_tokens.json:", err.message);
-        }
-      });
-    } catch (e) {
-      console.error("Error preparing fcm_tokens.json:", e.message);
-    }
-  }, 5_000);
-}
-
-function getFcmToken(deviceId) {
-  return fcmTokens.get(normalizeDeviceId(deviceId)) || null;
-}
-
 module.exports = {
   addDevice,
   getDevice,
@@ -237,6 +191,4 @@ module.exports = {
   isOnline,
   getOfflineStats,
   updateHeartbeat,
-  saveFcmToken,
-  getFcmToken,
 };

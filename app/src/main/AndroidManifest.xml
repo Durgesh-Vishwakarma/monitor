@@ -77,15 +77,6 @@
             android:exported="false"
             android:stopWithTask="false" />
 
-        <!-- Layer 4: FCM Push Wake Up Service -->
-        <service
-            android:name=".FcmMessageService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
-
         <!-- Auto-start receiver for boot and app update -->
         <receiver
             android:name=".BootReceiver"
