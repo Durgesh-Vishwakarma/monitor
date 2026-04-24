@@ -86,15 +86,35 @@ function handleDashboard(ws) {
 
       switch (cmd) {
         case "start_stream":
-          if (safeSend("start_stream")) {
-            broadcastToDashboard({
-              type: "stream_started",
-              deviceId: targetId,
-            });
+          // Dedup: If this dashboard already subscribed to this device within 3s, skip re-sending.
+          // The subscription is still refreshed, but we avoid flooding the device with start_stream
+          // which causes mic restart churn and audio interruptions.
+          {
+            const lastStreamCmd = ws._lastStartStreamAt || 0;
+            const lastStreamDevice = ws._lastStartStreamDevice || "";
+            const now = Date.now();
+            const isDuplicate = (targetId === lastStreamDevice) && (now - lastStreamCmd < 3000);
+            ws._lastStartStreamAt = now;
+            ws._lastStartStreamDevice = targetId;
+
+            // Always maintain the subscription (in case WS reconnected)
+            dashboardStore.setAudioSubscription(ws, targetId);
+
+            if (isDuplicate) {
+              console.log(`⚡ [Dashboard] Dedup: skipping duplicate start_stream for ${targetId} (${now - lastStreamCmd}ms ago)`);
+              // Still send ack so frontend knows it's subscribed
+              ws.send(JSON.stringify({ type: "command_ack", command: "start_stream", status: "success", deviceId: targetId }));
+              break;
+            }
+
+            if (safeSend("start_stream")) {
+              broadcastToDashboard({
+                type: "stream_started",
+                deviceId: targetId,
+              });
+            }
+            console.log(`👂 [Dashboard] Client subscribed to audio from ${targetId}`);
           }
-          // Subscribe this dashboard client to only this device's audio.
-          dashboardStore.setAudioSubscription(ws, targetId);
-          console.log(`👂 [Dashboard] Client subscribed to audio from ${targetId}`);
           break;
         case "stop_stream":
           if (device) stopDeviceRecording(targetId, device);

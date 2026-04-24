@@ -55,16 +55,23 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
       const res = await fetch(apiUrl(`/api/photos${query}`));
       if (!res.ok) return;
       const json = await res.json();
-      const mapped = (json || []).map((item, idx) => ({
-        id: String(item.name || idx),
-        filename: String(item.name || ''),
-        url: apiUrl(String(item.url || '')),
-        camera: item.camera === 'front' ? 'front' : 'rear',
-        quality: 'normal',
-        aiEnhanced: false,
-        size: Number(item.size || 0),
-        timestamp: new Date(Number(item.ts || Date.now())).toISOString()
-      }));
+      const mapped = (json || []).map((item, idx) => {
+        let qualityDisplay = String(item.quality || 'normal');
+        const nightMode = String(item.nightMode || 'off');
+        if (nightMode !== 'off') {
+          qualityDisplay += ` ${nightMode}`;
+        }
+        return {
+          id: String(item.name || idx),
+          filename: String(item.name || ''),
+          url: apiUrl(String(item.url || '')),
+          camera: item.camera === 'front' ? 'front' : 'rear',
+          quality: qualityDisplay,
+          aiEnhanced: false,
+          size: Number(item.size || 0),
+          timestamp: new Date(Number(item.ts || Date.now())).toISOString()
+        };
+      });
       setPhotos(mapped.slice(0, 50));
     } catch {
       // Best-effort hydration from backend media index.
@@ -89,12 +96,28 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
       // Best-effort hydration from backend media index.
     }
   }, []);
+  // Refs for stable sendCommand closure — prevents identity changes on every device health update
+  const devicesRef = useRef(devices);
+  devicesRef.current = devices;
+
+  // Command deduplication: prevent rapid-fire duplicate commands
+  const lastCommandRef = useRef({ cmd: '', ts: 0 });
+
   const sendCommand = useCallback(async (cmd, extra = {}) => {
-    const targetId = selectedDeviceId || devices[0]?.deviceId;
+    const targetId = selectedDeviceIdRef.current || devicesRef.current[0]?.deviceId;
     if (!targetId) {
       addFeed(`Cannot send ${cmd}: no target device`);
       return;
     }
+
+    // Deduplication: skip identical commands within 2 seconds
+    const now = Date.now();
+    const last = lastCommandRef.current;
+    if (last.cmd === cmd && now - last.ts < 2000) {
+      return; // Silently skip duplicate
+    }
+    lastCommandRef.current = { cmd, ts: now };
+
     addFeed(`Sending ${cmd}...`);
 
     // Primary path: send via control WebSocket so backend can apply
@@ -148,7 +171,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
       const message = err instanceof Error ? err.message : String(err);
       addFeed(`Failed to send ${cmd}: ${message}`);
     }
-  }, [addFeed, devices, selectedDeviceId]);
+  }, [addFeed]);
   const onAudioDataRef = useRef(onAudioData);
   const onWebRTCMessageRef = useRef(onWebRTCMessage);
   const onCameraFrameRef = useRef(onCameraFrame);
@@ -344,12 +367,18 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
 
           // Handle photo saved
           if (type === 'photo_saved') {
+            let qualityDisplay = String(msg.quality || 'normal');
+            const nightMode = String(msg.nightMode || 'off');
+            if (nightMode !== 'off') {
+              qualityDisplay += ` ${nightMode}`;
+            }
+
             const photo = {
               id: String(msg.filename || Date.now()),
               filename: String(msg.filename || ''),
               url: apiUrl(String(msg.url || '')),
               camera: msg.camera === 'front' ? 'front' : 'rear',
-              quality: msg.quality === 'fast' ? 'fast' : msg.quality === 'hd' ? 'hd' : 'normal',
+              quality: qualityDisplay,
               aiEnhanced: Boolean(msg.aiEnhanced),
               size: Number(msg.size || 0),
               timestamp: new Date(Number(msg.ts || Date.now())).toISOString()

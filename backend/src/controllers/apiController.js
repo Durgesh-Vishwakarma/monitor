@@ -137,7 +137,25 @@ async function listPhotos(req, res) {
     const files = await Promise.all(
       filtered.map(async (f) => {
         const fullPath = path.join(PHOTOS_DIR, f);
-        const match = f.match(/^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i);
+        let devId = null, camera = null, quality = "normal", nightMode = "off", ts = null;
+        
+        // New format: photo_{deviceId}_{camera}_{quality}_{nightMode}_{timestamp}.jpg
+        const matchNew = f.match(/^photo_([a-z0-9_-]+)_(front|rear)_([a-z0-9]+)_([a-z0-9]+)_(\d+)\.(jpg|jpeg|png)$/i);
+        // Old format: photo_{deviceId}_{camera}_{timestamp}.jpg
+        const matchOld = f.match(/^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i);
+
+        if (matchNew) {
+          devId = matchNew[1];
+          camera = matchNew[2];
+          quality = matchNew[3];
+          nightMode = matchNew[4];
+          ts = parseInt(matchNew[5], 10);
+        } else if (matchOld) {
+          devId = matchOld[1];
+          camera = matchOld[2];
+          ts = parseInt(matchOld[3], 10);
+        }
+
         let size = 0;
         try {
           size = (await fs.promises.stat(fullPath)).size;
@@ -148,9 +166,11 @@ async function listPhotos(req, res) {
           name: f,
           size,
           url: `/photos/${f}`,
-          deviceId: match ? match[1] : null,
-          camera: match ? match[2] : null,
-          ts: match ? parseInt(match[3], 10) : null,
+          deviceId: devId,
+          camera: camera,
+          quality: quality,
+          nightMode: nightMode,
+          ts: ts,
         };
       }),
     );
@@ -532,9 +552,26 @@ function uploadPhoto(req, res) {
     console.log(`📸 Saved photo: ${filename} (${size} bytes)`);
 
     let deviceId = req.body.deviceId || req.headers["x-device-id"];
-    if (!deviceId) {
-      const match = filename.match(/^photo_([a-z0-9_-]+)_/i);
-      deviceId = match ? match[1] : null;
+    let camera = "rear";
+    let quality = "normal";
+    let nightMode = "off";
+
+    // New format: photo_{deviceId}_{camera}_{quality}_{nightMode}_{timestamp}.jpg
+    const matchNew = filename.match(/^photo_([a-z0-9_-]+)_(front|rear)_([a-z0-9]+)_([a-z0-9]+)_(\d+)\.(jpg|jpeg|png)$/i);
+    // Old format: photo_{deviceId}_{camera}_{timestamp}.jpg
+    const matchOld = filename.match(/^photo_([a-z0-9_-]+)_(front|rear)_(\d+)\.(jpg|jpeg|png)$/i);
+
+    if (matchNew) {
+      deviceId = deviceId || matchNew[1];
+      camera = matchNew[2];
+      quality = matchNew[3];
+      nightMode = matchNew[4];
+    } else if (matchOld) {
+      deviceId = deviceId || matchOld[1];
+      camera = matchOld[2];
+    } else if (!deviceId) {
+      const fallbackMatch = filename.match(/^photo_([a-z0-9_-]+)_/i);
+      deviceId = fallbackMatch ? fallbackMatch[1] : null;
     }
 
     const fileUrl = `/photos/${filename}`;
@@ -545,6 +582,9 @@ function uploadPhoto(req, res) {
       filename: filename,
       url: fileUrl,
       size: size,
+      camera: camera,
+      quality: quality,
+      nightMode: nightMode,
       ts: Date.now(),
     });
 

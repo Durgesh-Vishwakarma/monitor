@@ -183,9 +183,12 @@ export function useAudioPlayback() {
       if (now - lastStateUpdateRef.current >= 100) {
         lastStateUpdateRef.current = now;
         const bufferHealth = Math.min(1, queue.reduce((acc, c) => acc + c.length, 0) / (SAMPLE_RATE * 0.5));
+        const totalSamples = queue.reduce((acc, c) => acc + c.length, 0);
         setState(prev => ({
           ...prev,
           bufferHealth,
+          latencyMs: Math.round(totalSamples / SAMPLE_RATE * 1000),
+          lastDeviceId: lastDeviceIdRef.current,
           waveform: new Float32Array(waveform)
         }));
       }
@@ -244,11 +247,13 @@ export function useAudioPlayback() {
       const removed = audioQueueRef.current.shift();
       if (removed) totalSamples -= removed.length;
     }
-    setState(prev => ({
-      ...prev,
-      lastDeviceId: parsed.deviceId,
-      latencyMs: Math.round(totalSamples / SAMPLE_RATE * 1000)
-    }));
+
+    // Track latency and device via refs — the throttled state update in
+    // onaudioprocess will pick them up. DO NOT setState here: calling
+    // setState on every audio frame (~60/sec) causes cascading React
+    // re-renders that triggered the 80-commands/sec start_stream flood.
+    lastDeviceIdRef.current = parsed.deviceId;
+    // latencyMs is derived from queue in the throttled update
   }, [parseAudioFrame]);
 
   // Set volume

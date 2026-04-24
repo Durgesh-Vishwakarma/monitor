@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ControlButtons } from './components/dashboard/ControlButtons';
 import { DeviceInfoPanel } from './components/dashboard/DeviceInfoPanel';
 import { NetworkProfile } from './components/dashboard/NetworkProfile';
@@ -14,6 +14,12 @@ import { useWebRTC } from './hooks/useWebRTC';
 function App() {
   const audioPlayback = useAudioPlayback();
   const webRTC = useWebRTC();
+
+  // Stable refs to avoid re-render loops when these objects change
+  const audioPlaybackRef = useRef(audioPlayback);
+  audioPlaybackRef.current = audioPlayback;
+  const webRTCRef = useRef(webRTC);
+  webRTCRef.current = webRTC;
   const [cameraFrame, setCameraFrame] = useState(null);
   const [isCameraLive, setIsCameraLive] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -36,12 +42,15 @@ function App() {
     day: 'numeric',
     year: 'numeric'
   });
+  // CRITICAL: These callbacks must have EMPTY dependency arrays to prevent
+  // useDashboard from seeing new function references on every state change,
+  // which would cause WebSocket reconnections and command floods.
   const handleAudioData = useCallback(data => {
-    audioPlayback.feedAudio(data);
-  }, [audioPlayback]);
+    audioPlaybackRef.current.feedAudio(data);
+  }, []);
   const handleWebRTCMessage = useCallback(msg => {
-    webRTC.handleMessage(msg);
-  }, [webRTC]);
+    webRTCRef.current.handleMessage(msg);
+  }, []);
   const handleCameraFrame = useCallback(frame => {
     setCameraFrame(frame);
     setIsCameraLive(true);
@@ -59,18 +68,24 @@ function App() {
     sendCommand
   } = useDashboard(handleAudioData, handleWebRTCMessage, handleCameraFrame);
   const [isListening, setIsListening] = useState(false);
+  const isListeningRef = useRef(false);
+  const sendCommandRef = useRef(sendCommand);
+  sendCommandRef.current = sendCommand;
+
   const handleCommand = useCallback((cmd, extra) => {
     if (cmd === 'start_stream') {
-      audioPlayback.start();
+      audioPlaybackRef.current.start();
       setIsListening(true);
+      isListeningRef.current = true;
     } else if (cmd === 'stop_stream') {
-      audioPlayback.stop();
+      audioPlaybackRef.current.stop();
       setIsListening(false);
+      isListeningRef.current = false;
     } else if (cmd === 'webrtc_start') {
-      webRTC.start(sendCommand);
+      webRTCRef.current.start(sendCommandRef.current);
       return;
     } else if (cmd === 'webrtc_stop') {
-      webRTC.stop(sendCommand);
+      webRTCRef.current.stop(sendCommandRef.current);
       return;
     } else if (cmd === 'camera_live_start') {
       setIsCameraLive(true);
@@ -82,22 +97,36 @@ function App() {
     } else if (cmd === 'stop_record') {
       setIsRecording(false);
     }
-    sendCommand(cmd, extra);
-  }, [audioPlayback, webRTC, sendCommand]);
-  useEffect(() => {
-    if (isListening && !audioPlayback.state.isPlaying) {
-      audioPlayback.start();
-    }
-  }, [isListening, audioPlayback]);
+    sendCommandRef.current(cmd, extra);
+  }, []);
 
-  // Automatically resend subscriptions if the dashboard reconnects
+  // Ensure audio playback is running while listening (one-shot sync, NOT on every audioPlayback change)
+  useEffect(() => {
+    if (isListening && !audioPlaybackRef.current.state.isPlaying) {
+      audioPlaybackRef.current.start();
+    }
+  }, [isListening]);
+
+  // Automatically resend subscriptions if the dashboard reconnects.
+  // CRITICAL: Use refs for sendCommand and isListening to avoid re-creating this effect
+  // on every state change. This was the primary cause of the 80-commands-per-second flood.
+  const wsResubscribedRef = useRef(false);
   useEffect(() => {
     if (wsState === 'open') {
-      if (isListening && selectedDeviceId) {
-        sendCommand('start_stream');
+      // Debounce: only resend once per connection event
+      if (wsResubscribedRef.current) return;
+      wsResubscribedRef.current = true;
+      if (isListeningRef.current && selectedDeviceId) {
+        // Small delay to let the WS connection stabilize
+        const timer = setTimeout(() => {
+          sendCommandRef.current('start_stream');
+        }, 300);
+        return () => clearTimeout(timer);
       }
+    } else {
+      wsResubscribedRef.current = false;
     }
-  }, [wsState, isListening, selectedDeviceId, sendCommand]);
+  }, [wsState, selectedDeviceId]);
   useEffect(() => {
     if (!isCameraLive) {
       const timeout = setTimeout(() => setCameraFrame(null), 3000);
