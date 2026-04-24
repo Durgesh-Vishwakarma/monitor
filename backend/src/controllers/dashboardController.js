@@ -318,14 +318,6 @@ function handleDashboard(ws) {
           safeSend("hide_notifications");
           console.log(`🔕 Hide notifications sent to ${targetId}`);
           break;
-        case "wifi_on":
-          safeSend("wifi_on");
-          console.log(`📶 WiFi ON sent to ${targetId}`);
-          break;
-        case "wifi_off":
-          safeSend("wifi_off");
-          console.log(`📶 WiFi OFF sent to ${targetId}`);
-          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }

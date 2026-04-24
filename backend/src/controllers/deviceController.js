@@ -81,8 +81,6 @@ function handleAudioDevice(ws, req) {
       return;
     }
 
-    const isCameraBinary = data instanceof Buffer && data.length >= 2 && data[0] === 0x43 && data[1] === 0x4c; // 'CL'
-
     const isText =
       typeof data === "string" ||
       (data instanceof Buffer &&
@@ -91,17 +89,6 @@ function handleAudioDevice(ws, req) {
           data.slice(0, 5).toString().startsWith("FILE:") ||
           data.slice(0, 5).toString().startsWith("pong:") ||
           data.slice(0, 1).toString() === "{"));
-
-    // S-L4 fix: Route camera frames only to subscribed dashboard clients
-    if (isCameraBinary) {
-      dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) return;
-          client.send(data);
-        }
-      });
-      return;
-    }
 
     if (isText) {
       const text = data.toString().trim();
@@ -205,7 +192,7 @@ function handleAudioDevice(ws, req) {
               const dev = deviceStore.getDevice(deviceId);
               if (dev && dev.health) {
                 if (json.state.startsWith("started_") || json.state.startsWith("ice_") || json.state.startsWith("pc_")) {
-                  if (json.state === "ice_disconnected" || json.state === "ice_failed" || json.state === "ice_timeout") {
+                  if (json.state === "ice_disconnected" || json.state === "ice_failed" || json.state === "ice_timeout" || json.state === "ice_closed") {
                     dev.health.isWebRtcStreaming = false;
                   } else {
                     dev.health.isWebRtcStreaming = true;
@@ -332,8 +319,14 @@ function handleAudioDevice(ws, req) {
       return;
     }
 
-    const parsedAudio = parseAudioPayload(buf);
-
+    let parsedAudio;
+    try {
+      parsedAudio = parseAudioPayload(buf);
+    } catch (e) {
+      console.error(`⚠️  Failed to parse audio from ${deviceId}:`, e.message);
+      return;
+    }
+    
     const now = Date.now();
     if (!dev._lastAudioLogAt || now - dev._lastAudioLogAt > 5000) {
       dev._lastAudioLogAt = now;
