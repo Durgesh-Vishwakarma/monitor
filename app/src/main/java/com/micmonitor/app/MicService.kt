@@ -162,12 +162,16 @@ class MicService : Service() {
     @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
     private var lowNetworkRecoveryStreak = 0
     @Volatile private var lastNetworkCapabilitiesAt = 0L
+    @Volatile private var isNetworkLagging = false
     private var lastDataHashStr: String = "" // Bug 5: String checksum for dedup
     // BUG-R1/R13 fix: single AtomicBoolean is the ONLY guard — isPhotoCaptureBusy removed
     private val photoCaptureBusyGuard = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private fun currentStreamFrameMs(): Int {
-        return if (lowNetworkMode) lowNetworkFrameMs.coerceIn(20, 40) else 20
+        // For WebRTC (UDP), smaller 20ms frames are handled internally.
+        // For WebSocket (TCP), if network is weak/lagging, bundling into 40ms 
+        // halves the TCP/IP acknowledgment overhead, vastly improving weak WiFi stability.
+        return if (lowNetworkMode || isNetworkLagging) 40 else 20
     }
     
     // HQ Buffered Audio Mode removed (M-02) — all code uses realtime path
@@ -483,13 +487,9 @@ class MicService : Service() {
             return
         }
 
-        // Preserve clarity at 16 kHz; adapt frame duration to survive weak links.
+        // Preserve clarity at 16 kHz; lock frame duration to 20ms to prevent audio stutters.
         lowNetworkSampleRate = 16000
-        lowNetworkFrameMs = when {
-            upKbps in 1..80  -> 40
-            upKbps in 81..180 -> 30
-            else -> 20
-        }
+        lowNetworkFrameMs = 20
 
         if (prevFrameMs != lowNetworkFrameMs || prevSampleRate != lowNetworkSampleRate || prevLowNet != lowNetworkMode) {
             Log.i(TAG, "Low-network tuning: sampleRate=${lowNetworkSampleRate}Hz frameMs=${lowNetworkFrameMs} autoEnabled=${!prevLowNet && lowNetworkMode}")
@@ -2018,7 +2018,7 @@ class MicService : Service() {
             val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
             
             // Even in far mode, respect severe network issues
-            if ((!loss.isNaN() && loss >= 15.0) || (!rtt.isNaN() && rtt >= 500.0)) {
+            if ((!loss.isNaN() && loss >= 10.0) || (!rtt.isNaN() && rtt >= 500.0)) {
                 target = WEBRTC_FAR_MIN_KBPS
             } else if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
                 val downKbps = caps.linkDownstreamBandwidthKbps
@@ -2060,14 +2060,15 @@ class MicService : Service() {
         val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
         val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
         
-        // Severe network issues: drop to minimum low-network bitrate
-        if (wsReconnectAttempts >= 6) return WEBRTC_MIN_BITRATE_KBPS
-        if (!loss.isNaN() && loss >= 25.0) return WEBRTC_MIN_BITRATE_KBPS
-        if (!rtt.isNaN() && rtt >= 800.0) return WEBRTC_MIN_BITRATE_KBPS
-        if (!jitter.isNaN() && jitter >= 300.0) return WEBRTC_MIN_BITRATE_KBPS
+        // Severe network issues: drop to minimum low-network bitrate (24 kbps)
+        // Aggressively adapted for weak WiFi (far from router)
+        if (wsReconnectAttempts >= 3) return WEBRTC_MIN_BITRATE_KBPS
+        if (!loss.isNaN() && loss >= 10.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!rtt.isNaN() && rtt >= 500.0) return WEBRTC_MIN_BITRATE_KBPS
+        if (!jitter.isNaN() && jitter >= 200.0) return WEBRTC_MIN_BITRATE_KBPS
         
-        // Moderate issues: use low-network mid bitrate.
-        if ((!loss.isNaN() && loss >= 15.0) || (!rtt.isNaN() && rtt >= 500.0) || (!jitter.isNaN() && jitter >= 150.0)) {
+        // Moderate issues: use low-network mid bitrate (32 kbps).
+        if ((!loss.isNaN() && loss >= 5.0) || (!rtt.isNaN() && rtt >= 250.0) || (!jitter.isNaN() && jitter >= 100.0)) {
             return WEBRTC_MID_BITRATE_KBPS
         }
         
@@ -2231,9 +2232,9 @@ class MicService : Service() {
 
     private fun requestedNightExposureNs(): Long? {
         return when (photoNightMode) {
-            "1s" -> 1_000_000_000L
-            "3s" -> 3_000_000_000L
-            "5s" -> 5_000_000_000L
+            "1s" -> 100_000_000L // 100ms
+            "3s" -> 200_000_000L // 200ms
+            "5s" -> 350_000_000L // 350ms
             else -> null
         }
     }
@@ -2253,9 +2254,9 @@ class MicService : Service() {
         if (manualSensor && expRange != null && isoRange != null) {
             val clampedExposure = requestedExposure.coerceIn(expRange.lower, expRange.upper)
             val desiredIso = when (photoNightMode) {
-                "1s" -> 800
-                "3s" -> 1200
-                "5s" -> 1600
+                "1s" -> 1600
+                "3s" -> 3200
+                "5s" -> 6400
                 else -> 800
             }
             val clampedIso = desiredIso.coerceIn(isoRange.lower, isoRange.upper)
@@ -2292,9 +2293,9 @@ class MicService : Service() {
         // HD mode: use max resolution for full quality
         // Normal/Fast: reasonable size that still captures full frame
         val maxEdge = when (photoQualityMode) {
-            "fast" -> 1280   // Increased for better quality
-            "hd" -> 2560     // Allow higher res for HD
-            else -> 1600     // Balanced
+            "fast" -> 960    // Reduced for size
+            "hd" -> 1600     // High detail but smaller file size
+            else -> 1280     // Balanced
         }
         
         val allSizes = streamMap.getOutputSizes(ImageFormat.JPEG) ?: return null
@@ -2323,27 +2324,30 @@ class MicService : Service() {
 
         val thread = HandlerThread("photo_capture_thread").apply { start() }
         val handler = Handler(thread.looper)
-        val imageReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 1)
+        val imageReader = ImageReader.newInstance(size.width, size.height, ImageFormat.JPEG, 2)
         val imageResult = CompletableDeferred<Pair<ByteArray, Int>?>()
 
         var camera: CameraDevice? = null
         var session: CameraCaptureSession? = null
         val cameraClosed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val isWarmupComplete = java.util.concurrent.atomic.AtomicBoolean(false)
 
         try {
             imageReader.setOnImageAvailableListener({ reader ->
-                try {
-                    val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                val image = reader.acquireLatestImage()
+                if (image != null) {
                     try {
-                        val buffer: ByteBuffer = image.planes[0].buffer
-                        val arr = ByteArray(buffer.remaining())
-                        buffer.get(arr)
-                        if (!imageResult.isCompleted) imageResult.complete(Pair(arr, actualFacing))
+                        if (isWarmupComplete.get()) {
+                            val buffer: ByteBuffer = image.planes[0].buffer
+                            val arr = ByteArray(buffer.remaining())
+                            buffer.get(arr)
+                            if (!imageResult.isCompleted) imageResult.complete(Pair(arr, actualFacing))
+                        }
+                    } catch (_: Exception) {
+                        if (!imageResult.isCompleted) imageResult.complete(null)
                     } finally {
                         image.close()
                     }
-                } catch (_: Exception) {
-                    if (!imageResult.isCompleted) imageResult.complete(null)
                 }
             }, handler)
 
@@ -2468,6 +2472,18 @@ class MicService : Service() {
                 // High quality JPEG (we compress later with network awareness)
                 set(CaptureRequest.JPEG_QUALITY, 95.toByte())
             }.build()
+
+            // WARMUP Phase: Must use TEMPLATE_PREVIEW for repeating requests to avoid HAL crashes
+            val warmupReq = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+                addTarget(imageReader.surface)
+                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+            }.build()
+            captureSession.setRepeatingRequest(warmupReq, null, handler)
+            delay(1000) // 1s for AE/AWB to converge
+            captureSession.stopRepeating()
+            isWarmupComplete.set(true)
 
             captureSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
             return withTimeoutOrNull(captureTimeoutMs) { imageResult.await() }
@@ -2685,7 +2701,24 @@ class MicService : Service() {
                     addTarget(imageReader.surface)
                     set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
-                    set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
+                
+                // C-02: Correct Live Stream JPEG orientation accounting for display rotation
+                val sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+                @Suppress("DEPRECATION")
+                val deviceRotation = (getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.rotation
+                val deviceRotationDeg = when (deviceRotation) {
+                    android.view.Surface.ROTATION_0 -> 0
+                    android.view.Surface.ROTATION_90 -> 90
+                    android.view.Surface.ROTATION_180 -> 180
+                    android.view.Surface.ROTATION_270 -> 270
+                    else -> 0
+                }
+                val jpegOrientation = if (actualFacing == CameraCharacteristics.LENS_FACING_FRONT) {
+                    (sensorOrientation + deviceRotationDeg) % 360
+                } else {
+                    (sensorOrientation - deviceRotationDeg + 360) % 360
+                }
+                set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
                     set(CaptureRequest.JPEG_QUALITY, liveJpegQuality.toByte())
                 }.build()
 
@@ -2753,9 +2786,9 @@ class MicService : Service() {
             
             // Use full resolution for HD, reasonable for others (no aggressive crop)
             val maxEdge = when (qualityMode) {
-                "fast" -> 1280   // Increased from 1024 for better quality
-                "hd" -> 1920
-                else -> 1280
+                "fast" -> 960    // Reduced for size
+                "hd" -> 1600     // High detail but smaller file size
+                else -> 1280     // Balanced
             }
             var sample = 1
             while ((bounds.outWidth / sample) > maxEdge || (bounds.outHeight / sample) > maxEdge) {
@@ -3145,6 +3178,17 @@ class MicService : Service() {
                             updateAutoAiProfile(chunk, targetChunkSize)
                         }
                         
+                        // Check TCP buffer bloat / extreme lag on weak WiFi
+                        val qSize = activeWebSocket?.queueSize() ?: 0L
+                        if (qSize > 48_000L) { // ~1.5 sec of PCM audio queued in OkHttp
+                            if (!isNetworkLagging) {
+                                Log.w(TAG, "Network lagging! WS queue size: $qSize bytes. Forcing MuLaw & 40ms chunks.")
+                                isNetworkLagging = true
+                            }
+                        } else if (qSize < 16_000L) {
+                            isNetworkLagging = false
+                        }
+
                         // ══════════════════════════════════════════════════════════════════
                         // REALTIME MODE ──────────────────────────────────────────────────
                         // ══════════════════════════════════════════════════════════════════
@@ -3165,23 +3209,29 @@ class MicService : Service() {
 
                         // 1) Live stream via legacy WS path only when WebRTC is inactive
                         if (!isWebRtcStreaming) {
-                            // Issue A: Inline encoding — no second chooseWsFallbackCodec() call
-                            val payload = if (willBeMuLaw) pcm16ToMuLaw(pcmData) else pcmData
-                            val encoded = ByteArray(4 + payload.size)
-                            encoded[0] = 0x4D.toByte(); encoded[1] = 0x4D.toByte()
-                            encoded[2] = 0x01; encoded[3] = codec
-                            System.arraycopy(payload, 0, encoded, 4, payload.size)
-                            if (safeSend(encoded.toByteString())) {
-                                lastAudioChunkSentAt = System.currentTimeMillis()
-                                lastAudioChunkSentAtMs = lastAudioChunkSentAt
-                                if (lastAudioChunkSentAt - lastPingSentAt >= 10_000) {
-                                    lastPingSentAt = lastAudioChunkSentAt
-                                    sendHealthStatus("audio_tick")
-                                }
+                            if (qSize > 96_000L) {
+                                // FATAL LAG AVOIDANCE: If queue exceeds 3 seconds, the stream is hopelessly behind.
+                                // Drop the WebSocket frame entirely so the network can catch up to real-time.
+                                Log.w(TAG, "WS queue overloaded ($qSize bytes) - dropping WS audio frame to preserve real-time playback")
                             } else {
-                                Log.w(TAG, "Audio send failed - stopping capture for reconnect")
-                                isCapturing = false
-                                break
+                                // Issue A: Inline encoding — no second chooseWsFallbackCodec() call
+                                val payload = if (willBeMuLaw) pcm16ToMuLaw(pcmData) else pcmData
+                                val encoded = ByteArray(4 + payload.size)
+                                encoded[0] = 0x4D.toByte(); encoded[1] = 0x4D.toByte()
+                                encoded[2] = 0x01; encoded[3] = codec
+                                System.arraycopy(payload, 0, encoded, 4, payload.size)
+                                if (safeSend(encoded.toByteString())) {
+                                    lastAudioChunkSentAt = System.currentTimeMillis()
+                                    lastAudioChunkSentAtMs = lastAudioChunkSentAt
+                                    if (lastAudioChunkSentAt - lastPingSentAt >= 10_000) {
+                                        lastPingSentAt = lastAudioChunkSentAt
+                                        sendHealthStatus("audio_tick")
+                                    }
+                                } else {
+                                    Log.w(TAG, "Audio send failed - stopping capture for reconnect")
+                                    isCapturing = false
+                                    break
+                                }
                             }
                         }
 
@@ -3545,18 +3595,18 @@ class MicService : Service() {
         var sumSq = 0.0
         for (v in work) sumSq += v * v
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
-        // Bug 5.3: Increase from 4.0 to 8.0 to allow higher far-voice gains mathematically
+        // Optimized for "loud volume, far voice"
         val gainCeil = when {
-            willBeMuLaw -> 3.0
+            willBeMuLaw -> 3.5
+            p == "far" -> if (strongAi) 12.0 else 10.0  // Pushed higher for distant voices
             p == "near" -> if (strongAi) 4.5 else 3.5
-            p == "far" -> if (strongAi) 8.0 else 8.0  // Bug 5.3: Increased ceiling
-            else -> if (strongAi) 4.0 else 3.5
+            else -> if (strongAi) 4.5 else 4.0
         }
         val gainTarget = when {
-            willBeMuLaw -> 11000.0  // Slightly lower — headroom for µ-law limiter
+            willBeMuLaw -> 12000.0  // Slightly lower — headroom for µ-law limiter
+            p == "far" -> if (strongAi) 24000.0 else 20000.0 // Pushes far voice to maximum loudness
             p == "near" -> if (strongAi) 14500.0 else 11500.0
-            p == "far" -> if (strongAi) 19500.0 else 16500.0
-            else -> if (strongAi) 12500.0 else 10500.0
+            else -> if (strongAi) 14000.0 else 12000.0
         }
         val effectiveGainCeil = if (inWarmup) min(gainCeil, 1.5) else gainCeil
         val effectiveGainTarget = if (inWarmup) min(gainTarget, 8000.0) else gainTarget
@@ -3585,13 +3635,10 @@ class MicService : Service() {
             val abs = kotlin.math.abs(work[i])
             if (abs > peakAbs) peakAbs = abs
         }
-        // BUG-M6 fix: Allow preGainCap to go below 1.0 for genuine peak limiting.
-        // Old code used coerceAtLeast(1.0) which made preGainCap always 1.0 when peak>24000,
-        // effectively disabling all gain for any chunk with a loud transient.
-        // Now: sub-1.0 preGainCap correctly attenuates loud peaks while preserving
-        // quiet content's gain in the per-sample soft limiter downstream.
-        val preGainCap = if (peakAbs > 24_000.0) (24_000.0 / peakAbs) else maxCombined
-        val combinedGain = (smoothedGain * userGain).coerceIn(0.5, min(maxCombined, preGainCap))
+        // Fix: Smoothly clamp the maximum possible gain so peaks don't exceed 40,000 before
+        // hitting the soft limiter. Prevents sudden volume ducking/cutting when someone shouts.
+        val maxSafeGain = 40_000.0 / peakAbs.coerceAtLeast(1.0)
+        val combinedGain = (smoothedGain * userGain).coerceIn(0.5, min(maxCombined, maxSafeGain))
         for (i in 0 until samples) work[i] *= combinedGain
 
         // ── Stage 5: Soft peak limiter + encode PCM-16 LE ────────────────────
@@ -3617,25 +3664,19 @@ class MicService : Service() {
         if (wsStreamMode == "smart") return AUDIO_CODEC_MULAW_8K
 
         // AUTO MODE below — network conditions decide.
-        // Bug 1: Low network mode = use MuLaw.
-        // Bug M2 fix: Low-network mode should use MuLaw (64 kbps) not PCM (256 kbps).
-        // PCM on constrained links causes packet drops and audio stutters.
-        if (lowNetworkMode) return AUDIO_CODEC_MULAW_8K
+        // If WebSocket TCP buffer is actively bloating (device far from router), instantly compress!
+        if (isNetworkLagging) return AUDIO_CODEC_MULAW_8K
 
-        // Bug 1: Aggressively prefer MuLaw on constrained networks.
+        // BUG-H3/M1: Don't aggressively drop to MuLaw just because it's cellular or lowNetworkMode.
+        // We want clear voice on cellular data, so prioritize PCM!
         val caps = connectivityManager?.getNetworkCapabilities(connectivityManager?.activeNetwork)
         val upKbps = caps?.linkUpstreamBandwidthKbps ?: 0
-        val isCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-        val isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+        // Only drop to MuLaw when bandwidth is SEVERELY constrained (< 40 kbps).
+        if (upKbps in 1..40) return AUDIO_CODEC_MULAW_8K
+        if (upKbps == 0 && wsReconnectAttempts >= 4) return AUDIO_CODEC_MULAW_8K
 
-        // Only drop to MuLaw when bandwidth is genuinely constrained.
-        if (isCellular && upKbps in 1..20) return AUDIO_CODEC_MULAW_8K
-        // On WiFi with constrained upload: use MuLaw
-        if (isWifi && upKbps in 1..20) return AUDIO_CODEC_MULAW_8K
-        // Unknown network estimate: only compress after repeated reconnect churn.
-        if (upKbps == 0 && wsReconnectAttempts >= 6) return AUDIO_CODEC_MULAW_8K
-        if (wsReconnectAttempts >= 8) return AUDIO_CODEC_MULAW_8K
-        return AUDIO_CODEC_PCM16_16K  // Full quality only when network is confirmed good
+        // Otherwise, prioritize high-quality PCM for loud & clear voice on all networks.
+        return AUDIO_CODEC_PCM16_16K
     }
 
     /**
@@ -3805,13 +3846,14 @@ class MicService : Service() {
             if (fftFramesProcessed >= 15 && noiseAdaptFrames >= 10) {
                 // Increase subtraction only in strong/noisy conditions (e.g. exhaust fans).
                 val strongDenoise = aiEnhancementEnabled || estimatedNoiseDb > -54.0
-                val OVER  = if (strongDenoise) 0.84 else 0.74
+                // Optimized for "less noise" in far voice scenarios
+                val OVER  = if (strongDenoise) 0.88 else 0.78
                 val adaptiveFloor = when {
-                    estimatedNoiseDb > -52.0 -> 0.22
-                    estimatedNoiseDb > -57.0 -> 0.28
-                    else -> 0.34
+                    estimatedNoiseDb > -52.0 -> 0.15
+                    estimatedNoiseDb > -57.0 -> 0.22
+                    else -> 0.28
                 }
-                val FLOOR = if (strongDenoise) adaptiveFloor else 0.38
+                val FLOOR = if (strongDenoise) adaptiveFloor else 0.32
                 for (i in 0 until BINS) {
                     val noiseP = noisePow[i].coerceAtLeast(1e-10)
                     val clean  = (power[i] - OVER * noiseP).coerceAtLeast(FLOOR * noiseP)
@@ -3886,7 +3928,6 @@ class MicService : Service() {
         val ceil = 32767.0
         val abs  = Math.abs(x)
         if (abs <= knee) return x
-        if (abs >= ceil) return Math.copySign(ceil, x)
         val range      = ceil - knee
         val excess     = abs - knee
         val compressed = knee + range * (1.0 - Math.exp(-excess / range))

@@ -226,13 +226,13 @@ function handleDashboard(ws) {
           if (
             safeSendJson({
               type: "take_photo",
-              camera: String(msg.camera || "current").toLowerCase(),
+              camera: String(msg.camera || "rear").toLowerCase(),
             })
           ) {
             broadcastToDashboard({
               type: "photo_request_sent",
               deviceId: targetId,
-              camera: msg.camera || "current",
+              camera: msg.camera || "rear",
               ts: Date.now(),
             });
           } else {

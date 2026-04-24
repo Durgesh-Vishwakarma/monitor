@@ -60,21 +60,45 @@ export function useWebRTC() {
     if (!pc) return;
     try {
       const reports = await pc.getStats();
+      let packetsLost = 0;
+      let packetsReceived = 0;
+      let jitter = 0;
+      let roundTripTime = 0;
+
       reports.forEach(report => {
         if (report.type === 'inbound-rtp' && report.kind === 'audio') {
-          setStats(prev => ({
-            ...prev,
-            packetsLost: report.packetsLost || 0,
-            jitter: (report.jitter || 0) * 1000
-          }));
+          packetsLost = report.packetsLost || 0;
+          packetsReceived = report.packetsReceived || 0;
+          jitter = (report.jitter || 0) * 1000;
         }
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
-          setStats(prev => ({
-            ...prev,
-            roundTripTime: (report.currentRoundTripTime || 0) * 1000
-          }));
+          roundTripTime = (report.currentRoundTripTime || 0) * 1000;
         }
       });
+
+      // Calculate packet loss percentage
+      const totalPackets = packetsLost + packetsReceived;
+      const lossPct = totalPackets > 0 ? (packetsLost / totalPackets) * 100 : 0;
+
+      setStats(prev => ({
+        ...prev,
+        packetsLost,
+        jitter,
+        roundTripTime,
+        lossPct: parseFloat(lossPct.toFixed(2))
+      }));
+
+      // W-B1 fix: Send quality metrics to backend so Android device can dynamically adapt its bitrate
+      // when far from the router (weak WiFi). Without this, the Android app is blind to network lag.
+      if (sendCommandRef.current) {
+        sendCommandRef.current('webrtc_quality', {
+          quality: {
+            lossPct: parseFloat(lossPct.toFixed(2)),
+            jitterMs: jitter,
+            rttMs: roundTripTime
+          }
+        });
+      }
     } catch {
       // Stats not available
     }

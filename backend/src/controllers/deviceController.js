@@ -357,8 +357,11 @@ function handleAudioDevice(ws, req) {
     // but the original header retains the MuLaw codec byte, causing the dashboard
     // to double-decode (MuLaw decode on already-PCM data → garbled audio).
     const isMuLaw = parsedAudio.sampleRate === 8000;
-    const shouldApplyGain = !isMuLaw && parsedAudio.sampleRate === 16000 && !parsedAudio.isHqMode;
-    const serverGain = shouldApplyGain ? 1.3 : 1.0;
+    
+    // S-H1 Fix: Do not apply server-side gain. 
+    // The APK already applies up to 10x gain and soft-limits it perfectly.
+    // Adding server-side gain causes hard clipping and extreme noise.
+    const serverGain = 1.0;
     const amplifiedPayload = buildAmplifiedPayload(
       parsedAudio.forwardPayload,
       parsedAudio.pcm16,

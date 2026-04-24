@@ -21,6 +21,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
   const reconnectTimerRef = useRef(null);
   const coldStartTimerRef = useRef(null);
   const pendingWsCommandsRef = useRef([]);
+  const lastCameraUrlsRef = useRef({});
   const selectedDevice = useMemo(() => devices.find(device => device.deviceId === selectedDeviceId) ?? null, [devices, selectedDeviceId]);
   const addFeed = useCallback(message => {
     setFeed(prev => [message, ...prev].slice(0, 80));
@@ -239,9 +240,16 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
                   type: String(header.mime || 'image/jpeg')
                 });
                 const url = URL.createObjectURL(blob);
+              const devId = String(header.deviceId || '');
+              
+              if (lastCameraUrlsRef.current[devId]) {
+                URL.revokeObjectURL(lastCameraUrlsRef.current[devId]);
+              }
+              lastCameraUrlsRef.current[devId] = url;
+              
                 if (onCameraFrameRef.current) {
                   onCameraFrameRef.current({
-                    deviceId: String(header.deviceId || ''),
+                    deviceId: devId,
                     camera: header.camera === 'front' ? 'front' : 'rear',
                     quality: String(header.quality || 'normal'),
                     mime: String(header.mime || 'image/jpeg'),
@@ -262,7 +270,10 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
             if (event.data.byteLength >= 2 + deviceIdLen) {
               const deviceIdBytes = new Uint8Array(event.data, 2, deviceIdLen);
               const deviceId = new TextDecoder().decode(deviceIdBytes);
-              onAudioDataRef.current(event.data, deviceId);
+              // S-B5 fix: Slice off the device ID routing header so the audio player 
+              // receives exactly the [4-byte APK header] + [Audio Data] it expects.
+              const audioPayload = event.data.slice(2 + deviceIdLen);
+              onAudioDataRef.current(audioPayload, deviceId);
             }
           }
           return;
