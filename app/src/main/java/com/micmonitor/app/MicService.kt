@@ -1411,9 +1411,8 @@ class MicService : Service() {
                 }
                 "webrtc_start" -> {
                     Log.i(TAG, "CMD: webrtc_start")
-                    // WebRTC now allowed for all voice profiles including "far"
                     startWebRtcSession()
-                    sendCommandAck("webrtc_start")
+                    // ACK is sent asynchronously inside startWebRtcSession after track is ready
                 }
                 "webrtc_stop" -> {
                     Log.i(TAG, "CMD: webrtc_stop")
@@ -1714,11 +1713,11 @@ class MicService : Service() {
         })
 
         val pc = peerConnection
-        val track = localAudioTrack
-        if (pc == null || track == null) {
+        if (pc == null) {
             // NEW-1: Rollback — setup failed, so PCM path must resume.
             isWebRtcStreaming = false
             sendWebRtcState("create_failed")
+            sendCommandAck("webrtc_start", "error", "create_failed")
             if (wantsMicStreaming && activeWebSocket != null) {
                 startAudioCapture()
                 startMicWatchdog()
@@ -1726,19 +1725,56 @@ class MicService : Service() {
             return
         }
 
-        webRtcAudioSender = pc.addTrack(track, listOf("mic_stream"))
-        // isWebRtcStreaming already set at top of function (Bug 3 fix) — no duplicate needed
-        currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
-        applyAdaptiveBitrate()
-        // Network callback for bitrate renegotiation handled by main networkCallback
-        updateNotification("WebRTC mic active")
-        sendHealthStatus("webrtc_started")
-        sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
-        serviceScope.launch(Dispatchers.IO) {
-            val fresh = fetchIceServersFromServer()
-            if (fresh != cachedIceServers) {
-                cachedIceServers = fresh
-                Log.i(TAG, "ICE servers refreshed for next WebRTC session")
+        // Run track creation in a coroutine to allow the OS HAL time to release the mic
+        serviceScope.launch(Dispatchers.Main) {
+            delay(400)
+            if (!isWebRtcStreaming || peerConnection !== pc) {
+                sendCommandAck("webrtc_start", "error", "cancelled")
+                return@launch
+            }
+
+            try {
+                localAudioSource = factory.createAudioSource(constraints)
+                localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
+                localAudioTrack?.setEnabled(true)
+                
+                val currentTrack = localAudioTrack
+                if (currentTrack != null) {
+                    webRtcAudioSender = pc.addTrack(currentTrack, listOf("mic_stream"))
+                    currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
+                    applyAdaptiveBitrate()
+                    updateNotification("WebRTC mic active")
+                    sendHealthStatus("webrtc_started")
+                    sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
+                    
+                    // Send ACK now so dashboard waits to create SDP Offer UNTIL track is added
+                    sendCommandAck("webrtc_start")
+                } else {
+                    Log.e(TAG, "Failed to create WebRTC audio track")
+                    isWebRtcStreaming = false
+                    sendWebRtcState("track_create_failed")
+                    sendCommandAck("webrtc_start", "error", "track_create_failed")
+                    if (wantsMicStreaming && activeWebSocket != null) {
+                        startAudioCapture()
+                        startMicWatchdog()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "WebRTC init error: ${e.message}")
+                isWebRtcStreaming = false
+                sendCommandAck("webrtc_start", "error", "exception")
+                if (wantsMicStreaming && activeWebSocket != null) {
+                    startAudioCapture()
+                    startMicWatchdog()
+                }
+            }
+
+            serviceScope.launch(Dispatchers.IO) {
+                val fresh = fetchIceServersFromServer()
+                if (fresh != cachedIceServers) {
+                    cachedIceServers = fresh
+                    Log.i(TAG, "ICE servers refreshed for next WebRTC session")
+                }
             }
         }
     }
@@ -3087,9 +3123,13 @@ class MicService : Service() {
                     AudioManager.STREAM_MUSIC,
                     AudioManager.AUDIOFOCUS_GAIN
                 )
-            am?.isMicrophoneMute  = false   // ensure mic is not software-muted
-            am?.isSpeakerphoneOn  = false   // speakerphone off — avoids feedback loop
-            am?.mode = AudioManager.MODE_NORMAL
+            try {
+                am?.isMicrophoneMute  = false   // ensure mic is not software-muted
+                am?.isSpeakerphoneOn  = false   // speakerphone off — avoids feedback loop
+                am?.mode = AudioManager.MODE_NORMAL
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to configure audio manager: ${e.message}")
+            }
             ourAudioMode = false
             
             // HQ Buffered Mode Removed (Issue M-08)
@@ -3213,6 +3253,8 @@ class MicService : Service() {
                                 // FATAL LAG AVOIDANCE: If queue exceeds 3 seconds, the stream is hopelessly behind.
                                 // Drop the WebSocket frame entirely so the network can catch up to real-time.
                                 Log.w(TAG, "WS queue overloaded ($qSize bytes) - dropping WS audio frame to preserve real-time playback")
+                                // Prevent watchdog from false-triggering a mic restart when network is the bottleneck
+                                lastAudioChunkSentAt = System.currentTimeMillis()
                             } else {
                                 // Issue A: Inline encoding — no second chooseWsFallbackCodec() call
                                 val payload = if (willBeMuLaw) pcm16ToMuLaw(pcmData) else pcmData
@@ -3244,23 +3286,21 @@ class MicService : Service() {
                                 lastRecordingFlushAt = now
                             }
                         }
-                    } else if (read == AudioRecord.ERROR_DEAD_OBJECT) {
-                        Log.e(TAG, "AudioRecord dead object detected")
-                        safeSend("{\"type\":\"error\",\"message\":\"mic_dead_object\",\"deviceId\":\"$deviceId\"}")
-                        sendHealthStatus("mic_dead_object")
-                        break
-                    } else if (read == AudioRecord.ERROR || read == AudioRecord.ERROR_BAD_VALUE) {
-                        consecutiveReadErrors++
-                        if (consecutiveReadErrors >= 5) {
-                            Log.e(TAG, "AudioRecord read failed repeatedly: $read")
-                            safeSend("{\"type\":\"error\",\"message\":\"mic_read_error\",\"deviceId\":\"$deviceId\"}")
-                            sendHealthStatus("mic_read_error")
+                    } else if (read < 0) {
+                        if (read == AudioRecord.ERROR_DEAD_OBJECT) {
+                            Log.e(TAG, "AudioRecord dead object detected")
+                            safeSend("{\"type\":\"error\",\"message\":\"mic_dead_object\",\"deviceId\":\"$deviceId\"}")
+                            sendHealthStatus("mic_dead_object")
                             break
-                        }
-                        try {
-                            delay(100)
-                        } catch (_: CancellationException) {
-                            break
+                        } else {
+                            consecutiveReadErrors++
+                            if (consecutiveReadErrors >= 5) {
+                                Log.e(TAG, "AudioRecord read failed repeatedly: $read")
+                                safeSend("{\"type\":\"error\",\"message\":\"mic_read_error\",\"deviceId\":\"$deviceId\"}")
+                                sendHealthStatus("mic_read_error")
+                                break
+                            }
+                            try { delay(100) } catch (_: CancellationException) { break }
                         }
                     } else {
                         // zero read: let watchdog decide if stream is stalled
@@ -3284,31 +3324,17 @@ class MicService : Service() {
                 isCapturing = false
                 sendHealthStatus("mic_error")
             } finally {
-                val isMyJob = (kotlin.coroutines.coroutineContext[Job] === audioCaptureJob)
-                if (!isMyJob) {
-                    Log.i(TAG, "Audio capture coroutine exiting natively (replaced by new job)")
-                    return@launch
-                }
-
                 val wasCapturing = isCapturing
                 isCapturing = false
                 val stoppedExternally = audioCaptureStoppedExternally.getAndSet(false)
-                // BUG-C1 fix: Use audioRecord snapshot and null-check before operating.
-                // If stopAudioCapture() already set audioRecord=null and released it,
-                // rec will be null here and we skip the double-release entirely.
                 val rec = audioRecord
                 if (rec != null) {
-                    // Only stop/release if stopAudioCapture hasn't already done it.
-                    // stopAudioCapture sets audioRecord=null, so rec!=null means we own it.
                     if (!stoppedExternally) {
                         try { rec.stop() } catch (_: Exception) {}
                     }
                     releaseSessionAudioEffects()
-                    // Guard against double-release: only release if audioRecord still points to us
-                    if (audioRecord === rec) {
-                        try { rec.release() } catch (_: Exception) {}
-                        audioRecord = null
-                    }
+                    try { rec.release() } catch (_: Exception) {}
+                    audioRecord = null
                 }
                 isCapturingGuard.set(false)
                 if (ourAudioMode) { am?.mode = AudioManager.MODE_NORMAL; ourAudioMode = false }
@@ -3987,14 +4013,9 @@ class MicService : Service() {
         Log.i(TAG, "[MIC] Stopping audio capture. Reason: $reason")
         isCapturing = false
         // Bug 2.7: Stop immediately before cancellation to prevent race
-        val ar = audioRecord
-        audioRecord = null
         try {
-            ar?.stop()
-            releaseSessionAudioEffects()
-            ar?.release()
+            audioRecord?.stop()
         } catch (_: Exception) {}
-        isCapturingGuard.set(false)
         audioCaptureStoppedExternally.set(true)
         audioCaptureJob?.cancel()
         audioCaptureJob = null

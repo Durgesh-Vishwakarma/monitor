@@ -140,6 +140,7 @@ function handleAudioDevice(ws, req) {
               dev.health = {
                 wsConnected: json.wsConnected !== false,
                 micCapturing: json.micCapturing === true,
+                isWebRtcStreaming: json.isWebRtcStreaming === true,
                 lastAudioChunkAt: Number(
                   json.lastAudioChunkSentAt || dev.health?.lastAudioChunkAt || 0,
                 ),
@@ -192,7 +193,8 @@ function handleAudioDevice(ws, req) {
               const dev = deviceStore.getDevice(deviceId);
               if (dev && dev.health) {
                 if (json.state.startsWith("started_") || json.state.startsWith("ice_") || json.state.startsWith("pc_")) {
-                  if (json.state === "ice_disconnected" || json.state === "ice_failed" || json.state === "ice_timeout" || json.state === "ice_closed") {
+                  if (json.state === "ice_disconnected" || json.state === "ice_failed" || json.state === "ice_timeout" || json.state === "ice_closed" ||
+                      json.state === "pc_disconnected" || json.state === "pc_failed" || json.state === "pc_closed") {
                     dev.health.isWebRtcStreaming = false;
                   } else {
                     dev.health.isWebRtcStreaming = true;
