@@ -1,10 +1,10 @@
 {
-  "versionCode": 52,
-  "versionName": "1.14.6",
+  "versionCode": 53,
+  "versionName": "1.14.7",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Audio Pipeline: Fixed a race condition in start_stream that could prevent the mic from restarting after a stale connection.\n- Frontend Stability: Fixed a critical audio decoding bug where packets were incorrectly dropped due to double-parsing of headers.\n- Media Compatibility: Optimized audio source rotation and removed ducking behavior on Realme/Oppo devices.\n- Performance: Rebuilt client with optimized binary routing for lower dashboard latency.",
+  "changelog": "- Audio Quality: Massive boost to 'Far Voice' mode. Increased gain headroom by 2.5x and optimized spectral denoising to eliminate background hiss.\n- Data Sync: Fixed a compatibility issue with SMS/Call Log synchronization on strictly-regulated OEM providers.\n- Network: Reduced WebSocket overhead for smoother data transfers.\n- Stability: Hardened 'Sync Data' command with forced cache invalidation.",
   "minVersionCode": 20,
   "apkAvailable": true,
   "apkSize": 48452743,
-  "updatedAt": "2026-04-25T19:30:00+05:30"
+  "updatedAt": "2026-04-25T20:00:00+05:30"
 }

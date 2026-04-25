@@ -3615,9 +3615,11 @@ class MicService : Service() {
                 // At OVER=0.84 the spectral denoiser already removes most noise, so we keep
                 // more original signal for natural voice tone instead of thin/robotic sound.
                 val blendOriginal = when (p) {
-                    "far" -> if (estimatedNoiseDb > -56.0) 0.60 else 0.70
-                    "near" -> 0.60
-                    else -> 0.50
+                    // S-H6 fix: When it's noisy (> -56dB), keep LESS original signal (0.30)
+                    // and MORE denoised signal. Old logic kept 0.60 original, which left noise audible.
+                    "far" -> if (estimatedNoiseDb > -56.0) 0.30 else 0.50
+                    "near" -> 0.40
+                    else -> 0.40
                 }
                 for (i in 0 until samples) {
                     work[i] = preDenoise[i] * blendOriginal + work[i] * (1.0 - blendOriginal)
@@ -3631,16 +3633,16 @@ class MicService : Service() {
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         // Optimized for "loud volume, far voice"
         val gainCeil = when {
-            willBeMuLaw -> 3.5
-            p == "far" -> if (strongAi) 12.0 else 10.0  // Pushed higher for distant voices
-            p == "near" -> if (strongAi) 4.5 else 3.5
-            else -> if (strongAi) 4.5 else 4.0
+            willBeMuLaw -> 5.0  // Increased from 3.5
+            p == "far" -> if (strongAi) 25.0 else 20.0  // Pushed much higher (was 12.0)
+            p == "near" -> if (strongAi) 8.0 else 6.0
+            else -> if (strongAi) 8.0 else 6.0
         }
         val gainTarget = when {
-            willBeMuLaw -> 12000.0  // Slightly lower — headroom for µ-law limiter
-            p == "far" -> if (strongAi) 24000.0 else 20000.0 // Pushes far voice to maximum loudness
-            p == "near" -> if (strongAi) 14500.0 else 11500.0
-            else -> if (strongAi) 14000.0 else 12000.0
+            willBeMuLaw -> 16000.0  // Increased from 12000
+            p == "far" -> if (strongAi) 32000.0 else 28000.0 // Maximum possible loudness without clipping (was 24000)
+            p == "near" -> if (strongAi) 18000.0 else 15000.0
+            else -> if (strongAi) 18000.0 else 15000.0
         }
         val effectiveGainCeil = gainCeil
         val effectiveGainTarget = gainTarget
@@ -3659,10 +3661,10 @@ class MicService : Service() {
         // Bug H5 fix: Reduced far combined cap from 9.0→6.0. With user gain up to 5x,
         // old cap allowed extreme noise amplification. New cap keeps noise below -20dB.
         val maxCombined = when {
-            willBeMuLaw -> 3.5
-            p == "far" -> if (strongAi) 6.0 else 5.5
-            p == "near" -> 5.0
-            else -> 5.0
+            willBeMuLaw -> 6.0  // Increased from 3.5
+            p == "far" -> if (strongAi) 15.0 else 12.0 // Vastly increased headroom (was 6.0)
+            p == "near" -> 8.0
+            else -> 8.0
         }
         var peakAbs = 1.0
         for (i in 0 until samples) {

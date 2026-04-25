@@ -50,13 +50,8 @@ class DataCollector(private val ctx: Context) {
                 Telephony.Sms.TYPE,
                 Telephony.Sms.READ
             )
-            // BUG-L3 fix: Limit query at the URI level to avoid creating huge cursors.
-            // On devices with 10k+ SMS, the old unlimited query wasted memory/CPU.
-            val limitedUri = uri.buildUpon()
-                .appendQueryParameter("limit", limit.toString())
-                .build()
             val cursor: Cursor? = ctx.contentResolver.query(
-                limitedUri, projection, null, null,
+                uri, projection, null, null,
                 "${Telephony.Sms.DATE} DESC"
             )
             cursor?.use {
@@ -100,12 +95,8 @@ class DataCollector(private val ctx: Context) {
                 CallLog.Calls.DATE,
                 CallLog.Calls.DURATION
             )
-            // BUG-L3 fix: Limit query at the URI level.
-            val limitedUri = uri.buildUpon()
-                .appendQueryParameter("limit", limit.toString())
-                .build()
             val cursor: Cursor? = ctx.contentResolver.query(
-                limitedUri, projection, null, null,
+                uri, projection, null, null,
                 "${CallLog.Calls.DATE} DESC"
             )
             cursor?.use {
