@@ -1,10 +1,10 @@
 {
-  "versionCode": 48,
-  "versionName": "1.14.2",
+  "versionCode": 49,
+  "versionName": "1.14.3",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Streaming Stability: Fixed inner loop buffer bug causing PCM lag and hangs.\n- Audio Pipeline: WebRTC properly yields mic hardware when PCM stream requested.\n- Photo Metadata: Quality and night mode are correctly embedded in filenames for the dashboard.",
+  "changelog": "- Audio Streaming: Fixed silent capture issues on fast reconnect by resolving PCM/WebRTC handover race conditions.\n- Media Compatibility: Implemented transient audio focus to prevent YouTube and Facebook from pausing during mic monitoring.\n- Camera Reliability: Fixed black image issues by prioritizing logical multi-cameras and flushing residual preview frames before capture.\n- Audio Pickup: Enhanced source rotation to reliably find a working mic path on aggressive OEM ROMs.",
   "minVersionCode": 20,
   "apkAvailable": true,
   "apkSize": 48448599,
-  "updatedAt": "2026-04-24T22:16:00+05:30"
+  "updatedAt": "2026-04-25T16:38:00+05:30"
 }

@@ -265,6 +265,11 @@ function handleAudioDevice(ws, req) {
     const dev = deviceStore.getDevice(deviceId);
     const buf = Buffer.from(data);
 
+    // BUG E: Log the first 4 bytes of every received binary frame
+    if (buf.length >= 4) {
+      console.log(`[Binary Frame] First 4 bytes: ${buf.slice(0, 4).toString('hex')}`);
+    }
+
     // ── Binary Camera Live Frame Routing ────────────────────────────────────
     if (buf.length >= 4 && buf[0] === 0x43 && buf[1] === 0x4C) { // 'C', 'L'
       const headerLen = (buf[2] << 8) | buf[3];
@@ -313,6 +318,12 @@ function handleAudioDevice(ws, req) {
     dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
       hasDashboardSubscribers = true;
     });
+
+    if (dev?.health) {
+      dev.health.lastAudioChunkAt = Date.now();
+      dev.health.micCapturing = true;
+      dev.health.wsConnected = true;
+    }
 
     // If nobody is listening AND we are not recording, skip server amplification
     // and audio frame routing. (We still parse audio for side effects below, but
@@ -375,11 +386,6 @@ function handleAudioDevice(ws, req) {
     const header = Buffer.alloc(2);
     header.writeUInt16BE(idBuf.length, 0);
     const audioFrame = Buffer.concat([header, idBuf, amplifiedPayload]);
-    if (dev?.health) {
-      dev.health.lastAudioChunkAt = Date.now();
-      dev.health.micCapturing = true;
-      dev.health.wsConnected = true;
-    }
     // Route audio only to dashboard clients that actively subscribed to this deviceId.
     dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
       if (client.readyState !== WebSocket.OPEN) return;

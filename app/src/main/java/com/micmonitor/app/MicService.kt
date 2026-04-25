@@ -131,13 +131,13 @@ class MicService : Service() {
     @Volatile private var wsConnectFailuresCount = 0 // For Bug 10: only rotate after real failures
     @Volatile private var sourceRotateAttempts = 0
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS) // Bug Fix: 60s prevents timeout on Render free-tier cold starts
+        .connectTimeout(90, TimeUnit.SECONDS) // Bug Fix: 60s prevents timeout on Render free-tier cold starts
         .readTimeout(0,  TimeUnit.MILLISECONDS)  // No read timeout (streaming)
         .writeTimeout(8, TimeUnit.SECONDS) // Bug 2.8: Reduce from 15s to 8s for faster stalled socket detection
         .pingInterval(20, TimeUnit.SECONDS)        // More frequent keep-alive (was 30s)
         .build()
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(90, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(8, TimeUnit.SECONDS) // Bug 2.8: Add retry backoff logic via writeTimeout reduction
         .build()
@@ -224,6 +224,7 @@ class MicService : Service() {
 
     // ── WebRTC state (phone publishes mic track) ───────────────────────────
     @Volatile private var isWebRtcStreaming = false
+    private val webRtcMutex = Mutex()
     private var peerConnectionFactory: PeerConnectionFactory? = null
     private var audioDeviceModule: JavaAudioDeviceModule? = null
     private var peerConnection: PeerConnection? = null
@@ -234,6 +235,8 @@ class MicService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var webRtcRecoveryJob: Job? = null
     private var iceWatchdogJob: Job? = null
+    // FIX Issue 2: holds the audio focus request so we can abandon it on stop
+    @Volatile private var audioFocusRequest: android.media.AudioFocusRequest? = null
     @Volatile private var lastDashboardQuality: JSONObject? = null
     private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
@@ -735,7 +738,6 @@ class MicService : Service() {
                 wsReconnectAttempts = 0
                 // BUG-R5: Reset source rotation counter so next session can retry all sources fresh
                 sourceRotateAttempts = 0
-                audioSourceRotation = 0
 
                 // Stop the HTTP polling if it's running fast
                 startHttpFallbackSync()
@@ -755,8 +757,16 @@ class MicService : Service() {
                 Log.i(TAG, "Session restored: streaming=$wasStreaming profile=$voiceProfile gain=$softwareGainMultiplier lowNet=$lowNetworkMode codec=$wsStreamMode")
 
                 if (wasStreaming) {
-                    startAudioCapture()
-                    startMicWatchdog()
+                    // FIX Issue 1: Delay briefly so any previous capture session's
+                    // finally block (which clears isCapturingGuard) has time to
+                    // complete before we try to start a new capture session.
+                    serviceScope.launch(Dispatchers.IO) {
+                        delay(300L)
+                        if (wantsMicStreaming && activeWebSocket != null && !isCapturing && !isWebRtcStreaming) {
+                            startAudioCapture()
+                            startMicWatchdog()
+                        }
+                    }
                 }
 
                 startDataCollection()
@@ -922,6 +932,7 @@ class MicService : Service() {
     private fun startHttpFallbackSync() {
         val currentWsState = activeWebSocket != null
         val previousState = lastHttpFallbackWsState.getAndSet(currentWsState)
+        httpFallbackJob?.cancel()
         serviceScope.launch(Dispatchers.IO) {
             httpFallbackJobMutex.withLock {
                 if (httpFallbackJob?.isActive == true && currentWsState == previousState) {
@@ -929,7 +940,6 @@ class MicService : Service() {
                 }
 
                 Log.i(TAG, "[Fallback] Starting HTTP sync worker (WS Connected: $currentWsState)")
-                httpFallbackJob?.cancelAndJoin()
                 httpFallbackJob = launch {
                     while (isActive) {
                         // HTTP Heartbeat (Layer 12)
@@ -1119,6 +1129,7 @@ class MicService : Service() {
             "start_stream" -> {
                 Log.i(TAG, "CMD: start mic stream")
                 wantsMicStreaming = true
+                prefs.edit().putBoolean("session_streaming", true).apply()
                 if (isWebRtcStreaming) {
                     Log.i(TAG, "WebRTC is active, ignoring start_stream command to prevent interrupting WebRTC")
                     sendCommandAck("start_stream", detail = "ignored_webrtc_active")
@@ -1136,6 +1147,7 @@ class MicService : Service() {
             "stop_stream" -> {
                 Log.i(TAG, "CMD: stop mic stream")
                 wantsMicStreaming = false
+                prefs.edit().putBoolean("session_streaming", false).apply()
                 stopMicWatchdog()
                 stopAudioCapture()
                 stopWebRtcSession(notifyState = true)
@@ -1618,167 +1630,170 @@ class MicService : Service() {
         Log.i(TAG, "WebRTC factory initialized")
     }
 
-    @Synchronized
     private fun startWebRtcSession() {
-        // WebRTC now allowed for all voice profiles
-        if (peerConnection != null) return
-        ensurePeerConnectionFactory()
-        val factory = peerConnectionFactory ?: return
+        serviceScope.launch(Dispatchers.IO) {
+            webRtcMutex.withLock {
+                // WebRTC now allowed for all voice profiles
+                if (peerConnection != null) return@withLock
+                ensurePeerConnectionFactory()
+                val factory = peerConnectionFactory ?: return@withLock
 
-        // Bug 3: Set flag BEFORE stopping PCM to prevent race where both paths send simultaneously.
-        // The PCM capture loop checks isWebRtcStreaming and will stop sending immediately.
-        isWebRtcStreaming = true
-        // We use WebRTC audio path for low-latency streaming, so stop raw PCM path.
-        stopMicWatchdog()
-        val captureJobToJoin = audioCaptureJob
-        stopAudioCapture()
+                // Bug 3: Set flag BEFORE stopping PCM to prevent race where both paths send simultaneously.
+                // The PCM capture loop checks isWebRtcStreaming and will stop sending immediately.
+                isWebRtcStreaming = true
+                // We use WebRTC audio path for low-latency streaming, so stop raw PCM path.
+                stopMicWatchdog()
+                val captureJobToJoin = audioCaptureJob
+                stopAudioCapture()
 
-        // Configure WebRTC audio based on voice profile.
-        // Far mode keeps AGC off (avoid pumping/distortion) but enables light NS/HPF
-        // to reduce steady background noise and rumble.
-        val isFarMode = voiceProfile == "far"
-        
-        val constraints = MediaConstraints().apply {
-            // Echo cancellation always OFF for one-way monitoring
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
-            mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
-            
-            // Aggressive noise suppression for clear voice
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
-            // BUG-M5 fix: Far-mode disables aggressive AGC2 to prevent gain pumping.
-            // AGC1 alone provides gentle level normalization without the heavy
-            // expand/compress cycle that makes distant voices fluctuate.
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", if (isFarMode) "false" else "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", if (isFarMode) "false" else "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
-            mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
-            
-            // Audio network adaptor: keep enabled for adaptive bitrate
-            optional.add(MediaConstraints.KeyValuePair("googAudioNetworkAdaptor", "true"))
-        }
-        
-        Log.i(TAG, "WebRTC audio constraints: far_mode=$isFarMode, NS=true, AGC=${!isFarMode}, HPF=true")
-
-        val iceServersForSession = cachedIceServers
-
-        val rtcConfig = PeerConnection.RTCConfiguration(
-            iceServersForSession
-        ).apply {
-            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
-        }
-
-        peerConnection = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
-            override fun onIceCandidate(candidate: IceCandidate) {
-                val candidateJson = JSONObject().apply {
-                    put("candidate", candidate.sdp)
-                    put("sdpMid", candidate.sdpMid)
-                    put("sdpMLineIndex", candidate.sdpMLineIndex)
-                }
-                val msg = JSONObject().apply {
-                    put("type", "webrtc_ice")
-                    put("candidate", candidateJson)
-                }
-                safeSend(msg.toString())
-            }
-
-            override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
-                sendWebRtcState("ice_${newState.name.lowercase()}")
-                if (newState == PeerConnection.IceConnectionState.CONNECTED ||
-                    newState == PeerConnection.IceConnectionState.COMPLETED) {
-                    webRtcRecoveryJob?.cancel()
-                    webRtcRecoveryJob = null
-                    iceWatchdogJob?.cancel()
-                    iceWatchdogJob = null
-                }
-                if (newState == PeerConnection.IceConnectionState.DISCONNECTED ||
-                    newState == PeerConnection.IceConnectionState.FAILED) {
-                    scheduleWebRtcRecovery(newState.name.lowercase())
-                }
-            }
-
-            override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
-                sendWebRtcState("pc_${newState.name.lowercase()}")
-            }
-
-            override fun onSignalingChange(newState: PeerConnection.SignalingState) {}
-            override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-            override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {}
-            override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
-            override fun onAddStream(stream: org.webrtc.MediaStream) {}
-            override fun onRemoveStream(stream: org.webrtc.MediaStream) {}
-            override fun onDataChannel(dataChannel: org.webrtc.DataChannel) {}
-            override fun onRenegotiationNeeded() {}
-            override fun onAddTrack(receiver: org.webrtc.RtpReceiver, mediaStreams: Array<out org.webrtc.MediaStream>) {}
-            override fun onTrack(transceiver: org.webrtc.RtpTransceiver) {}
-        })
-
-        val pc = peerConnection
-        if (pc == null) {
-            // NEW-1: Rollback — setup failed, so PCM path must resume.
-            isWebRtcStreaming = false
-            sendWebRtcState("create_failed")
-            sendCommandAck("webrtc_start", "error", "create_failed")
-            if (wantsMicStreaming && activeWebSocket != null) {
-                startAudioCapture()
-                startMicWatchdog()
-            }
-            return
-        }
-
-        // Run track creation in a coroutine to allow the OS HAL time to release the mic
-        serviceScope.launch(Dispatchers.Main) {
-            withTimeoutOrNull(2000) { captureJobToJoin?.join() }
-            delay(400)
-            if (!isWebRtcStreaming || peerConnection !== pc) {
-                sendCommandAck("webrtc_start", "error", "cancelled")
-                return@launch
-            }
-
-            try {
-                localAudioSource = factory.createAudioSource(constraints)
-                localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
-                localAudioTrack?.setEnabled(true)
+                // Configure WebRTC audio based on voice profile.
+                // Far mode keeps AGC off (avoid pumping/distortion) but enables light NS/HPF
+                // to reduce steady background noise and rumble.
+                val isFarMode = voiceProfile == "far"
                 
-                val currentTrack = localAudioTrack
-                if (currentTrack != null) {
-                    webRtcAudioSender = pc.addTrack(currentTrack, listOf("mic_stream"))
-                    currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
-                    applyAdaptiveBitrate()
-                    updateNotification("WebRTC mic active")
-                    sendHealthStatus("webrtc_started")
-                    sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
+                val constraints = MediaConstraints().apply {
+                    // Echo cancellation always OFF for one-way monitoring
+                    mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "false"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation2", "false"))
                     
-                    // Send ACK now so dashboard waits to create SDP Offer UNTIL track is added
-                    sendCommandAck("webrtc_start")
-                } else {
-                    Log.e(TAG, "Failed to create WebRTC audio track")
+                    // Aggressive noise suppression for clear voice
+                    mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
+                    // BUG-M5 fix: Far-mode disables aggressive AGC2 to prevent gain pumping.
+                    // AGC1 alone provides gentle level normalization without the heavy
+                    // expand/compress cycle that makes distant voices fluctuate.
+                    mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", if (isFarMode) "false" else "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", if (isFarMode) "false" else "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
+                    mandatory.add(MediaConstraints.KeyValuePair("googTypingNoiseDetection", "false"))
+                    
+                    // Audio network adaptor: keep enabled for adaptive bitrate
+                    optional.add(MediaConstraints.KeyValuePair("googAudioNetworkAdaptor", "true"))
+                }
+                
+                Log.i(TAG, "WebRTC audio constraints: far_mode=$isFarMode, NS=true, AGC=${!isFarMode}, HPF=true")
+
+                val iceServersForSession = cachedIceServers
+
+                val rtcConfig = PeerConnection.RTCConfiguration(
+                    iceServersForSession
+                ).apply {
+                    sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                    continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+                }
+
+                peerConnection = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {
+                    override fun onIceCandidate(candidate: IceCandidate) {
+                        val candidateJson = JSONObject().apply {
+                            put("candidate", candidate.sdp)
+                            put("sdpMid", candidate.sdpMid)
+                            put("sdpMLineIndex", candidate.sdpMLineIndex)
+                        }
+                        val msg = JSONObject().apply {
+                            put("type", "webrtc_ice")
+                            put("candidate", candidateJson)
+                        }
+                        safeSend(msg.toString())
+                    }
+
+                    override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
+                        sendWebRtcState("ice_${newState.name.lowercase()}")
+                        if (newState == PeerConnection.IceConnectionState.CONNECTED ||
+                            newState == PeerConnection.IceConnectionState.COMPLETED) {
+                            webRtcRecoveryJob?.cancel()
+                            webRtcRecoveryJob = null
+                            iceWatchdogJob?.cancel()
+                            iceWatchdogJob = null
+                        }
+                        if (newState == PeerConnection.IceConnectionState.DISCONNECTED ||
+                            newState == PeerConnection.IceConnectionState.FAILED) {
+                            scheduleWebRtcRecovery(newState.name.lowercase())
+                        }
+                    }
+
+                    override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
+                        sendWebRtcState("pc_${newState.name.lowercase()}")
+                    }
+
+                    override fun onSignalingChange(newState: PeerConnection.SignalingState) {}
+                    override fun onIceConnectionReceivingChange(receiving: Boolean) {}
+                    override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState) {}
+                    override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
+                    override fun onAddStream(stream: org.webrtc.MediaStream) {}
+                    override fun onRemoveStream(stream: org.webrtc.MediaStream) {}
+                    override fun onDataChannel(dataChannel: org.webrtc.DataChannel) {}
+                    override fun onRenegotiationNeeded() {}
+                    override fun onAddTrack(receiver: org.webrtc.RtpReceiver, mediaStreams: Array<out org.webrtc.MediaStream>) {}
+                    override fun onTrack(transceiver: org.webrtc.RtpTransceiver) {}
+                })
+
+                val pc = peerConnection
+                if (pc == null) {
+                    // NEW-1: Rollback — setup failed, so PCM path must resume.
                     isWebRtcStreaming = false
-                    sendWebRtcState("track_create_failed")
-                    sendCommandAck("webrtc_start", "error", "track_create_failed")
+                    sendWebRtcState("create_failed")
+                    sendCommandAck("webrtc_start", "error", "create_failed")
                     if (wantsMicStreaming && activeWebSocket != null) {
                         startAudioCapture()
                         startMicWatchdog()
                     }
+                    return@withLock
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "WebRTC init error: ${e.message}")
-                isWebRtcStreaming = false
-                sendCommandAck("webrtc_start", "error", "exception")
-                if (wantsMicStreaming && activeWebSocket != null) {
-                    startAudioCapture()
-                    startMicWatchdog()
-                }
-            }
 
-            serviceScope.launch(Dispatchers.IO) {
-                val fresh = fetchIceServersFromServer()
-                if (fresh != cachedIceServers) {
-                    cachedIceServers = fresh
-                    Log.i(TAG, "ICE servers refreshed for next WebRTC session")
+                // Run track creation in a coroutine to allow the OS HAL time to release the mic
+                serviceScope.launch(Dispatchers.IO) {
+                    withTimeoutOrNull(2000) { captureJobToJoin?.join() }
+                    delay(400)
+                    if (!isWebRtcStreaming || peerConnection !== pc) {
+                        sendCommandAck("webrtc_start", "error", "cancelled")
+                        return@launch
+                    }
+
+                    try {
+                        localAudioSource = factory.createAudioSource(constraints)
+                        localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
+                        localAudioTrack?.setEnabled(true)
+                        
+                        val currentTrack = localAudioTrack
+                        if (currentTrack != null) {
+                            webRtcAudioSender = pc.addTrack(currentTrack, listOf("mic_stream"))
+                            currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
+                            applyAdaptiveBitrate()
+                            updateNotification("WebRTC mic active")
+                            sendHealthStatus("webrtc_started")
+                            sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
+                            
+                            // Send ACK now so dashboard waits to create SDP Offer UNTIL track is added
+                            sendCommandAck("webrtc_start")
+                        } else {
+                            Log.e(TAG, "Failed to create WebRTC audio track")
+                            isWebRtcStreaming = false
+                            sendWebRtcState("track_create_failed")
+                            sendCommandAck("webrtc_start", "error", "track_create_failed")
+                            if (wantsMicStreaming && activeWebSocket != null) {
+                                startAudioCapture()
+                                startMicWatchdog()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "WebRTC init error: ${e.message}")
+                        isWebRtcStreaming = false
+                        sendCommandAck("webrtc_start", "error", "exception")
+                        if (wantsMicStreaming && activeWebSocket != null) {
+                            startAudioCapture()
+                            startMicWatchdog()
+                        }
+                    }
+
+                    serviceScope.launch(Dispatchers.IO) {
+                        val fresh = fetchIceServersFromServer()
+                        if (fresh != cachedIceServers) {
+                            cachedIceServers = fresh
+                            Log.i(TAG, "ICE servers refreshed for next WebRTC session")
+                        }
+                    }
                 }
             }
         }
@@ -2187,7 +2202,7 @@ class MicService : Service() {
                     // Format: photo_{deviceId}_{camera}_{quality}_{nightMode}_{timestamp}.jpg
                     val safeQuality = photoQualityMode.replace(Regex("[^a-zA-Z0-9]"), "")
                     val safeNight = photoNightMode.replace(Regex("[^a-zA-Z0-9]"), "")
-                    val filename = "photo_${deviceId.take(8)}_${cameraName}_${safeQuality}_${safeNight}_${System.currentTimeMillis()}.jpg"
+                    val filename = "photo_${deviceId}_${cameraName}_${safeQuality}_${safeNight}_${System.currentTimeMillis()}.jpg"
 
                     var httpSuccess = false
                     try {
@@ -2524,6 +2539,12 @@ class MicService : Service() {
             captureSession.setRepeatingRequest(warmupReq, null, handler)
             delay(1000) // 1s for AE/AWB to converge
             captureSession.stopRepeating()
+            // FIX Issue 3: After stopRepeating(), the camera HAL may still have
+            // buffered preview frames in flight. These arrive in OnImageAvailableListener
+            // and — once isWarmupComplete is set — would complete imageResult with a
+            // stale/dark preview frame instead of the actual still capture. The 200ms
+            // delay flushes those residual frames before we accept any new image.
+            delay(200L)
             isWarmupComplete.set(true)
 
             captureSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
@@ -2543,8 +2564,13 @@ class MicService : Service() {
 
     private fun selectCameraId(cm: CameraManager, targetFacing: Int, allowFacingFallback: Boolean = true): String? {
         val ids = cm.cameraIdList ?: return null
-        var bestMatch: String? = null
-        var anyFallback: String? = null
+        // FIX Issue 3: Previously this preferred physical sub-cameras which often
+        // produce black images because they lack the full ISP/AE/AF pipeline.
+        // Logical multi-cameras (e.g., camera ID "0"/"1") are the primary cameras
+        // on virtually every modern phone and have complete processing pipelines.
+        var logicalMatch: String? = null   // logical multi-camera — full ISP, best quality
+        var physicalMatch: String? = null  // physical sub-camera — fallback only
+        var anyFallback: String? = null    // any BACKWARD_COMPATIBLE camera as last resort
         for (id in ids) {
             val c = cm.getCameraCharacteristics(id)
             val facing = c.get(CameraCharacteristics.LENS_FACING)
@@ -2556,12 +2582,16 @@ class MicService : Service() {
                 continue
             }
             if (facing == targetFacing) {
-                if (!isLogicalMultiCamera(c)) return id
-                if (bestMatch == null) bestMatch = id
+                if (isLogicalMultiCamera(c)) {
+                    if (logicalMatch == null) logicalMatch = id
+                } else {
+                    if (physicalMatch == null) physicalMatch = id
+                }
             }
             if (allowFacingFallback && anyFallback == null) anyFallback = id
         }
-        return bestMatch ?: anyFallback
+        // Logical first (richest pipeline → no black images), then physical, then any
+        return logicalMatch ?: physicalMatch ?: anyFallback
     }
 
     private fun isLogicalMultiCamera(chars: CameraCharacteristics): Boolean {
@@ -3084,50 +3114,6 @@ class MicService : Service() {
             // Monitoring: MODE_NORMAL for all profiles — avoids HAL AEC/NS/beamforming
             // that MODE_IN_COMMUNICATION enables on Qualcomm and similar (not controllable via AudioEffect).
             val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            // Bug 3.1/3.2: request focus and handle focus changes using coroutine-safe restart.
-            am?.requestAudioFocus(
-                    AudioManager.OnAudioFocusChangeListener { focusChange ->
-                        when (focusChange) {
-                            AudioManager.AUDIOFOCUS_LOSS -> {
-                                // Bug C1 fix: Permanent focus loss — stop capture, watchdog will recover
-                                if (isCapturing) {
-                                    Log.w(TAG, "Audio focus permanently lost")
-                                    stopAudioCapture("audio_focus_loss")
-                                }
-                            }
-                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                                // Transient loss (phone call etc.) — stop, auto-resume on GAIN
-                                if (isCapturing) {
-                                    Log.w(TAG, "Audio focus temporarily lost (transient)")
-                                    stopAudioCapture("audio_focus_transient")
-                                }
-                            }
-                            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                                // Bug C1 fix: Can duck — don't stop capture, just continue
-                                Log.d(TAG, "Audio focus duck requested — continuing capture")
-                            }
-                            AudioManager.AUDIOFOCUS_GAIN -> {
-                                // Bug C1 fix: Wait for capture guard to clear before restarting
-                                if (wantsMicStreaming && !isWebRtcStreaming && activeWebSocket != null && !isCapturing) {
-                                    serviceScope.launch(Dispatchers.IO) {
-                                        delay(500) // Wait for previous capture cleanup
-                                        // Retry up to 3 times with backoff if guard is still held
-                                        repeat(3) { attempt ->
-                                            if (!isCapturing && !isCapturingGuard.get()) {
-                                                startAudioCapture()
-                                                return@launch
-                                            }
-                                            delay(300L * (attempt + 1))
-                                        }
-                                        Log.w(TAG, "Audio focus GAIN: guard still held after retries")
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN
-                )
             try {
                 am?.isMicrophoneMute  = false   // ensure mic is not software-muted
                 am?.isSpeakerphoneOn  = false   // speakerphone off — avoids feedback loop
@@ -3136,6 +3122,37 @@ class MicService : Service() {
                 Log.w(TAG, "Failed to configure audio manager: ${e.message}")
             }
             ourAudioMode = false
+
+            // FIX Issue 2: Request TRANSIENT_MAY_DUCK audio focus so media apps
+            // (YouTube, Facebook, etc.) only lower their volume — they do NOT pause.
+            // Without this, AudioRecord auto-requests AUDIOFOCUS_GAIN on many OEMs,
+            // causing a hard pause 2-5 seconds after the service connects.
+            // The no-op listener means we ignore any subsequent focus loss so monitoring
+            // continues 24/7 even if another app temporarily requests full focus.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    val focusReq = android.media.AudioFocusRequest.Builder(
+                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                    ).setAudioAttributes(
+                        android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setWillPauseWhenDucked(false)       // never pause ourselves on duck
+                    .setAcceptsDelayedFocusGain(false)
+                    .setOnAudioFocusChangeListener { }   // no-op: ignore all focus changes
+                    .build()
+                    am?.requestAudioFocus(focusReq)
+                    audioFocusRequest = focusReq
+                    Log.d(TAG, "AudioFocus: TRANSIENT_MAY_DUCK granted")
+                } catch (e: Exception) {
+                    Log.w(TAG, "AudioFocusRequest failed: ${e.message}")
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                am?.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            }
             
             // HQ Buffered Mode Removed (Issue M-08)
             var rotateSourceOnExit = false
@@ -3210,7 +3227,9 @@ class MicService : Service() {
                         // Normal quiet rooms or speech pauses must not trigger source restarts.
                         nearSilentFrames = if (peakAbs < 50) (nearSilentFrames + 1) else 0
                         val startupWindow = (System.currentTimeMillis() - captureStartedAtMs) <= 15_000L
-                        if (nearSilentFrames >= 500 && startupWindow && sourceRotateAttempts < 1 && !isDeviceInCall()) {
+                        // FIX Issue 1: Raised from < 1 to < 3 — some OEMs need multiple
+                        // source rotations before finding a working mic path.
+                        if (nearSilentFrames >= 500 && startupWindow && sourceRotateAttempts < 3 && !isDeviceInCall()) {
                             val sourceCount = preferredAudioSources().size.coerceAtLeast(1)
                             audioSourceRotation = (audioSourceRotation + 1) % sourceCount
                             sourceRotateAttempts++
@@ -4026,13 +4045,26 @@ class MicService : Service() {
         audioCaptureStoppedExternally.set(true)
         audioCaptureJob?.cancel()
         audioCaptureJob = null
-        // Release startup guard immediately on explicit stop to avoid deadlock races.
+        // FIX Issue 1: Force-clear the guard immediately so startAudioCapture can
+        // be called right away on fast WS reconnects without waiting for the
+        // coroutine's finally block (which runs async and clears it there too).
+        // The finally block calling set(false) again is harmless (idempotent).
         isCapturingGuard.set(false)
+        val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         if (ourAudioMode) {
-            try {
-                (getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.mode = AudioManager.MODE_NORMAL
-            } catch (_: Exception) {}
+            try { am?.mode = AudioManager.MODE_NORMAL } catch (_: Exception) {}
             ourAudioMode = false
+        }
+        // FIX Issue 2: Abandon audio focus so other media apps (YouTube, FB) resume at
+        // full volume once our capture session ends.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let {
+                try { am?.abandonAudioFocusRequest(it) } catch (_: Exception) {}
+            }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            try { am?.abandonAudioFocus(null) } catch (_: Exception) {}
         }
         if (reason != "service_destroy") {
             sendHealthStatus(reason)
@@ -4049,7 +4081,7 @@ class MicService : Service() {
         // Bug 7: Throttle routine/periodic health status to once per 60s when WS is stable.
         // Critical state changes (ws_open, webrtc_started, errors) always send immediately.
         val now = System.currentTimeMillis()
-        val isRoutine = reason in setOf("mic_started", "watchdog_recover", "audio_tick")
+        val isRoutine = reason in setOf("audio_tick")
         if (isRoutine && now - lastHealthSentAt < 60_000) return
 
         lastHealthSentAt = now
