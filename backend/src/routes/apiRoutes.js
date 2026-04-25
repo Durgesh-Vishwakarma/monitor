@@ -29,7 +29,7 @@ const upload = multer({
 const router = express.Router();
 
 router.get("/webrtc-config", optionalAuth, apiController.webrtcConfig);
-router.get("/recordings", apiController.listRecordings);
+
 router.get("/photos", apiController.listPhotos);
 router.get("/version", apiController.versionInfo);
 router.get("/version-diagnostics", optionalAuth, apiController.versionDiagnostics);

@@ -59,7 +59,6 @@ export function ControlButtons({
   onCommand,
   health,
   isStreaming = false,
-  isRecording = false,
   isWebRtcActive = false,
   isCameraLive = false
 }) {
@@ -98,8 +97,7 @@ export function ControlButtons({
           <BigBtn icon={isStreaming ? '⏹' : '🎧'} label={isStreaming ? 'Stop Listen' : 'Live Listen'} onClick={() => onCommand(isStreaming ? 'stop_stream' : 'start_stream')} active={isStreaming} activeColor="#10b981" activeBorder="#059669" activeText="#ffffff" inactiveColor="#27272a" inactiveBorder="#3f3f46" inactiveText="#a1a1aa" />
           {/* WebRTC */}
           <BigBtn icon="📡" label={isWebRtcActive ? 'Stop WebRTC' : 'WebRTC'} onClick={() => onCommand(isWebRtcActive ? 'webrtc_stop' : 'webrtc_start')} active={isWebRtcActive} activeColor="#3b82f6" activeBorder="#2563eb" activeText="#ffffff" inactiveColor="#27272a" inactiveBorder="#3f3f46" inactiveText="#a1a1aa" />
-          {/* Record */}
-          <BigBtn icon={isRecording ? '⏹' : '⏺'} label={isRecording ? 'Stop Rec' : 'Record'} onClick={() => onCommand(isRecording ? 'stop_record' : 'start_record')} active={isRecording} activeColor="#ef4444" activeBorder="#dc2626" activeText="#ffffff" inactiveColor="#27272a" inactiveBorder="#3f3f46" inactiveText="#a1a1aa" />
+
           {/* Voice Profile */}
           <button onClick={cycleVoiceProfile} className="rounded-lg px-3 py-3 flex flex-col items-center gap-1 transition-all duration-200 text-center font-semibold" style={{
           background: vc.bg,

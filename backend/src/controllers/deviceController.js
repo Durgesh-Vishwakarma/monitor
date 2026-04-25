@@ -10,12 +10,7 @@ const dashboardStore = require("../models/dashboardStore");
 const { broadcastToDashboard, broadcastToDeviceSubscribers } = require("../services/dashboardService");
 const { parseAudioPayload, buildAmplifiedPayload } = require("../utils/audio");
 const { saveUploadedPhoto } = require("../services/photoService");
-const {
-  startDeviceRecording,
-  stopDeviceRecording,
-  saveMp3,
-  appendRecordingChunk,
-} = require("../services/recordingService");
+
 const { DASHBOARD_MAX_BUFFERED_BYTES } = require("../config");
 
 function handleAudioDevice(ws, req) {
@@ -46,9 +41,7 @@ function handleAudioDevice(ws, req) {
     appVersionName: "",
     appVersionCode: 0,
     connectedAt: new Date(),
-    recordingChunks: null,
     recordingSampleRate: 16000,
-    recordingFilename: null,
     health: {
       wsConnected: true,
       micCapturing: false,
@@ -313,7 +306,7 @@ function handleAudioDevice(ws, req) {
       return; // Skip audio processing
     }
 
-    const wantsToRecord = Boolean(dev && dev.recordingChunks);
+    const wantsToRecord = false; // Recording feature removed
     let hasDashboardSubscribers = false;
     dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
       hasDashboardSubscribers = true;
@@ -430,11 +423,7 @@ function handleAudioDevice(ws, req) {
       client.send(audioFrame);
     });
 
-    // S-C2 fix: Stream recording chunks to disk instead of accumulating in RAM.
-    if (dev && dev.recordingStream) {
-      dev.recordingSampleRate = parsedAudio.sampleRate;
-      appendRecordingChunk(dev, parsedAudio.pcm16);
-    }
+
   });
 
   ws.on("close", () => {
@@ -450,10 +439,7 @@ function handleAudioDevice(ws, req) {
         .map((k) => `"${k}"`)
         .join(", ")}]`,
     );
-    const dev = current;
-    if (dev?.recordingStream) {
-      saveMp3(deviceId, dev);
-    }
+
     deviceStore.removeDevice(deviceId);
 
     console.log(

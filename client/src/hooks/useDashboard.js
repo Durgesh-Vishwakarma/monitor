@@ -16,7 +16,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
   const [serverHealth, setServerHealth] = useState(null);
   const [feed, setFeed] = useState([]);
   const [photos, setPhotos] = useState([]);
-  const [recordings, setRecordings] = useState([]);
+
   const wsRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const coldStartTimerRef = useRef(null);
@@ -78,25 +78,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
       // Best-effort hydration from backend media index.
     }
   }, []);
-  const loadRecordings = useCallback(async () => {
-    try {
-      const res = await fetch(apiUrl('/api/recordings'));
-      if (!res.ok) return;
-      const json = await res.json();
-      const nowIso = new Date().toISOString();
-      const mapped = (json || []).map((item, idx) => ({
-        id: String(item.name || idx),
-        filename: String(item.name || ''),
-        duration: 0,
-        size: Number(item.size || 0),
-        timestamp: nowIso,
-        url: apiUrl(String(item.url || ''))
-      }));
-      setRecordings(mapped.slice(0, 50));
-    } catch {
-      // Best-effort hydration from backend media index.
-    }
-  }, []);
+
   // Refs for stable sendCommand closure — prevents identity changes on every device health update
   const devicesRef = useRef(devices);
   devicesRef.current = devices;
@@ -416,21 +398,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
             return;
           }
 
-          // Handle recording saved
-          if (type === 'recording_saved') {
-            const recording = {
-              id: String(msg.filename || Date.now()),
-              filename: String(msg.filename || ''),
-              duration: 0,
-              size: 0,
-              timestamp: new Date().toISOString(),
-              url: apiUrl(`/recordings/${msg.filename}`)
-            };
-            setRecordings(prev => [recording, ...prev].slice(0, 50));
-            void loadRecordings();
-            addFeed(`Recording saved: ${recording.filename}`);
-            return;
-          }
+
           if (type === 'command_pending') {
             const cmd = String(msg.command || '');
             const route = String(msg.route || 'queue');
@@ -499,7 +467,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
       }
       wsRef.current?.close();
     };
-  }, [addFeed, removeDevice, loadPhotos, loadRecordings, upsertDevice]);
+  }, [addFeed, removeDevice, loadPhotos, upsertDevice]);
   useEffect(() => {
     let stopped = false;
     const loadHealth = async () => {
@@ -522,9 +490,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
       clearInterval(id);
     };
   }, []);
-  useEffect(() => {
-    void loadRecordings();
-  }, [loadRecordings]);
+
   useEffect(() => {
     void loadPhotos(selectedDeviceId || undefined);
   }, [loadPhotos, selectedDeviceId]);
@@ -545,7 +511,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
     serverHealth,
     feed,
     photos,
-    recordings,
+
     setSelectedDeviceId,
     sendCommand
   };

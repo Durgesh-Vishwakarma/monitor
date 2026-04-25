@@ -8,14 +8,7 @@ const COMMANDS = [{
   label: 'Stop Stream',
   cmd: 'stop_stream',
   variant: 'danger'
-}, {
-  label: 'Start Record',
-  cmd: 'start_record',
-  variant: 'success'
-}, {
-  label: 'Stop Record',
-  cmd: 'stop_record',
-  variant: 'danger'
+
 }, {
   label: 'Take Rear Photo',
   cmd: 'take_photo',

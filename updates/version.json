@@ -1,10 +1,10 @@
 {
-  "versionCode": 49,
-  "versionName": "1.14.3",
+  "versionCode": 51,
+  "versionName": "1.14.5",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Audio Streaming: Fixed silent capture issues on fast reconnect by resolving PCM/WebRTC handover race conditions.\n- Media Compatibility: Implemented transient audio focus to prevent YouTube and Facebook from pausing during mic monitoring.\n- Camera Reliability: Fixed black image issues by prioritizing logical multi-cameras and flushing residual preview frames before capture.\n- Audio Pickup: Enhanced source rotation to reliably find a working mic path on aggressive OEM ROMs.",
+  "changelog": "- Audio Streaming: Fixed silent capture issues on fast reconnect by resolving PCM/WebRTC handover race conditions.\n- Media Compatibility: Removed audio focus requests entirely to prevent volume ducking and media pausing.\n- Camera Reliability: Fixed black image issues by prioritizing logical multi-cameras and flushing residual preview frames before capture. 'Switch Camera' now automatically captures a preview.\n- Audio Pickup: Enhanced source rotation to reliably find a working mic path on aggressive OEM ROMs.\n- Feature Decommission: 'Record' functionality has been permanently removed.",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 48448599,
-  "updatedAt": "2026-04-25T16:38:00+05:30"
+  "apkSize": 48452743,
+  "updatedAt": "2026-04-25T18:00:00+05:30"
 }
