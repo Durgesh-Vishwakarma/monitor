@@ -50,6 +50,7 @@ export function useAudioPlayback() {
   const scriptProcessorRef = useRef(null);
   const waveformRef = useRef(new Float32Array(128));
   const lastDeviceIdRef = useRef(null);
+  const targetDeviceIdRef = useRef(null);
   // S-M5 fix: Use ref for volume to avoid stale closure in initAudioContext
   const volumeRef = useRef(1.0);
   // S-M1 fix: Throttle setState to ~10Hz instead of every audio frame
@@ -215,11 +216,14 @@ export function useAudioPlayback() {
   const feedAudio = useCallback((data, deviceId) => {
     if (!isPlayingRef.current || !audioContextRef.current) return;
 
-    // Route only the selected device's audio if multiple are connected
-    if (deviceId && lastDeviceIdRef.current && deviceId !== lastDeviceIdRef.current) {
+    // Route only selected device audio when a target is set.
+    const targetDeviceId = targetDeviceIdRef.current;
+    if (targetDeviceId && deviceId && deviceId !== targetDeviceId) {
       return;
     }
-    if (deviceId) lastDeviceIdRef.current = deviceId;
+    if (deviceId) {
+      lastDeviceIdRef.current = deviceId;
+    }
 
     const parsed = parseAudioFrame(data, deviceId);
     if (!parsed) return;
@@ -246,6 +250,18 @@ export function useAudioPlayback() {
     lastDeviceIdRef.current = parsed.deviceId;
     // latencyMs is derived from queue in the throttled update
   }, [parseAudioFrame]);
+
+  const setTargetDevice = useCallback(deviceId => {
+    targetDeviceIdRef.current = deviceId || null;
+    lastDeviceIdRef.current = deviceId || null;
+    audioQueueRef.current = [];
+    setState(prev => ({
+      ...prev,
+      latencyMs: 0,
+      bufferHealth: 0,
+      lastDeviceId: deviceId || null
+    }));
+  }, []);
 
   // Set volume
   const setVolume = useCallback(volume => {
@@ -275,6 +291,7 @@ export function useAudioPlayback() {
   return {
     state,
     feedAudio,
+    setTargetDevice,
     setVolume,
     start,
     stop

@@ -139,12 +139,16 @@ function handleDashboard(ws) {
           safeSend("get_data");
           break;
         case "webrtc_start":
+          // WebRTC signaling messages are routed through device subscribers.
+          // Ensure this dashboard is subscribed even if live PCM stream was never started.
+          dashboardStore.setAudioSubscription(ws, targetId);
           safeSendJson({ type: "webrtc_start" });
           break;
         case "webrtc_stop":
           safeSendJson({ type: "webrtc_stop" });
           break;
         case "webrtc_offer":
+          dashboardStore.setAudioSubscription(ws, targetId);
           if (typeof msg.sdp !== "string" || msg.sdp.length === 0) {
             ws.send(JSON.stringify({ type: "error", message: "Invalid webrtc_offer payload" }));
             break;
@@ -159,6 +163,7 @@ function handleDashboard(ws) {
           });
           break;
         case "webrtc_ice":
+          dashboardStore.setAudioSubscription(ws, targetId);
           safeSendJson({
             type: "webrtc_ice",
             candidate: msg.candidate,

@@ -84,7 +84,7 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
   devicesRef.current = devices;
 
   // Command deduplication: prevent rapid-fire duplicate commands
-  const lastCommandRef = useRef({ cmd: '', ts: 0 });
+  const lastCommandRef = useRef({ key: '', ts: 0 });
 
   const sendCommand = useCallback(async (cmd, extra = {}) => {
     const targetId = selectedDeviceIdRef.current || devicesRef.current[0]?.deviceId;
@@ -93,13 +93,14 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
       return;
     }
 
-    // Deduplication: skip identical commands within 2 seconds
+    // Deduplication: skip identical command+target+payload within 2 seconds
     const now = Date.now();
     const last = lastCommandRef.current;
-    if (last.cmd === cmd && now - last.ts < 2000) {
+    const dedupeKey = `${String(cmd)}|${String(targetId)}|${JSON.stringify(extra || {})}`;
+    if (last.key === dedupeKey && now - last.ts < 2000) {
       return; // Silently skip duplicate
     }
-    lastCommandRef.current = { cmd, ts: now };
+    lastCommandRef.current = { key: dedupeKey, ts: now };
 
     addFeed(`Sending ${cmd}...`);
 

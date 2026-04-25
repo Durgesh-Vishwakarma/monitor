@@ -43,8 +43,8 @@ function App() {
   // CRITICAL: These callbacks must have EMPTY dependency arrays to prevent
   // useDashboard from seeing new function references on every state change,
   // which would cause WebSocket reconnections and command floods.
-  const handleAudioData = useCallback(data => {
-    audioPlaybackRef.current.feedAudio(data);
+  const handleAudioData = useCallback((data, deviceId) => {
+    audioPlaybackRef.current.feedAudio(data, deviceId);
   }, []);
   const handleWebRTCMessage = useCallback(msg => {
     webRTCRef.current.handleMessage(msg);
@@ -99,6 +99,10 @@ function App() {
       audioPlaybackRef.current.start();
     }
   }, [isListening]);
+
+  useEffect(() => {
+    audioPlaybackRef.current.setTargetDevice(selectedDeviceId || null);
+  }, [selectedDeviceId]);
 
   // Automatically resend subscriptions if the dashboard reconnects.
   // CRITICAL: Use refs for sendCommand and isListening to avoid re-creating this effect

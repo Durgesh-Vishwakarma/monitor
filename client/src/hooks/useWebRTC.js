@@ -31,6 +31,8 @@ export function useWebRTC() {
   const sendCommandRef = useRef(null);
   const statsIntervalRef = useRef(null);
   const pendingIceCandidatesRef = useRef([]);
+  const offerCreatedRef = useRef(false);
+  const offerTimerRef = useRef(null);
 
   // Create audio element on mount
   useEffect(() => {
@@ -50,10 +52,40 @@ export function useWebRTC() {
       if (statsIntervalRef.current) {
         clearInterval(statsIntervalRef.current);
       }
+      if (offerTimerRef.current) {
+        clearTimeout(offerTimerRef.current);
+      }
       if (pcRef.current) {
         pcRef.current.close();
       }
     };
+  }, []);
+
+  const createAndSendOffer = useCallback((pcOverride = null) => {
+    const pc = pcOverride || pcRef.current;
+    if (!pc || offerCreatedRef.current) return;
+
+    offerCreatedRef.current = true;
+    pc.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: false
+    }).then(offer => {
+      return pc.setLocalDescription(offer);
+    }).then(() => {
+      if (pc.localDescription && sendCommandRef.current) {
+        console.log('[WebRTC] Sending offer');
+        sendCommandRef.current('webrtc_offer', {
+          sdp: pc.localDescription.sdp
+        });
+      }
+    }).catch(err => {
+      console.error('[WebRTC] Failed to create offer:', err);
+      offerCreatedRef.current = false;
+      setStats(prev => ({
+        ...prev,
+        state: 'failed'
+      }));
+    });
   }, []);
   const updateStats = useCallback(async () => {
     const pc = pcRef.current;
@@ -110,6 +142,11 @@ export function useWebRTC() {
     }
     sendCommandRef.current = sendCommand;
     pendingIceCandidatesRef.current = [];
+    offerCreatedRef.current = false;
+    if (offerTimerRef.current) {
+      clearTimeout(offerTimerRef.current);
+      offerTimerRef.current = null;
+    }
     setStats(prev => ({
       ...prev,
       state: 'connecting'
@@ -177,38 +214,29 @@ export function useWebRTC() {
       direction: 'recvonly'
     });
 
-    // Create offer
-    pc.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: false
-    }).then(offer => {
-      return pc.setLocalDescription(offer);
-    }).then(() => {
-      if (pc.localDescription && sendCommandRef.current) {
-        console.log('[WebRTC] Sending offer');
-        sendCommandRef.current('webrtc_offer', {
-          sdp: pc.localDescription.sdp
-        });
-      }
-    }).catch(err => {
-      console.error('[WebRTC] Failed to create offer:', err);
-      setStats(prev => ({
-        ...prev,
-        state: 'failed'
-      }));
-    });
+    // Wait briefly for device-side webrtc_start completion before sending offer.
+    // Fallback timer prevents deadlock if state message is delayed.
+    offerTimerRef.current = window.setTimeout(() => {
+      createAndSendOffer(pc);
+      offerTimerRef.current = null;
+    }, 1500);
 
     // Start stats monitoring
     if (statsIntervalRef.current) {
       clearInterval(statsIntervalRef.current);
     }
     statsIntervalRef.current = window.setInterval(updateStats, 2000);
-  }, [updateStats]);
+  }, [createAndSendOffer, updateStats]);
   const stop = useCallback(sendCommand => {
     if (statsIntervalRef.current) {
       clearInterval(statsIntervalRef.current);
       statsIntervalRef.current = null;
     }
+    if (offerTimerRef.current) {
+      clearTimeout(offerTimerRef.current);
+      offerTimerRef.current = null;
+    }
+    offerCreatedRef.current = false;
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
@@ -267,8 +295,16 @@ export function useWebRTC() {
     }
     if (type === 'webrtc_state') {
       console.log('[WebRTC] Device state:', msg);
+      const state = String(msg.state || '');
+      if (state.startsWith('started_') || state === 'pc_connected' || state === 'ice_connected' || state === 'ice_completed') {
+        if (offerTimerRef.current) {
+          clearTimeout(offerTimerRef.current);
+          offerTimerRef.current = null;
+        }
+        createAndSendOffer(pc);
+      }
     }
-  }, []);
+  }, [createAndSendOffer]);
   return {
     stats,
     start,
