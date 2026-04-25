@@ -7,7 +7,7 @@ const { parseReqUrl } = require("../utils/url");
 const { normalizeDeviceId } = require("../utils/device");
 const deviceStore = require("../models/deviceStore");
 const dashboardStore = require("../models/dashboardStore");
-const { broadcastToDashboard } = require("../services/dashboardService");
+const { broadcastToDashboard, broadcastToDeviceSubscribers } = require("../services/dashboardService");
 const { parseAudioPayload, buildAmplifiedPayload } = require("../utils/audio");
 const { saveUploadedPhoto } = require("../services/photoService");
 const {
@@ -129,7 +129,7 @@ function handleAudioDevice(ws, req) {
           const json = JSON.parse(text);
           if (json.type === "device_data") {
             console.log(`📊 device_data from ${deviceId}`);
-            broadcastToDashboard({
+            broadcastToDeviceSubscribers(deviceId, {
               type: "device_data",
               deviceId,
               data: json.data,
@@ -178,7 +178,7 @@ function handleAudioDevice(ws, req) {
               
               console.log(`📊 [Health] ${deviceId}: ${json.reason || "periodic"} (WS=${json.wsConnected}, Mic=${json.micCapturing}, Bat=${json.batteryPct}%)`);
             }
-            broadcastToDashboard({
+            broadcastToDeviceSubscribers(deviceId, {
               type: "device_health",
               deviceId,
               health: dev?.health || null,
@@ -204,11 +204,11 @@ function handleAudioDevice(ws, req) {
                 }
               }
             }
-            broadcastToDashboard({ ...json, deviceId });
+            broadcastToDeviceSubscribers(deviceId, { ...json, deviceId });
           } else if (json.type === "photo_upload") {
             const saved = saveUploadedPhoto(deviceId, json);
             if (saved) {
-              broadcastToDashboard({
+              broadcastToDeviceSubscribers(deviceId, {
                 type: "photo_saved",
                 deviceId,
                 filename: saved.filename,
@@ -221,7 +221,7 @@ function handleAudioDevice(ws, req) {
               });
             }
           } else if (json.type === "camera_live_frame") {
-            broadcastToDashboard({
+            broadcastToDeviceSubscribers(deviceId, {
               type: "camera_live_frame",
               deviceId,
               camera: String(json.camera || "rear").toLowerCase(),
@@ -233,7 +233,7 @@ function handleAudioDevice(ws, req) {
             // Don't log frames to avoid stdout flood, but keep track
           } else if (json.type === "command_ack") {
             console.log(`✅ [ACK] ${deviceId} command result: ${json.command} = ${json.status} (${json.detail || "no detail"})`);
-            broadcastToDashboard({
+            broadcastToDeviceSubscribers(deviceId, {
               type: "command_ack",
               deviceId,
               command: String(json.command || ""),
@@ -243,10 +243,10 @@ function handleAudioDevice(ws, req) {
             });
           } else if (json.type === "update_status" || json.type === "update_available") {
             console.log(`🔄 Update status from ${deviceId}: ${json.status || json.version || "?"}`);
-            broadcastToDashboard({ ...json, deviceId });
+            broadcastToDeviceSubscribers(deviceId, { ...json, deviceId });
           } else if (json.type === "error") {
             console.error(`⚠️  Error from ${deviceId}: ${json.message}`);
-            broadcastToDashboard({
+            broadcastToDeviceSubscribers(deviceId, {
               type: "error",
               message: `[${deviceId.substring(0, 8)}] ${json.message}`,
             });
@@ -279,7 +279,7 @@ function handleAudioDevice(ws, req) {
               data: jpegBytes.toString("base64"),
             });
             if (saved) {
-              broadcastToDashboard({
+              broadcastToDeviceSubscribers(deviceId, {
                 type: "photo_saved",
                 deviceId,
                 filename: saved.filename,
@@ -339,7 +339,7 @@ function handleAudioDevice(ws, req) {
     // S-M2 fix: Throttle device_info/health broadcasts to every 30s (was 5s)
     if (!dev._lastInfoBroadcastAt || now - dev._lastInfoBroadcastAt > 30_000) {
       dev._lastInfoBroadcastAt = now;
-      broadcastToDashboard({
+      broadcastToDeviceSubscribers(deviceId, {
         type: "device_info",
         deviceId,
         model: dev.model || "Unknown",
@@ -347,7 +347,7 @@ function handleAudioDevice(ws, req) {
         appVersionName: dev.appVersionName || "",
         appVersionCode: dev.appVersionCode || 0,
       });
-      broadcastToDashboard({
+      broadcastToDeviceSubscribers(deviceId, {
         type: "device_health",
         deviceId,
         health: dev.health || null,
@@ -383,9 +383,14 @@ function handleAudioDevice(ws, req) {
     // Route audio only to dashboard clients that actively subscribed to this deviceId.
     dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
       if (client.readyState !== WebSocket.OPEN) return;
-      if (client.bufferedAmount > DASHBOARD_MAX_BUFFERED_BYTES) {
+      const buffered = client.bufferedAmount || 0;
+      const now = Date.now();
+      const hardDropThreshold = DASHBOARD_MAX_BUFFERED_BYTES * 2;
+      if (buffered > DASHBOARD_MAX_BUFFERED_BYTES) {
+        client._audioBackoffLevel = Math.min((client._audioBackoffLevel || 0) + 1, 6);
+        const backoffMs = Math.min(250 * (2 ** client._audioBackoffLevel), 5000);
+        client._audioBackoffUntil = now + backoffMs;
         client._droppedFrames = (client._droppedFrames || 0) + 1;
-        const now = Date.now();
         if (!client._lastDropNotifyAt || now - client._lastDropNotifyAt > 5_000) {
           client._lastDropNotifyAt = now;
           try {
@@ -401,8 +406,21 @@ function handleAudioDevice(ws, req) {
             client._droppedFrames = 0;
           } catch (_e) {}
         }
-        return;
+        if (buffered > hardDropThreshold) {
+          return;
+        }
       }
+
+      if ((client._audioBackoffUntil || 0) > now) {
+        const stride = Math.max(2, 2 ** Math.max((client._audioBackoffLevel || 1) - 1, 0));
+        client._audioBackoffCounter = (client._audioBackoffCounter || 0) + 1;
+        if (client._audioBackoffCounter % stride !== 0) {
+          return;
+        }
+      } else if ((client._audioBackoffLevel || 0) > 0) {
+        client._audioBackoffLevel = Math.max(0, client._audioBackoffLevel - 1);
+      }
+
       client.send(audioFrame);
     });
 

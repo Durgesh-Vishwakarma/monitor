@@ -46,13 +46,13 @@ function handleDashboard(ws) {
         console.log(`   ✅ Using connected device: "${targetId}"`);
       } else {
         console.log(`   ⚠️ Device "${requestedId}" is offline. Queuing command...`);
-        // If they requested a specific ID and it's offline, use that ID.
-        // If they didn't, we can't queue it reliably except to currentDeviceId
-        targetId = requestedId || deviceStore.getCurrentDeviceId();
+        // Queue only when an explicit deviceId is provided.
+        // Falling back to currentDeviceId can route commands to the wrong device.
+        targetId = requestedId;
         
         if (!targetId) {
-          console.log(`❌ No known device to queue to. Command ${cmd} rejected.`);
-          ws.send(JSON.stringify({ type: "error", message: "No device connected or known" }));
+          console.log(`❌ Missing deviceId for offline command ${cmd}; rejecting unsafe fallback.`);
+          ws.send(JSON.stringify({ type: "error", message: "deviceId is required when target device is offline" }));
           return;
         }
       }
@@ -86,9 +86,8 @@ function handleDashboard(ws) {
 
       switch (cmd) {
         case "start_stream":
-          // Dedup: If this dashboard already subscribed to this device within 3s, skip re-sending.
-          // The subscription is still refreshed, but we avoid flooding the device with start_stream
-          // which causes mic restart churn and audio interruptions.
+          // Keep lightweight dedup telemetry, but always forward start_stream.
+          // Reconnected dashboards must re-trigger device capture reliably.
           {
             const lastStreamCmd = ws._lastStartStreamAt || 0;
             const lastStreamDevice = ws._lastStartStreamDevice || "";
@@ -101,10 +100,7 @@ function handleDashboard(ws) {
             dashboardStore.setAudioSubscription(ws, targetId);
 
             if (isDuplicate) {
-              console.log(`⚡ [Dashboard] Dedup: skipping duplicate start_stream for ${targetId} (${now - lastStreamCmd}ms ago)`);
-              // Still send ack so frontend knows it's subscribed
-              ws.send(JSON.stringify({ type: "command_ack", command: "start_stream", status: "success", deviceId: targetId }));
-              break;
+              console.log(`⚡ [Dashboard] Duplicate start_stream observed for ${targetId} (${now - lastStreamCmd}ms ago), forwarding anyway`);
             }
 
             if (safeSend("start_stream")) {
@@ -388,11 +384,23 @@ function startStreamRecovery() {
 
       if (!dev._awaitingRecoveryAudio) {
         try {
+          let stillSubscribed = false;
+          dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
+            stillSubscribed = true;
+          });
+          if (!stillSubscribed) return;
+
           dev.ws.send("start_stream");
           dev._lastStreamRecoveryAt = now;
           dev._awaitingRecoveryAudio = true;
           console.log(`🔄 [Recovery] Nudging stale device → ${deviceId} (stale ${Math.round(staleMs/1000)}s)`);
-          broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
+          stillSubscribed = false;
+          dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
+            stillSubscribed = true;
+          });
+          if (stillSubscribed) {
+            broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
+          }
         } catch (e) {
           console.log(`❌ Stream recovery failed for ${deviceId}: ${e.message}`);
         }

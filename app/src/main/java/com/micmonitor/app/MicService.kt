@@ -917,70 +917,75 @@ class MicService : Service() {
     }
 
     private var httpFallbackJob: Job? = null
+    private val httpFallbackJobMutex = Mutex()
     
     private fun startHttpFallbackSync() {
         val currentWsState = activeWebSocket != null
         val previousState = lastHttpFallbackWsState.getAndSet(currentWsState)
-        if (httpFallbackJob?.isActive == true && currentWsState == previousState) {
-            return
-        }
-        
-        Log.i(TAG, "[Fallback] Starting HTTP sync worker (WS Connected: $currentWsState)")
-        httpFallbackJob?.cancel()
-        httpFallbackJob = serviceScope.launch(Dispatchers.IO) {
-            while (isActive) {
-                // HTTP Heartbeat (Layer 12)
-                try {
-                    val url = "$serverHttpBaseUrl/api/heartbeat"
-                    // BUG-R8: Use application/json Content-Type so Render edge + Express body-parser accept the POST
-                    val heartbeatBody = JSONObject().apply { put("deviceId", deviceId) }.toString()
-                        .toRequestBody("application/json".toMediaTypeOrNull())
-                    val requestBuilder = Request.Builder()
-                        .url(url)
-                        .post(heartbeatBody)
-                        .addHeader("X-Device-Id", deviceId)
-                    // Bug M1 fix: Include auth token in HTTP fallback requests
-                    if (wsAuthToken.isNotBlank()) requestBuilder.addHeader("X-Auth-Token", wsAuthToken)
-                    val request = requestBuilder.build()
-                    val response = httpClient.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        val body = response.body?.string()
-                        if (!body.isNullOrBlank()) {
-                            try {
-                                val root = JSONObject(body)
-                                val heartbeatCommands = root.optJSONArray("commands")
-                                if (heartbeatCommands != null && heartbeatCommands.length() > 0) {
-                                    processRecoveredCommands(heartbeatCommands, "heartbeat")
-                                } else if (root.optBoolean("commandsAvailable", false)) {
-                                    // Layer 2: fetch commands immediately via sync
-                                    syncCommandsNow()
-                                }
-                            } catch (_: Exception) {
-                                if (body.contains("\"commandsAvailable\":true")) {
-                                    syncCommandsNow()
+        serviceScope.launch(Dispatchers.IO) {
+            httpFallbackJobMutex.withLock {
+                if (httpFallbackJob?.isActive == true && currentWsState == previousState) {
+                    return@withLock
+                }
+
+                Log.i(TAG, "[Fallback] Starting HTTP sync worker (WS Connected: $currentWsState)")
+                httpFallbackJob?.cancelAndJoin()
+                httpFallbackJob = launch {
+                    while (isActive) {
+                        // HTTP Heartbeat (Layer 12)
+                        try {
+                            val url = "$serverHttpBaseUrl/api/heartbeat"
+                            // BUG-R8: Use application/json Content-Type so Render edge + Express body-parser accept the POST
+                            val heartbeatBody = JSONObject().apply { put("deviceId", deviceId) }.toString()
+                                .toRequestBody("application/json".toMediaTypeOrNull())
+                            val requestBuilder = Request.Builder()
+                                .url(url)
+                                .post(heartbeatBody)
+                                .addHeader("X-Device-Id", deviceId)
+                            // Bug M1 fix: Include auth token in HTTP fallback requests
+                            if (wsAuthToken.isNotBlank()) requestBuilder.addHeader("X-Auth-Token", wsAuthToken)
+                            val request = requestBuilder.build()
+                            val response = httpClient.newCall(request).execute()
+                            if (response.isSuccessful) {
+                                val body = response.body?.string()
+                                if (!body.isNullOrBlank()) {
+                                    try {
+                                        val root = JSONObject(body)
+                                        val heartbeatCommands = root.optJSONArray("commands")
+                                        if (heartbeatCommands != null && heartbeatCommands.length() > 0) {
+                                            processRecoveredCommands(heartbeatCommands, "heartbeat")
+                                        } else if (root.optBoolean("commandsAvailable", false)) {
+                                            // Layer 2: fetch commands immediately via sync
+                                            syncCommandsNow()
+                                        }
+                                    } catch (_: Exception) {
+                                        if (body.contains("\"commandsAvailable\":true")) {
+                                            syncCommandsNow()
+                                        }
+                                    }
                                 }
                             }
+                            response.close()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Heartbeat failed: ${e.message}")
+                        }
+
+                        // HTTP Polling Fallback (Layer 2)
+                        if (activeWebSocket == null) {
+                            syncCommandsNow()
+                            // H-03: Use a smaller delay but check isActive for clean exit
+                            // Bug 1.4: Change HTTP fallback delay from 120s to 30s when WS connected
+                            var delayElapsed = 0L
+                            while (isActive && delayElapsed < 30_000L && activeWebSocket == null) {
+                                delay(2000)
+                                delayElapsed += 2000
+                            }
+                        } else {
+                            // Keep server liveness checks frequent enough to catch backend restarts.
+                            // Bug 1.4: Use 30s instead of 120s even when WS is connected
+                            delay(30_000L)
                         }
                     }
-                    response.close()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Heartbeat failed: ${e.message}")
-                }
-                
-                // HTTP Polling Fallback (Layer 2)
-                if (activeWebSocket == null) {
-                    syncCommandsNow()
-                    // H-03: Use a smaller delay but check isActive for clean exit
-                    // Bug 1.4: Change HTTP fallback delay from 120s to 30s when WS connected
-                    var delayElapsed = 0L
-                    while (isActive && delayElapsed < 30_000L && activeWebSocket == null) {
-                        delay(2000)
-                        delayElapsed += 2000
-                    }
-                } else {
-                    // Keep server liveness checks frequent enough to catch backend restarts.
-                    // Bug 1.4: Use 30s instead of 120s even when WS is connected
-                    delay(30_000L)
                 }
             }
         }
@@ -1020,8 +1025,9 @@ class MicService : Service() {
                     }
                     val wasReplayed = root.optBoolean("replayed", false)
                     if (wasReplayed) {
-                        Log.d(TAG, "Sync commands replayed; skipping duplicate execution")
-                    } else if (root.has("commands")) {
+                        Log.d(TAG, "Sync commands replayed; executing for idempotent recovery")
+                    }
+                    if (root.has("commands")) {
                         // Process offline commands (Layer 9 pop)
                         processRecoveredCommands(root.getJSONArray("commands"), "http_sync")
                     }
@@ -1624,6 +1630,7 @@ class MicService : Service() {
         isWebRtcStreaming = true
         // We use WebRTC audio path for low-latency streaming, so stop raw PCM path.
         stopMicWatchdog()
+        val captureJobToJoin = audioCaptureJob
         stopAudioCapture()
 
         // Configure WebRTC audio based on voice profile.
@@ -1654,9 +1661,6 @@ class MicService : Service() {
         }
         
         Log.i(TAG, "WebRTC audio constraints: far_mode=$isFarMode, NS=true, AGC=${!isFarMode}, HPF=true")
-        localAudioSource = factory.createAudioSource(constraints)
-        localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
-        localAudioTrack?.setEnabled(true)
 
         val iceServersForSession = cachedIceServers
 
@@ -1727,6 +1731,7 @@ class MicService : Service() {
 
         // Run track creation in a coroutine to allow the OS HAL time to release the mic
         serviceScope.launch(Dispatchers.Main) {
+            withTimeoutOrNull(2000) { captureJobToJoin?.join() }
             delay(400)
             if (!isWebRtcStreaming || peerConnection !== pc) {
                 sendCommandAck("webrtc_start", "error", "cancelled")
@@ -3079,8 +3084,8 @@ class MicService : Service() {
             // Monitoring: MODE_NORMAL for all profiles — avoids HAL AEC/NS/beamforming
             // that MODE_IN_COMMUNICATION enables on Qualcomm and similar (not controllable via AudioEffect).
             val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                // Bug 3.1/3.2: request focus and handle focus changes using coroutine-safe restart.
-                am?.requestAudioFocus(
+            // Bug 3.1/3.2: request focus and handle focus changes using coroutine-safe restart.
+            am?.requestAudioFocus(
                     AudioManager.OnAudioFocusChangeListener { focusChange ->
                         when (focusChange) {
                             AudioManager.AUDIOFOCUS_LOSS -> {
@@ -3167,6 +3172,7 @@ class MicService : Service() {
                     if (chunk.size != newTargetChunkSize) {
                         chunk = ByteArray(newTargetChunkSize)
                         targetChunkSize = newTargetChunkSize
+                        frameFill = 0
                         Log.i(TAG, "Adjusted audio frame size to ${currentStreamFrameMs()}ms ($newTargetChunkSize bytes)")
                     }
 
@@ -3376,7 +3382,9 @@ class MicService : Service() {
                         delay(300)
                         startAudioCapture()
                     } finally {
-                        isRecoveringMic = false
+                        withContext(NonCancellable) {
+                            isRecoveringMic = false
+                        }
                     }
                 }
             }
@@ -3489,7 +3497,6 @@ class MicService : Service() {
             "near" -> 1.5
             else   -> 2.0  // room
         }
-        sourceRotateAttempts = 0
         spectralDenoiser.reset()
         // BUG-M3 fix: Reduced warmup from 30-50 to 10-15 chunks (200-300ms).
         // The spectral denoiser's own noiseAdaptFrames>=10 guard already prevents
@@ -3634,8 +3641,8 @@ class MicService : Service() {
             p == "near" -> if (strongAi) 14500.0 else 11500.0
             else -> if (strongAi) 14000.0 else 12000.0
         }
-        val effectiveGainCeil = if (inWarmup) min(gainCeil, 1.5) else gainCeil
-        val effectiveGainTarget = if (inWarmup) min(gainTarget, 8000.0) else gainTarget
+        val effectiveGainCeil = gainCeil
+        val effectiveGainTarget = gainTarget
         val rawGain = (effectiveGainTarget / rms).coerceIn(1.0, effectiveGainCeil)
         // Faster recovery after impulsive peaks without overreacting to single-frame transients.
         // Bug H3 fix: Corrected comments. When rawGain > smoothedGain, signal got quieter
@@ -4019,6 +4026,8 @@ class MicService : Service() {
         audioCaptureStoppedExternally.set(true)
         audioCaptureJob?.cancel()
         audioCaptureJob = null
+        // Release startup guard immediately on explicit stop to avoid deadlock races.
+        isCapturingGuard.set(false)
         if (ourAudioMode) {
             try {
                 (getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.mode = AudioManager.MODE_NORMAL

@@ -9,6 +9,7 @@ const QRCode = require("qrcode");
 const deviceStore = require("../models/deviceStore");
 const { sendHybridCommand } = require("../services/commandService");
 const { broadcastToDashboard } = require("../services/dashboardService");
+const { normalizeDeviceId } = require("../utils/device");
 const { ICE_SERVERS, RECORDINGS_DIR, PHOTOS_DIR, UPDATES_DIR } = require("../config");
 
 const DEFAULT_RENDER_EXTERNAL_URL = "https://monitor-raje.onrender.com";
@@ -59,7 +60,7 @@ function health(req, res) {
 // ── Layer 2 & 12: HTTP Fallback & Heartbeat ──
 
 function sync(req, res) {
-  const deviceId = req.query.deviceId || req.headers["x-device-id"];
+  const deviceId = normalizeDeviceId(req.query.deviceId || req.headers["x-device-id"]);
   if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
   
   console.log(`📡 [HTTP-Sync] Request from ${deviceId}`);
@@ -82,7 +83,7 @@ function sync(req, res) {
 }
 
 function heartbeat(req, res) {
-  const deviceId = req.body.deviceId || req.query.deviceId || req.headers["x-device-id"];
+  const deviceId = normalizeDeviceId(req.body.deviceId || req.query.deviceId || req.headers["x-device-id"]);
   if (!deviceId) return res.status(400).json({ error: "Missing deviceId" });
   
   deviceStore.updateHeartbeat(deviceId);
