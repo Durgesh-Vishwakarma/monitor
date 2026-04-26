@@ -203,9 +203,46 @@ export function useWebRTC() {
     };
     pc.ontrack = event => {
       console.log('[WebRTC] Received track:', event.track.kind);
-      if (event.streams[0] && audioRef.current) {
-        audioRef.current.srcObject = event.streams[0];
-        audioRef.current.play().catch(e => console.warn('[WebRTC] Autoplay blocked:', e));
+      if (event.streams[0]) {
+        // Build a Web Audio processing chain for far-voice clarity
+        // (matches the PCM playback chain: compressor → highpass → gain → output)
+        try {
+          const audioCtx = new AudioContext();
+          const source = audioCtx.createMediaStreamSource(event.streams[0]);
+
+          // DynamicsCompressor: auto-levels quiet far-field speech
+          const compressor = audioCtx.createDynamicsCompressor();
+          compressor.threshold.value = -35;
+          compressor.knee.value = 20;
+          compressor.ratio.value = 8;
+          compressor.attack.value = 0.003;
+          compressor.release.value = 0.15;
+
+          // Highpass: removes low-frequency hum/rumble (< 85Hz)
+          const highpass = audioCtx.createBiquadFilter();
+          highpass.type = 'highpass';
+          highpass.frequency.value = 85;
+          highpass.Q.value = 0.7;
+
+          // Gain: 1.8× client-side volume boost
+          const gain = audioCtx.createGain();
+          gain.gain.value = 1.8;
+
+          // Chain: source → compressor → highpass → gain → speakers
+          source.connect(compressor);
+          compressor.connect(highpass);
+          highpass.connect(gain);
+          gain.connect(audioCtx.destination);
+
+          console.log('[WebRTC] Audio processing chain active');
+        } catch (e) {
+          // Fallback: direct Audio element playback if Web Audio fails
+          console.warn('[WebRTC] Audio chain failed, using direct playback:', e);
+          if (audioRef.current) {
+            audioRef.current.srcObject = event.streams[0];
+            audioRef.current.play().catch(err => console.warn('[WebRTC] Autoplay blocked:', err));
+          }
+        }
       }
     };
 

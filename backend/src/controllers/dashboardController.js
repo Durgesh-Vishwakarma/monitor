@@ -136,7 +136,15 @@ function handleDashboard(ws) {
           safeSend("ping");
           break;
         case "get_data":
-          safeSend("get_data");
+          if (safeSendJson({ type: "get_data" })) {
+            broadcastToDashboard({
+              type: "command_dispatch",
+              deviceId: targetId,
+              command: "get_data",
+              status: "sent",
+              ts: Date.now(),
+            });
+          }
           break;
         case "webrtc_start":
           // WebRTC signaling messages are routed through device subscribers.
@@ -243,9 +251,6 @@ function handleDashboard(ws) {
               ts: Date.now(),
             });
           }
-          break;
-        case "switch_camera":
-          safeSendJson({ type: "switch_camera" });
           break;
         case "photo_ai":
           safeSendJson({

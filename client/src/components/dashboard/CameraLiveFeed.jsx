@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 export function CameraLiveFeed({
   frame,
   photos,
-  onTakePhoto,
-  onSwitchCamera,
+  onTakeFront,
+  onTakeRear,
   onStopLive
 }) {
   const [selectedPhoto, setSelectedPhoto] = useState(null);
@@ -26,11 +26,11 @@ export function CameraLiveFeed({
             </span>}
         </div>
         {frame && <div className="flex items-center gap-2">
-            <button onClick={onTakePhoto} className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors">
-              📷 Capture
+            <button onClick={onTakeFront} className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors">
+              📷 Front
             </button>
-            <button onClick={onSwitchCamera} className="px-2 py-1 text-xs bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors">
-              🔄
+            <button onClick={onTakeRear} className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors">
+              📷 Rear
             </button>
             <button onClick={() => setRotation(r => (r + 90) % 360)} className="px-2 py-1 text-xs bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors" title="Rotate 90°">
               ↻

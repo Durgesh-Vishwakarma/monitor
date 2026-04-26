@@ -114,27 +114,46 @@ function muLawByteToLinearSample(value) {
  * @param {number} gainFactor Multiplier (e.g. 2.0 = twice as loud)
  * @returns {Buffer} Amplified buffer (new allocation)
  */
-function amplifyPcm16(pcmBuffer, gainFactor = 1.3) {  // Bug 2.2: Change default from 1.0 to 1.3
+function amplifyPcm16(pcmBuffer, gainFactor = 2.0) {
   if (!pcmBuffer || pcmBuffer.length < 2 || gainFactor === 1.0) return pcmBuffer;
 
   const numSamples = Math.floor(pcmBuffer.length / 2);
+
+  // ── Pass 1: Measure peak and RMS for intelligent gain ──
   let peak = 0;
+  let sumSq = 0;
   for (let i = 0; i < numSamples; i++) {
-    const sample = Math.abs(pcmBuffer.readInt16LE(i * 2));
-    if (sample > peak) peak = sample;
+    const sample = pcmBuffer.readInt16LE(i * 2);
+    const abs = Math.abs(sample);
+    if (abs > peak) peak = abs;
+    sumSq += sample * sample;
   }
 
   if (peak <= 0) return pcmBuffer;
 
-  const maxTarget = 30000;
+  const rms = Math.sqrt(sumSq / numSamples);
+
+  // Noise gate: if the entire frame is below ~-60dB (very quiet hiss/hum), silence it
+  const noiseGateThreshold = 80;  // ~-52dB, catches ambient hiss but preserves whispers
+  if (rms < noiseGateThreshold && peak < noiseGateThreshold * 3) {
+    return Buffer.alloc(pcmBuffer.length);  // return silence
+  }
+
+  // ── Pass 2: Compute effective gain ──
+  // Target: loud enough for far-field, but never clip
+  const maxTarget = 31500;
   const effectiveGain = Math.max(1.0, Math.min(gainFactor, maxTarget / peak));
+
+  // ── Pass 3: Amplify with soft-knee limiter ──
   const out = Buffer.allocUnsafe(pcmBuffer.length);
   for (let i = 0; i < numSamples; i++) {
     const offset = i * 2;
     const raw = pcmBuffer.readInt16LE(offset);
     const normalized = raw / 32768;
     const boosted = normalized * effectiveGain;
-    const limited = Math.tanh(boosted * 1.15) / Math.tanh(1.15);
+    // Soft limiter: tanh with wider knee (1.4) preserves more loudness
+    // before compression, giving far-voice audio more punch
+    const limited = Math.tanh(boosted * 1.4) / Math.tanh(1.4);
     out.writeInt16LE(Math.round(limited * 32767), offset);
   }
   // Copy any trailing odd byte unchanged

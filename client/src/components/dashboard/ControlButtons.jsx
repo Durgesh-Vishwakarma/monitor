@@ -138,8 +138,8 @@ export function ControlButtons({
         <SectionHead icon="📷" label="Camera" />
         <div className="grid grid-cols-2 gap-2">
           <BigBtn icon={isCameraLive ? '📺' : '📺'} label={isCameraLive ? 'Stop Video' : 'Live Video'} onClick={() => onCommand(isCameraLive ? 'camera_live_stop' : 'camera_live_start')} active={isCameraLive} activeColor="#ef4444" activeBorder="#dc2626" activeText="#ffffff" inactiveColor="#27272a" inactiveBorder="#3f3f46" inactiveText="#a1a1aa" />
-          <SmallBtn icon="📷" label="Take Photo" onClick={() => onCommand('take_photo')} color="#38bdf8" />
-          <SmallBtn icon="🔁" label="Switch Cam" onClick={() => onCommand('switch_camera')} color="#94a3b8" />
+          <SmallBtn icon="📷" label="Front Cam" onClick={() => onCommand('take_photo', { camera: 'front' })} color="#38bdf8" />
+          <SmallBtn icon="📷" label="Rear Cam" onClick={() => onCommand('take_photo', { camera: 'rear' })} color="#818cf8" />
           <SmallBtn icon="🌙" label={NIGHT_LABELS[photoNight]} onClick={cyclePhotoNight} color={photoNight !== 'off' ? '#e879f9' : '#64748b'} active={photoNight !== 'off'} />
         </div>
       </section>

@@ -106,7 +106,7 @@ object ImageEnhancer {
         }
 
         val result = Bitmap.createBitmap(bitmap.width, bitmap.height, 
-            bitmap.config ?: Bitmap.Config.ARGB_8888)
+            Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             colorFilter = ColorMatrixColorFilter(cm)
@@ -145,7 +145,7 @@ object ImageEnhancer {
         ))
 
         val result = Bitmap.createBitmap(bitmap.width, bitmap.height,
-            bitmap.config ?: Bitmap.Config.ARGB_8888)
+            Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             colorFilter = ColorMatrixColorFilter(matrix)
@@ -162,10 +162,11 @@ object ImageEnhancer {
         val height = bitmap.height
         if (width < 3 || height < 3) return bitmap
 
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        try {
+            val pixels = IntArray(width * height)
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        val output = IntArray(width * height)
+            val output = IntArray(width * height)
 
         val rs = IntArray(9)
         val gs = IntArray(9)
@@ -205,9 +206,13 @@ object ImageEnhancer {
             output[y * width + width - 1] = pixels[y * width + width - 1]  // Right column
         }
 
-        val result = Bitmap.createBitmap(width, height, bitmap.config ?: Bitmap.Config.ARGB_8888)
-        result.setPixels(output, 0, width, 0, 0, width, height)
-        return result
+            val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            result.setPixels(output, 0, width, 0, 0, width, height)
+            return result
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "OOM during denoise, returning original", e)
+            return bitmap
+        }
     }
 
     /**
@@ -219,10 +224,11 @@ object ImageEnhancer {
         val height = bitmap.height
         if (width < 3 || height < 3) return bitmap
 
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        try {
+            val pixels = IntArray(width * height)
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-        val output = IntArray(width * height)
+            val output = IntArray(width * height)
 
         // Unsharp mask 9-point kernel (includes diagonals) scaled by strength
         // Sum of coefficients: (8*s + 1) + 8*(-s) = 1.0 (normalized)
@@ -274,9 +280,13 @@ object ImageEnhancer {
             output[y * width + width - 1] = pixels[y * width + width - 1]
         }
 
-        val result = Bitmap.createBitmap(width, height, bitmap.config ?: Bitmap.Config.ARGB_8888)
-        result.setPixels(output, 0, width, 0, 0, width, height)
-        return result
+            val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            result.setPixels(output, 0, width, 0, 0, width, height)
+            return result
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "OOM during sharpen, returning original", e)
+            return bitmap
+        }
     }
 
     /**
@@ -296,7 +306,7 @@ object ImageEnhancer {
         if (safeRect.width() < 10 || safeRect.height() < 10) return bitmap
 
         try {
-            val result = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
+            val result = bitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return bitmap
             val canvas = Canvas(result)
 
             // Face enhancement matrix: slight brightness + warmth
@@ -342,23 +352,24 @@ object ImageEnhancer {
         val count = frames.size
 
         // Accumulate pixel values
-        val sumR = IntArray(width * height)
-        val sumG = IntArray(width * height)
-        val sumB = IntArray(width * height)
-
-        for (frame in frames) {
-            if (frame.width != width || frame.height != height) continue
-            
+        try {
+            val sumR = IntArray(width * height)
+            val sumG = IntArray(width * height)
+            val sumB = IntArray(width * height)
             val pixels = IntArray(width * height)
-            frame.getPixels(pixels, 0, width, 0, 0, width, height)
 
-            for (i in pixels.indices) {
-                val p = pixels[i]
-                sumR[i] += (p shr 16) and 0xFF
-                sumG[i] += (p shr 8) and 0xFF
-                sumB[i] += p and 0xFF
+            for (frame in frames) {
+                if (frame.width != width || frame.height != height) continue
+                
+                frame.getPixels(pixels, 0, width, 0, 0, width, height)
+
+                for (i in pixels.indices) {
+                    val p = pixels[i]
+                    sumR[i] += (p shr 16) and 0xFF
+                    sumG[i] += (p shr 8) and 0xFF
+                    sumB[i] += p and 0xFF
+                }
             }
-        }
 
         // Average
         val output = IntArray(width * height)
@@ -369,9 +380,13 @@ object ImageEnhancer {
             output[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
 
-        val result = Bitmap.createBitmap(width, height, frames[0].config ?: Bitmap.Config.ARGB_8888)
-        result.setPixels(output, 0, width, 0, 0, width, height)
-        return result
+            val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            result.setPixels(output, 0, width, 0, 0, width, height)
+            return result
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "OOM during mergeFrames, returning first frame", e)
+            return frames[0]
+        }
     }
 
     /**
@@ -441,7 +456,7 @@ object ImageEnhancer {
         }
         
         val result = Bitmap.createBitmap(bitmap.width, bitmap.height,
-            bitmap.config ?: Bitmap.Config.ARGB_8888)
+            Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             colorFilter = ColorMatrixColorFilter(cm)
@@ -479,7 +494,7 @@ object ImageEnhancer {
      * Mirror bitmap horizontally (for front camera).
      */
     fun mirrorHorizontally(bitmap: Bitmap): Bitmap {
-        val mirrored = Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config ?: Bitmap.Config.ARGB_8888)
+        val mirrored = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(mirrored)
         canvas.scale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
         canvas.drawBitmap(bitmap, 0f, 0f, null)

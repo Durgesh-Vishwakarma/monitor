@@ -1760,7 +1760,9 @@ class MicService : Service() {
                         localAudioSource = factory.createAudioSource(constraints)
                         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
                         localAudioTrack?.setEnabled(true)
-                        
+                        // Increase WebRTC hardware/software volume dynamically based on far-voice needs
+                        val webrtcGain = if (isFarMode) softwareGainMultiplier * 3.0 else softwareGainMultiplier * 1.5
+                        localAudioTrack?.setVolume(webrtcGain)
                         val currentTrack = localAudioTrack
                         if (currentTrack != null) {
                             webRtcAudioSender = pc.addTrack(currentTrack, listOf("mic_stream"))
@@ -3733,15 +3735,15 @@ class MicService : Service() {
         // Optimized for "loud volume, far voice"
         val gainCeil = when {
             willBeMuLaw -> 4.0
-            p == "far" -> if (strongAi) 12.0 else 10.0
+            p == "far" -> if (strongAi) 18.0 else 14.0
             p == "near" -> if (strongAi) 9.0 else 7.0
-            else -> if (strongAi) 9.0 else 7.0
+            else -> if (strongAi) 12.0 else 9.0
         }
         val gainTarget = when {
             willBeMuLaw -> 14000.0
-            p == "far" -> if (strongAi) 26000.0 else 23000.0
+            p == "far" -> if (strongAi) 30000.0 else 26000.0
             p == "near" -> if (strongAi) 21000.0 else 18000.0
-            else -> if (strongAi) 20000.0 else 17000.0
+            else -> if (strongAi) 24000.0 else 20000.0
         }
         val effectiveGainCeil = gainCeil
         val effectiveGainTarget = gainTarget
@@ -3758,9 +3760,9 @@ class MicService : Service() {
         // old cap allowed extreme noise amplification. New cap keeps noise below -20dB.
         val maxCombined = when {
             willBeMuLaw -> 4.5
-            p == "far" -> if (strongAi) 8.0 else 6.5
+            p == "far" -> if (strongAi) 12.0 else 9.0
             p == "near" -> 7.0
-            else -> 7.0
+            else -> 9.0
         }
         var peakAbs = 1.0
         for (i in 0 until samples) {

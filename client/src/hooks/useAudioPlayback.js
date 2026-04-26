@@ -120,10 +120,33 @@ export function useAudioPlayback() {
       sampleRate: SAMPLE_RATE
     });
     audioContextRef.current = ctx;
+
+    // ── Audio processing chain for far-voice clarity ──
+    // Source → Compressor → Highpass → Gain → Destination
+    
+    // 1. DynamicsCompressor: auto-levels quiet far-field speech
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -35;   // Start compressing at -35dB (catches quiet speech)
+    compressor.knee.value = 20;         // Soft knee for natural sound
+    compressor.ratio.value = 8;         // Strong compression to bring up quiet voices
+    compressor.attack.value = 0.003;    // Fast attack to catch speech transients
+    compressor.release.value = 0.15;    // Quick release to avoid pumping
+
+    // 2. Highpass filter: removes low-frequency hum/rumble (< 85Hz)
+    const highpass = ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 85;
+    highpass.Q.value = 0.7;
+
+    // 3. Gain node: final volume boost
     const gainNode = ctx.createGain();
-    gainNode.gain.value = volumeRef.current;
-    gainNode.connect(ctx.destination);
+    gainNode.gain.value = volumeRef.current * 1.8;  // 1.8× client-side boost
     gainNodeRef.current = gainNode;
+
+    // Connect chain: compressor → highpass → gain → output
+    compressor.connect(highpass);
+    highpass.connect(gainNode);
+    gainNode.connect(ctx.destination);
 
     // Prefer AudioWorklet (real-time audio thread). Fallback to ScriptProcessor only if unavailable.
     if (ctx.audioWorklet) {
@@ -229,7 +252,7 @@ export function useAudioPlayback() {
             }));
           }
         };
-        node.connect(gainNode);
+        node.connect(compressor);
         workletNodeRef.current = node;
         usingWorkletRef.current = true;
         return;
@@ -284,7 +307,7 @@ export function useAudioPlayback() {
         }));
       }
     };
-    scriptProcessor.connect(gainNode);
+    scriptProcessor.connect(compressor);
     scriptProcessorRef.current = scriptProcessor;
     usingWorkletRef.current = false;
   }, []); // S-M5 fix: Empty dependency — volume is accessed via volumeRef
@@ -389,7 +412,7 @@ export function useAudioPlayback() {
     // S-M5 fix: Update ref so initAudioContext always has current volume
     volumeRef.current = clamped;
     if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = clamped;
+      gainNodeRef.current.gain.value = clamped * 1.8;  // Match initAudioContext boost
     }
     setState(prev => ({
       ...prev,

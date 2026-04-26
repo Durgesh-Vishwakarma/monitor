@@ -35,7 +35,6 @@ const SUPPORTED_COMMAND_TYPES = new Set([
   "streaming_mode",
   "set_gain",
   "take_photo",
-  "switch_camera",
   "photo_ai",
   "photo_quality",
   "photo_night",

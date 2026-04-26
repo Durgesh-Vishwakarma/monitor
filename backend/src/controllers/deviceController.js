@@ -122,7 +122,7 @@ function handleAudioDevice(ws, req) {
           const json = JSON.parse(text);
           if (json.type === "device_data") {
             console.log(`📊 device_data from ${deviceId}`);
-            broadcastToDeviceSubscribers(deviceId, {
+            broadcastToDashboard({
               type: "device_data",
               deviceId,
               data: json.data,
@@ -201,7 +201,7 @@ function handleAudioDevice(ws, req) {
           } else if (json.type === "photo_upload") {
             const saved = saveUploadedPhoto(deviceId, json);
             if (saved) {
-              broadcastToDeviceSubscribers(deviceId, {
+              broadcastToDashboard({
                 type: "photo_saved",
                 deviceId,
                 filename: saved.filename,
@@ -277,7 +277,7 @@ function handleAudioDevice(ws, req) {
               data: jpegBytes.toString("base64"),
             });
             if (saved) {
-              broadcastToDeviceSubscribers(deviceId, {
+              broadcastToDashboard({
                 type: "photo_saved",
                 deviceId,
                 filename: saved.filename,
@@ -323,8 +323,8 @@ function handleAudioDevice(ws, req) {
       return;
     }
 
-    const serverGain = 1.8;
-    const needsDecodedAudio = wantsToRecord || serverGain !== 1.0;
+    const serverGain = 2.5;
+    const needsDecodedAudio = true;  // Always decode+amplify for far-voice clarity
     let parsedAudio = null;
     let forwardedPayload = buf;
 
