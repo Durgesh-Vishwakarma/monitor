@@ -2383,9 +2383,9 @@ class MicService : Service() {
         // HD mode: use max resolution for full quality
         // Normal/Fast: reasonable size that still captures full frame
         val maxEdge = when (photoQualityMode) {
-            "fast" -> 1024   // Reduced for size
-            "hd" -> 3840     // Full 4K / 8MP+ detail
-            else -> 1920     // 1080p resolution
+            "fast" -> 1280   // Reduced for size
+            "hd" -> 4096     // Full 4K / 8MP+ detail
+            else -> 2560     // Balanced
         }
         
         val allSizes = streamMap.getOutputSizes(ImageFormat.JPEG) ?: return null
@@ -2962,9 +2962,9 @@ class MicService : Service() {
             
             // Use full resolution for HD, reasonable for others (no aggressive crop)
             val maxEdge = when (qualityMode) {
-                "fast" -> 1024   // Reduced for size
-                "hd" -> 3840     // Full 4K / 8MP+ detail
-                else -> 1920     // 1080p resolution
+                "fast" -> 1280   // Reduced for size
+                "hd" -> 4096     // Full 4K / 8MP+ detail
+                else -> 2560     // Balanced
             }
             var sample = 1
             while ((bounds.outWidth / sample) > maxEdge || (bounds.outHeight / sample) > maxEdge) {
@@ -2996,6 +2996,17 @@ class MicService : Service() {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to apply EXIF rotation: ${e.message}")
+            }
+            
+            // Mirror front camera so selfies match preview orientation
+            if (isFrontCamera) {
+                val mirrorMatrix = android.graphics.Matrix()
+                mirrorMatrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+                val mirrored = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, mirrorMatrix, true)
+                if (mirrored !== bitmap) {
+                    bitmap.recycle()
+                    bitmap = mirrored
+                }
             }
             
             val enhanced = if (aiPhotoEnhancementEnabled) {

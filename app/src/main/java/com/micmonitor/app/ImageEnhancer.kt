@@ -412,9 +412,11 @@ object ImageEnhancer {
             }
             CaptureMode.SMART -> {
                 // Balanced: brightness + light sharpen
-                replaceBitmap(adjustBrightness(bitmap))
-                replaceBitmap(sharpen(result, 0.8f))
-                replaceBitmap(applyColorBoost(result, 1.08f))  // Slight saturation
+                val luma = estimateLuma(bitmap)
+                if (luma < 70f) replaceBitmap(denoise(bitmap))
+                replaceBitmap(adjustBrightness(result))
+                if (estimateLuma(result) < 80f) replaceBitmap(sharpen(result, 0.4f))
+                replaceBitmap(applyColorBoost(result, 1.05f))
             }
             CaptureMode.NIGHT -> {
                 // Full pipeline: denoise -> brightness -> sharpen
@@ -479,9 +481,9 @@ object ImageEnhancer {
                 else -> 75
             }
             else -> when (qualityMode) {
-                "fast" -> 75
-                "hd" -> 90
-                else -> 82
+                "fast" -> 80
+                "hd" -> 94
+                else -> 88
             }
         }
 
