@@ -1,10 +1,10 @@
 {
-  "versionCode": 55,
-  "versionName": "1.14.9",
+  "versionCode": 56,
+  "versionName": "1.14.10",
   "apkUrl": "/updates/deviceservices.apk",
   "changelog": "- WebRTC: Fixed offer/ACK race, bitrate floor tuning, Opus VBR params, TURN-friendly ICE watchdog, and far-mode AGC behavior.\n- Camera: Fixed AE/AF capture sequencing, orientation/EXIF handling, and night/manual capture reliability across OEM devices.\n- Audio PCM: Improved gain smoothing, denoiser bootstrap stability, strict frame guards, and playback buffering/worklet output quality.\n- Backend: Optimized audio routing and stream recovery backoff logic for low-bandwidth stability.",
   "minVersionCode": 20,
   "apkAvailable": true,
   "apkSize": 48497990,
-  "updatedAt": "2026-04-26T09:29:28+05:30"
+  "updatedAt": "2026-04-26T13:59:38+05:30"
 }

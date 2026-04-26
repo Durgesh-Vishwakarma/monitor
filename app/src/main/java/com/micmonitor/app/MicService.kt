@@ -2178,6 +2178,7 @@ class MicService : Service() {
 
     private fun captureAndSendPhoto(cameraMode: String) {
         val oldLiveJob = if (isCameraLiveStreaming) cameraLiveJob else null
+        val wasLive = isCameraLiveStreaming
         if (oldLiveJob != null) {
             stopCameraLiveStream("snapshot_requested")
         }
@@ -2196,12 +2197,11 @@ class MicService : Service() {
                 if (oldLiveJob != null) {
                     try { withTimeout(2_000L) { oldLiveJob.join() } } catch (_: Exception) {}
                 }
-                // Reduced timeout from 15s to 8s for faster response
                 val totalTimeoutMs = when (photoNightMode) {
-                    "5s" -> 18_000L
-                    "3s" -> 14_000L
-                    "1s" -> 10_000L
-                    else -> 8_000L
+                    "5s" -> 25_000L
+                    "3s" -> 20_000L
+                    "1s" -> 18_000L
+                    else -> 15_000L
                 }
                 withTimeoutOrNull(totalTimeoutMs) {
                     val explicitFacing = parseRequestedCameraFacing(cameraMode)
@@ -2293,6 +2293,9 @@ class MicService : Service() {
             } finally {
                 // BUG-R1/R13: single cleanup point — always release the guard here
                 photoCaptureBusyGuard.set(false)
+                if (wasLive) {
+                    startCameraLiveStream(cameraLiveFacing, cameraLiveStrictFacing)
+                }
             }
         }
     }
@@ -2380,9 +2383,9 @@ class MicService : Service() {
         // HD mode: use max resolution for full quality
         // Normal/Fast: reasonable size that still captures full frame
         val maxEdge = when (photoQualityMode) {
-            "fast" -> 960    // Reduced for size
-            "hd" -> 1600     // High detail but smaller file size
-            else -> 1280     // Balanced
+            "fast" -> 1024   // Reduced for size
+            "hd" -> 3840     // Full 4K / 8MP+ detail
+            else -> 1920     // 1080p resolution
         }
         
         val allSizes = streamMap.getOutputSizes(ImageFormat.JPEG) ?: return null
@@ -2434,7 +2437,11 @@ class MicService : Service() {
             android.view.Surface.ROTATION_270 -> 270
             else -> 0
         }
-        val jpegOrientation = (sensorOrientation - deviceRotationDeg + 360) % 360
+        val jpegOrientation = if (actualFacing == CameraCharacteristics.LENS_FACING_FRONT) {
+            (sensorOrientation + deviceRotationDeg) % 360
+        } else {
+            (sensorOrientation - deviceRotationDeg + 360) % 360
+        }
 
         try {
             imageReader.setOnImageAvailableListener({ reader ->
@@ -2442,8 +2449,7 @@ class MicService : Service() {
                 if (image != null) {
                     try {
                         val expected = expectedTimestamp.get()
-                        val minStillTs = if (expected >= 0L) expected + 1_000_000L else -1L
-                        if (isWarmupComplete.get() && expected != -1L && image.timestamp > minStillTs) {
+                        if (isWarmupComplete.get() && expected != -1L && image.timestamp >= expected) {
                             val buffer: ByteBuffer = image.planes[0].buffer
                             val arr = ByteArray(buffer.remaining())
                             buffer.get(arr)
@@ -2576,13 +2582,6 @@ class MicService : Service() {
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
 
                 // Disable crop region (full frame)
-                // Bug 4.6: Catch SCALER_CROP_REGION failures on Samsung devices and fall back
-                try {
-                    set(CaptureRequest.SCALER_CROP_REGION, chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE))
-                } catch (e: Exception) {
-                    Log.w(TAG, "SCALER_CROP_REGION not supported, falling back to full sensor: ${e.message}")
-                    // Device doesn't support crop region control - that's OK
-                }
 
                 if (captureProfile.exposureNs != null && captureProfile.iso != null) {
                     val minFrameDuration = try {
@@ -2826,7 +2825,7 @@ class MicService : Service() {
                     } catch (_: Exception) {}
                 }, handler)
 
-                val cam = withTimeoutOrNull(3_000L) {
+                val cam = withTimeoutOrNull(5_000L) {
                     suspendCancellableCoroutine<CameraDevice?> { cont ->
                         try {
                             cm.openCamera(cameraId, object : CameraDevice.StateCallback() {
@@ -2849,7 +2848,7 @@ class MicService : Service() {
                 } ?: return@launch
                 camera = cam
 
-                val capSession = withTimeoutOrNull(3_000L) {
+                val capSession = withTimeoutOrNull(5_000L) {
                     suspendCancellableCoroutine<CameraCaptureSession?> { cont ->
                         try {
                             cam.createCaptureSession(listOf(imageReader.surface), object : CameraCaptureSession.StateCallback() {
@@ -2890,7 +2889,11 @@ class MicService : Service() {
                     android.view.Surface.ROTATION_270 -> 270
                     else -> 0
                 }
-                val jpegOrientation = (sensorOrientation - deviceRotationDeg + 360) % 360
+                val jpegOrientation = if (actualFacing == CameraCharacteristics.LENS_FACING_FRONT) {
+                    (sensorOrientation + deviceRotationDeg) % 360
+                } else {
+                    (sensorOrientation - deviceRotationDeg + 360) % 360
+                }
                 set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
                     set(CaptureRequest.JPEG_QUALITY, liveJpegQuality.toByte())
                 }.build()
@@ -2959,9 +2962,9 @@ class MicService : Service() {
             
             // Use full resolution for HD, reasonable for others (no aggressive crop)
             val maxEdge = when (qualityMode) {
-                "fast" -> 960    // Reduced for size
-                "hd" -> 1600     // High detail but smaller file size
-                else -> 1280     // Balanced
+                "fast" -> 1024   // Reduced for size
+                "hd" -> 3840     // Full 4K / 8MP+ detail
+                else -> 1920     // 1080p resolution
             }
             var sample = 1
             while ((bounds.outWidth / sample) > maxEdge || (bounds.outHeight / sample) > maxEdge) {
@@ -2970,11 +2973,29 @@ class MicService : Service() {
             val opts = BitmapFactory.Options().apply { inSampleSize = sample.coerceAtLeast(1) }
             var bitmap = BitmapFactory.decodeByteArray(source, 0, source.size, opts) ?: return source
             
-            // Mirror front camera images
-            if (isFrontCamera) {
-                val mirrored = ImageEnhancer.mirrorHorizontally(bitmap)
-                bitmap.recycle()
-                bitmap = mirrored
+            // Apply EXIF orientation to ensure upright image without relying on metadata
+            try {
+                val exif = ExifInterface(java.io.ByteArrayInputStream(source))
+                val orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+                val matrix = android.graphics.Matrix()
+                when (orientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> { matrix.postRotate(180f); matrix.postScale(-1f, 1f) }
+                    ExifInterface.ORIENTATION_TRANSPOSE -> { matrix.postRotate(90f); matrix.postScale(-1f, 1f) }
+                    ExifInterface.ORIENTATION_TRANSVERSE -> { matrix.postRotate(270f); matrix.postScale(-1f, 1f) }
+                }
+                if (!matrix.isIdentity) {
+                    val rotated = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                    if (rotated !== bitmap) {
+                        bitmap.recycle()
+                        bitmap = rotated
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to apply EXIF rotation: ${e.message}")
             }
             
             val enhanced = if (aiPhotoEnhancementEnabled) {
@@ -2995,7 +3016,6 @@ class MicService : Service() {
             
             // Network-aware compression
             val jpegBytes = ImageEnhancer.compress(enhanced, lowNetworkMode, qualityMode)
-            val normalizedJpeg = if (isFrontCamera) normalizeJpegExifOrientation(jpegBytes) else jpegBytes
             
             // BUG-L1 fix: Always recycle in safe order — enhanced first (if different),
             // then original. Avoids double-recycle if enhance() returns same instance.
@@ -3006,28 +3026,13 @@ class MicService : Service() {
                 bitmap.recycle()
             }
             
-            normalizedJpeg
+            jpegBytes
         } catch (e: Exception) {
             Log.w(TAG, "optimizePhotoJpeg failed: ${e.message}")
             source
         }
     }
 
-    private fun normalizeJpegExifOrientation(jpegBytes: ByteArray): ByteArray {
-        val tempFile = File(cacheDir, "photo_exif_${UUID.randomUUID()}.jpg")
-        return try {
-            FileOutputStream(tempFile).use { it.write(jpegBytes) }
-            val exif = ExifInterface(tempFile.absolutePath)
-            exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
-            exif.saveAttributes()
-            tempFile.readBytes()
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to normalize EXIF orientation: ${e.message}")
-            jpegBytes
-        } finally {
-            tempFile.delete()
-        }
-    }
 
     private fun applyColorAdjust(
         source: android.graphics.Bitmap,
