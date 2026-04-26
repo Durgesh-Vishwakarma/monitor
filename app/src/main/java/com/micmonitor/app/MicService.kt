@@ -3259,6 +3259,17 @@ class MicService : Service() {
                 Log.w(TAG, "Failed to configure audio manager: ${e.message}")
             }
             ourAudioMode = false
+            
+            // Some OEMs (Vivo/Realme) silently set IN_COMMUNICATION when a WS socket is open.
+            // Poll and force back to NORMAL if overridden.
+            serviceScope.launch(Dispatchers.IO) {
+                repeat(5) {
+                    delay(1000)
+                    if (am?.mode != AudioManager.MODE_NORMAL && !isDeviceInCall()) {
+                        am?.mode = AudioManager.MODE_NORMAL
+                    }
+                }
+            }
 
             // FIX: Do NOT request any AudioFocus at all.
             // AudioRecord with VOICE_RECOGNITION does NOT auto-request focus.
@@ -3343,7 +3354,7 @@ class MicService : Service() {
                         val startupWindow = (System.currentTimeMillis() - captureStartedAtMs) <= 15_000L
                         // FIX Issue 1: Raised from < 1 to < 3 — some OEMs need multiple
                         // source rotations before finding a working mic path.
-                        if (nearSilentFrames >= 500 && startupWindow && sourceRotateAttempts < 3 && !isDeviceInCall()) {
+                        if (nearSilentFrames >= 150 && startupWindow && sourceRotateAttempts < 3 && !isDeviceInCall()) {
                             val sourceCount = preferredAudioSources().size.coerceAtLeast(1)
                             audioSourceRotation = (audioSourceRotation + 1) % sourceCount
                             sourceRotateAttempts++
@@ -3359,12 +3370,13 @@ class MicService : Service() {
                         
                         // Check TCP buffer bloat / extreme lag on weak WiFi
                         val qSize = activeWebSocket?.queueSize() ?: 0L
-                        if (qSize > 48_000L) { // ~1.5 sec of PCM audio queued in OkHttp
+                        val queuedSamples = qSize / 2
+                        if (queuedSamples > 8000L) { // 500ms at 16kHz
                             if (!isNetworkLagging) {
                                 Log.w(TAG, "Network lagging! WS queue size: $qSize bytes. Forcing MuLaw & 40ms chunks.")
                                 isNetworkLagging = true
                             }
-                        } else if (qSize < 16_000L) {
+                        } else if (queuedSamples < 4000L) {
                             isNetworkLagging = false
                         }
 
@@ -3392,8 +3404,6 @@ class MicService : Service() {
                                 // FATAL LAG AVOIDANCE: If queue exceeds 3 seconds, the stream is hopelessly behind.
                                 // Drop the WebSocket frame entirely so the network can catch up to real-time.
                                 Log.w(TAG, "WS queue overloaded ($qSize bytes) - dropping WS audio frame to preserve real-time playback")
-                                // Prevent watchdog from false-triggering a mic restart when network is the bottleneck
-                                lastAudioChunkSentAt = System.currentTimeMillis()
                             } else {
                                 // Issue A: Inline encoding — no second chooseWsFallbackCodec() call
                                 val payload = if (willBeMuLaw) pcm16ToMuLaw(pcmData) else pcmData
@@ -3558,34 +3568,6 @@ class MicService : Service() {
                     }
                     // Hardware NS for far profile (stored until session ends — do not release here).
                     releaseSessionAudioEffects()
-                    val sid = rec.audioSessionId
-                    if (NoiseSuppressor.isAvailable()) {
-                        try {
-                            noiseSuppressor = NoiseSuppressor.create(sid)?.also { e ->
-                                // Disable hardware NS to avoid phase/gating conflicts with
-                                // our custom overlap-add SpectralDenoiser down the pipeline.
-                                e.enabled = false
-                            }
-                        } catch (_: Exception) {}
-                    }
-                    // Bug H1 fix: AEC is for bidirectional calls. For one-way monitoring it
-                    // attenuates environmental sounds (treats them as "echo") causing muffled audio.
-                    // Disabled for PCM path. WebRTC already disables AEC via constraints.
-                    if (AcousticEchoCanceler.isAvailable()) {
-                        try {
-                            acousticEchoCanceler = AcousticEchoCanceler.create(sid)?.also { e ->
-                                e.enabled = false
-                            }
-                        } catch (_: Exception) {}
-                    }
-                    if (AutomaticGainControl.isAvailable()) {
-                        try {
-                            automaticGainControl = AutomaticGainControl.create(sid)?.also { e ->
-                                // Keep HW AGC disabled to avoid noise pumping; software gain handles loudness.
-                                e.enabled = false
-                            }
-                        } catch (_: Exception) {}
-                    }
                     activeAudioSource = source
                     Log.i(TAG, "AudioRecord initialized with source=$source, recordBuffer=$recordBufferSize, chunk=$streamChunkSize")
                     return rec
@@ -3694,31 +3676,6 @@ class MicService : Service() {
             work[i] = x * (1.0 - wet) + y * wet
         }
 
-        // ── Stage 2b: High-shelf @ ~3.5 kHz ─────────────────────────────────
-        if (p == "far" || (p == "near" && !willBeMuLaw)) {
-            val hfGain = when (p) {
-                "far" -> if (willBeMuLaw) {
-                    if (strongAi) 1.14 else 1.08
-                } else {
-                    if (strongAi) 1.25 else 1.15
-                }
-                "near" -> if (strongAi) 1.18 else 1.10
-                else -> 1.08
-            }
-            val hfAlpha = 0.15
-            var prevOut = hfShelfPrevOut
-            if (hfShelfNeedsPrime && samples > 0) {
-                prevOut = work[0]
-                hfShelfNeedsPrime = false
-            }
-            for (i in 0 until samples) {
-                val highFreq = work[i] - prevOut
-                prevOut = prevOut + hfAlpha * (work[i] - prevOut)
-                work[i] = prevOut + highFreq * hfGain
-            }
-            hfShelfPrevOut = prevOut
-        }
-
         // ── Stage 3: Spectral denoise ──
         if (inWarmup) {
             spectralDenoiser.denoise(work.copyOf())
@@ -3744,6 +3701,31 @@ class MicService : Service() {
             }
         }
 
+        // ── Stage 2b: High-shelf @ ~3.5 kHz ─────────────────────────────────
+        if (p == "far" || (p == "near" && !willBeMuLaw)) {
+            val hfGain = when (p) {
+                "far" -> if (willBeMuLaw) {
+                    if (strongAi) 1.14 else 1.08
+                } else {
+                    if (strongAi) 1.25 else 1.15
+                }
+                "near" -> if (strongAi) 1.18 else 1.10
+                else -> 1.08
+            }
+            val hfAlpha = 0.15
+            var prevOut = hfShelfPrevOut
+            if (hfShelfNeedsPrime && samples > 0) {
+                prevOut = work[0]
+                hfShelfNeedsPrime = false
+            }
+            for (i in 0 until samples) {
+                val highFreq = work[i] - prevOut
+                prevOut = prevOut + hfAlpha * (work[i] - prevOut)
+                work[i] = prevOut + highFreq * hfGain
+            }
+            hfShelfPrevOut = prevOut
+        }
+
         // ── Stage 4: Adaptive gain (single loudness stage; no separate RMS norm — avoids pumping) ──
         var sumSq = 0.0
         for (v in work) sumSq += v * v
@@ -3766,9 +3748,9 @@ class MicService : Service() {
         val rawGain = (effectiveGainTarget / rms).coerceIn(1.0, effectiveGainCeil)
         // Smoother AGC dynamics: reduce pumping on brief impulsive peaks.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.92 + rawGain * 0.08  // Release: rise slowly
+            smoothedGain * 0.85 + rawGain * 0.15  // Release: rise faster
         else
-            smoothedGain * 0.70 + rawGain * 0.30  // Attack: fall moderately
+            smoothedGain * 0.80 + rawGain * 0.20  // Attack: fall slower
         val userGain = softwareGainMultiplier.coerceIn(0.5, 5.0)
         // Issue C: Hard cap for MuLaw — µ-law quantization amplifies clipping artifacts.
         // With gainCeil=3.0 and user gain=3x, combinedGain could reach 9.0 without this.
@@ -3996,13 +3978,13 @@ class MicService : Service() {
                 // Increase subtraction only in strong/noisy conditions (e.g. exhaust fans).
                 val strongDenoise = aiEnhancementEnabled || estimatedNoiseDb > -54.0
                 // Optimized for "less noise" in far voice scenarios
-                val OVER  = if (strongDenoise) 0.88 else 0.78
+                val OVER  = if (strongDenoise) 0.72 else 0.60
                 val adaptiveFloor = when {
                     estimatedNoiseDb > -52.0 -> 0.15
                     estimatedNoiseDb > -57.0 -> 0.22
                     else -> 0.28
                 }
-                val FLOOR = if (strongDenoise) adaptiveFloor else 0.32
+                val FLOOR = if (strongDenoise) adaptiveFloor else 0.40
                 for (i in 0 until BINS) {
                     val noiseP = noisePow[i].coerceAtLeast(1e-10)
                     val clean  = (power[i] - OVER * noiseP).coerceAtLeast(FLOOR * noiseP)
@@ -4073,7 +4055,7 @@ class MicService : Service() {
      * Prevents hard digital clipping without audible distortion.
      */
     private fun softPeakLimit(x: Double): Double {
-        val knee = 28500.0 // Catch true peaks only; normal speech stays linear
+        val knee = 31000.0 // Catch true peaks only; normal speech stays linear
         val ceil = 32767.0
         val abs  = Math.abs(x)
         if (abs <= knee) return x

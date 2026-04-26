@@ -126,11 +126,11 @@ export function useAudioPlayback() {
     
     // 1. DynamicsCompressor: auto-levels quiet far-field speech
     const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -35;   // Start compressing at -35dB (catches quiet speech)
+    compressor.threshold.value = -18;   // Start compressing at -18dB (catches quiet speech)
     compressor.knee.value = 20;         // Soft knee for natural sound
-    compressor.ratio.value = 8;         // Strong compression to bring up quiet voices
+    compressor.ratio.value = 3;         // Gentle leveling, not hard limiting
     compressor.attack.value = 0.003;    // Fast attack to catch speech transients
-    compressor.release.value = 0.15;    // Quick release to avoid pumping
+    compressor.release.value = 0.25;    // Slower release to avoid pumping
 
     // 2. Highpass filter: removes low-frequency hum/rumble (< 85Hz)
     const highpass = ctx.createBiquadFilter();
@@ -140,7 +140,7 @@ export function useAudioPlayback() {
 
     // 3. Gain node: final volume boost
     const gainNode = ctx.createGain();
-    gainNode.gain.value = volumeRef.current * 1.8;  // 1.8× client-side boost
+    gainNode.gain.value = volumeRef.current * 1.0;  // 1.0× client-side boost
     gainNodeRef.current = gainNode;
 
     // Connect chain: compressor → highpass → gain → output
@@ -412,7 +412,7 @@ export function useAudioPlayback() {
     // S-M5 fix: Update ref so initAudioContext always has current volume
     volumeRef.current = clamped;
     if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = clamped * 1.8;  // Match initAudioContext boost
+      gainNodeRef.current.gain.value = clamped * 1.0;  // Match initAudioContext boost
     }
     setState(prev => ({
       ...prev,
@@ -463,7 +463,7 @@ function upsample8kTo16k(input) {
     const x1 = input[Math.min(input.length - 1, i + 1)];
     const x2 = input[Math.min(input.length - 1, i + 2)];
 
-    output[i * 2] = x0;
+    output[i * 2] = 0.10 * xm1 + 0.40 * x0 + 0.40 * x1 + 0.10 * x2;
     output[i * 2 + 1] = 0.05 * xm1 + 0.45 * x0 + 0.45 * x1 + 0.05 * x2;
   }
   return output;

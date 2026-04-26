@@ -1,4 +1,4 @@
-/**
+??/**
  * Audio parsing, µ-law decoding, and server-side PCM amplification helpers.
  *
  * amplifyPcm16(): Boosts PCM samples for low-network / far-voice mode on the
@@ -175,6 +175,8 @@ function amplifyPcm16(pcmBuffer, gainFactor = 2.0) {
  * @returns {Buffer}
  */
 function buildAmplifiedPayload(originalForwardPayload, pcm16Data, gainFactor, hasHeader = true) {
+  // B4 & B13 Fix: Force gainFactor to 1.0 as Android already amplifies the signal
+  gainFactor = 1.0;
   // Return the original payload intact if no meaningful amplification is applied.
   if (gainFactor <= 1.0) return originalForwardPayload;
   const amplified = amplifyPcm16(pcm16Data, gainFactor);
