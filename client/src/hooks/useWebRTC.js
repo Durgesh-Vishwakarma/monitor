@@ -214,8 +214,7 @@ export function useWebRTC() {
       direction: 'recvonly'
     });
 
-    // Wait briefly for device-side webrtc_start completion before sending offer.
-    // Fallback timer prevents deadlock if state message is delayed.
+    // ACK-driven offer creation is primary. Keep timer only as guard for lost ACKs.
     offerTimerRef.current = window.setTimeout(() => {
       createAndSendOffer(pc);
       offerTimerRef.current = null;
@@ -257,6 +256,25 @@ export function useWebRTC() {
   const handleMessage = useCallback(msg => {
     const type = String(msg.type || '');
     const pc = pcRef.current;
+    if (type === 'command_ack') {
+      const cmd = String(msg.command || '');
+      const status = String(msg.status || 'success');
+      if (cmd === 'webrtc_start' && pc) {
+        if (status === 'success') {
+          if (offerTimerRef.current) {
+            clearTimeout(offerTimerRef.current);
+            offerTimerRef.current = null;
+          }
+          createAndSendOffer(pc);
+        } else {
+          setStats(prev => ({
+            ...prev,
+            state: 'failed'
+          }));
+        }
+      }
+      return;
+    }
     if (type === 'webrtc_answer' && pc) {
       const sdp = String(msg.sdp || '');
       if (!sdp) return;
@@ -295,14 +313,6 @@ export function useWebRTC() {
     }
     if (type === 'webrtc_state') {
       console.log('[WebRTC] Device state:', msg);
-      const state = String(msg.state || '');
-      if (state.startsWith('started_') || state === 'pc_connected' || state === 'ice_connected' || state === 'ice_completed') {
-        if (offerTimerRef.current) {
-          clearTimeout(offerTimerRef.current);
-          offerTimerRef.current = null;
-        }
-        createAndSendOffer(pc);
-      }
     }
   }, [createAndSendOffer]);
   return {

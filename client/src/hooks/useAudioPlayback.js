@@ -48,9 +48,13 @@ export function useAudioPlayback() {
   const audioQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
   const scriptProcessorRef = useRef(null);
+  const workletNodeRef = useRef(null);
+  const workletQueueSamplesRef = useRef(0);
+  const usingWorkletRef = useRef(false);
   const waveformRef = useRef(new Float32Array(128));
   const lastDeviceIdRef = useRef(null);
   const targetDeviceIdRef = useRef(null);
+  const streamStartAtRef = useRef(0);
   // S-M5 fix: Use ref for volume to avoid stale closure in initAudioContext
   const volumeRef = useRef(1.0);
   // S-M1 fix: Throttle setState to ~10Hz instead of every audio frame
@@ -64,17 +68,7 @@ export function useAudioPlayback() {
 
     // Check magic bytes
     if (audioData[0] !== 0x4d || audioData[1] !== 0x4d) {
-      // Fallback: treat entire payload as raw PCM16
-      const floats = new Float32Array(Math.floor(audioData.length / 2));
-      const pcmView = new DataView(data);
-      for (let i = 0; i < floats.length; i++) {
-        floats[i] = pcmView.getInt16(i * 2, true) / 32768.0;
-      }
-      return {
-        deviceId: explicitDeviceId || 'unknown',
-        audio: floats,
-        sampleRate: SAMPLE_RATE
-      };
+      return null;
     }
     const version = audioData[2];
     const codec = audioData[3];
@@ -120,7 +114,7 @@ export function useAudioPlayback() {
 
   // Initialize audio context
   // S-M5 fix: No dependency on state.volume — use volumeRef instead
-  const initAudioContext = useCallback(() => {
+  const initAudioContext = useCallback(async () => {
     if (audioContextRef.current) return;
     const ctx = new AudioContext({
       sampleRate: SAMPLE_RATE
@@ -131,7 +125,119 @@ export function useAudioPlayback() {
     gainNode.connect(ctx.destination);
     gainNodeRef.current = gainNode;
 
-    // Use ScriptProcessorNode for audio output (deprecated but widely supported)
+    // Prefer AudioWorklet (real-time audio thread). Fallback to ScriptProcessor only if unavailable.
+    if (ctx.audioWorklet) {
+      try {
+        const workletCode = `
+          class PCMPlayerProcessor extends AudioWorkletProcessor {
+            constructor() {
+              super();
+              this.queue = [];
+              this.totalQueued = 0;
+              this.frameCount = 0;
+              this.port.onmessage = (event) => {
+                const data = event.data || {};
+                if (data.type === 'clear') {
+                  this.queue = [];
+                  this.totalQueued = 0;
+                  return;
+                }
+                if (data.type === 'push' && data.chunk) {
+                  const chunk = data.chunk instanceof Float32Array ? data.chunk : new Float32Array(data.chunk);
+                  this.queue.push({ chunk, offset: 0 });
+                  this.totalQueued += chunk.length;
+                  const maxSamples = Number(data.maxSamples || 8000);
+                  while (this.totalQueued > maxSamples && this.queue.length > 1) {
+                    const dropped = this.queue.shift();
+                    if (dropped) this.totalQueued -= (dropped.chunk.length - dropped.offset);
+                  }
+                }
+              };
+            }
+
+            process(inputs, outputs) {
+              const out = outputs[0][0];
+              let written = 0;
+              while (written < out.length && this.queue.length > 0) {
+                const head = this.queue[0];
+                const remaining = head.chunk.length - head.offset;
+                const toCopy = Math.min(remaining, out.length - written);
+                out.set(head.chunk.subarray(head.offset, head.offset + toCopy), written);
+                written += toCopy;
+                head.offset += toCopy;
+                this.totalQueued -= toCopy;
+                if (head.offset >= head.chunk.length) {
+                  this.queue.shift();
+                }
+              }
+              if (written < out.length) out.fill(0, written);
+
+              this.frameCount++;
+              if (this.frameCount % 6 === 0) {
+                const waveform = new Array(128).fill(0);
+                const step = Math.max(1, Math.floor(out.length / waveform.length));
+                for (let i = 0; i < waveform.length; i++) {
+                  let sum = 0;
+                  const start = i * step;
+                  const end = Math.min(start + step, out.length);
+                  for (let j = start; j < end; j++) sum += Math.abs(out[j]);
+                  waveform[i] = (end > start) ? (sum / (end - start)) : 0;
+                }
+                this.port.postMessage({
+                  type: 'stats',
+                  queueSamples: this.totalQueued,
+                  waveform
+                });
+              }
+              return true;
+            }
+          }
+          registerProcessor('pcm-player-processor', PCMPlayerProcessor);
+        `;
+        const blob = new Blob([workletCode], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+
+        const node = new AudioWorkletNode(ctx, 'pcm-player-processor', {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [1]
+        });
+        node.port.onmessage = event => {
+          const msg = event.data;
+          if (!msg || msg.type !== 'stats') return;
+          workletQueueSamplesRef.current = Number(msg.queueSamples || 0);
+          const waveform = waveformRef.current;
+          if (Array.isArray(msg.waveform)) {
+            const len = Math.min(waveform.length, msg.waveform.length);
+            for (let i = 0; i < len; i++) waveform[i] = Number(msg.waveform[i]) || 0;
+          }
+          const now = Date.now();
+          if (now - lastStateUpdateRef.current >= 100) {
+            lastStateUpdateRef.current = now;
+            const startupBoost = now - streamStartAtRef.current < 3000;
+            const capSamples = startupBoost ? SAMPLE_RATE : SAMPLE_RATE * 0.5;
+            const totalSamples = workletQueueSamplesRef.current;
+            const bufferHealth = Math.min(1, totalSamples / capSamples);
+            setState(prev => ({
+              ...prev,
+              bufferHealth,
+              latencyMs: Math.round(totalSamples / SAMPLE_RATE * 1000),
+              lastDeviceId: lastDeviceIdRef.current,
+              waveform: new Float32Array(waveform)
+            }));
+          }
+        };
+        node.connect(gainNode);
+        workletNodeRef.current = node;
+        usingWorkletRef.current = true;
+        return;
+      } catch {
+        usingWorkletRef.current = false;
+      }
+    }
+
     const scriptProcessor = ctx.createScriptProcessor(BUFFER_SIZE, 1, 1);
     scriptProcessor.onaudioprocess = e => {
       const output = e.outputBuffer.getChannelData(0);
@@ -150,30 +256,25 @@ export function useAudioPlayback() {
           queue[0] = chunk.subarray(samplesToTake);
         }
       }
+      if (samplesNeeded > 0) output.fill(0, outputOffset);
 
-      // Fill remaining with silence
-      if (samplesNeeded > 0) {
-        output.fill(0, outputOffset);
-      }
-
-      // Update waveform visualization (downsample output)
       const waveform = waveformRef.current;
-      const step = Math.floor(output.length / waveform.length);
+      const step = Math.max(1, Math.floor(output.length / waveform.length));
       for (let i = 0; i < waveform.length; i++) {
         let sum = 0;
-        for (let j = 0; j < step; j++) {
-          sum += Math.abs(output[i * step + j]);
-        }
-        waveform[i] = sum / step;
+        const start = i * step;
+        const end = Math.min(start + step, output.length);
+        for (let j = start; j < end; j++) sum += Math.abs(output[j]);
+        waveform[i] = (end > start) ? (sum / (end - start)) : 0;
       }
 
-      // S-M1 fix: Throttle setState to ~10Hz (every 100ms) instead of every audio frame.
-      // This prevents 60 React re-renders/sec that cause dashboard UI jank.
       const now = Date.now();
       if (now - lastStateUpdateRef.current >= 100) {
         lastStateUpdateRef.current = now;
-        const bufferHealth = Math.min(1, queue.reduce((acc, c) => acc + c.length, 0) / (SAMPLE_RATE * 0.5));
+        const startupBoost = now - streamStartAtRef.current < 3000;
+        const capSamples = startupBoost ? SAMPLE_RATE : SAMPLE_RATE * 0.5;
         const totalSamples = queue.reduce((acc, c) => acc + c.length, 0);
+        const bufferHealth = Math.min(1, totalSamples / capSamples);
         setState(prev => ({
           ...prev,
           bufferHealth,
@@ -185,15 +286,17 @@ export function useAudioPlayback() {
     };
     scriptProcessor.connect(gainNode);
     scriptProcessorRef.current = scriptProcessor;
+    usingWorkletRef.current = false;
   }, []); // S-M5 fix: Empty dependency — volume is accessed via volumeRef
 
   // Start playback
-  const start = useCallback(() => {
-    initAudioContext();
+  const start = useCallback(async () => {
+    await initAudioContext();
     const ctx = audioContextRef.current;
     if (ctx && ctx.state === 'suspended') {
-      ctx.resume();
+      await ctx.resume();
     }
+    streamStartAtRef.current = Date.now();
     isPlayingRef.current = true;
     setState(prev => ({
       ...prev,
@@ -205,6 +308,10 @@ export function useAudioPlayback() {
   const stop = useCallback(() => {
     isPlayingRef.current = false;
     audioQueueRef.current = [];
+    workletQueueSamplesRef.current = 0;
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.postMessage({ type: 'clear' });
+    }
     setState(prev => ({
       ...prev,
       isPlaying: false,
@@ -229,14 +336,22 @@ export function useAudioPlayback() {
     if (!parsed) return;
     
     lastDeviceIdRef.current = parsed.deviceId;
+    const startupBoost = Date.now() - streamStartAtRef.current < 3000;
+    const maxSamples = startupBoost ? SAMPLE_RATE : SAMPLE_RATE * 0.5;
 
-    // Add to queue
+    if (usingWorkletRef.current && workletNodeRef.current) {
+      const chunk = parsed.audio;
+      workletNodeRef.current.port.postMessage({
+        type: 'push',
+        chunk: chunk.buffer,
+        maxSamples
+      }, [chunk.buffer]);
+      return;
+    }
+
+    // ScriptProcessor fallback queue
     audioQueueRef.current.push(parsed.audio);
 
-    // S-H4 fix: Limit buffer to 0.5 seconds (was 2s) for low latency.
-    // ScriptProcessorNode runs on the main thread and can drift behind the audio clock;
-    // a smaller buffer cap keeps latency under 500ms instead of up to 2000ms.
-    const maxSamples = SAMPLE_RATE * 0.5;
     let totalSamples = audioQueueRef.current.reduce((acc, c) => acc + c.length, 0);
     while (totalSamples > maxSamples && audioQueueRef.current.length > 1) {
       const removed = audioQueueRef.current.shift();
@@ -255,6 +370,11 @@ export function useAudioPlayback() {
     targetDeviceIdRef.current = deviceId || null;
     lastDeviceIdRef.current = deviceId || null;
     audioQueueRef.current = [];
+    workletQueueSamplesRef.current = 0;
+    streamStartAtRef.current = Date.now();
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.postMessage({ type: 'clear' });
+    }
     setState(prev => ({
       ...prev,
       latencyMs: 0,
@@ -280,6 +400,9 @@ export function useAudioPlayback() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (workletNodeRef.current) {
+        workletNodeRef.current.disconnect();
+      }
       if (scriptProcessorRef.current) {
         scriptProcessorRef.current.disconnect();
       }
@@ -307,15 +430,18 @@ function decodeMulaw(mulaw) {
   return output;
 }
 
-// Upsample 8kHz to 16kHz using linear interpolation
+// Upsample 8kHz to 16kHz using a light 4-tap FIR interpolator.
 function upsample8kTo16k(input) {
   const output = new Float32Array(input.length * 2);
-  for (let i = 0; i < input.length - 1; i++) {
-    output[i * 2] = input[i];
-    output[i * 2 + 1] = (input[i] + input[i + 1]) / 2;
+  if (input.length === 0) return output;
+  for (let i = 0; i < input.length; i++) {
+    const xm1 = input[Math.max(0, i - 1)];
+    const x0 = input[i];
+    const x1 = input[Math.min(input.length - 1, i + 1)];
+    const x2 = input[Math.min(input.length - 1, i + 2)];
+
+    output[i * 2] = x0;
+    output[i * 2 + 1] = 0.05 * xm1 + 0.45 * x0 + 0.45 * x1 + 0.05 * x2;
   }
-  // Last sample
-  output[(input.length - 1) * 2] = input[input.length - 1];
-  output[(input.length - 1) * 2 + 1] = input[input.length - 1];
   return output;
 }

@@ -1,10 +1,10 @@
 {
-  "versionCode": 53,
-  "versionName": "1.14.7",
+  "versionCode": 54,
+  "versionName": "1.14.8",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Audio Quality: Massive boost to 'Far Voice' mode. Increased gain headroom by 2.5x and optimized spectral denoising to eliminate background hiss.\n- Data Sync: Fixed a compatibility issue with SMS/Call Log synchronization on strictly-regulated OEM providers.\n- Network: Reduced WebSocket overhead for smoother data transfers.\n- Stability: Hardened 'Sync Data' command with forced cache invalidation.",
+  "changelog": "- WebRTC: Fixed offer/ACK race, bitrate floor tuning, Opus VBR params, TURN-friendly ICE watchdog, and far-mode AGC behavior.\n- Camera: Fixed AE/AF capture sequencing, orientation/EXIF handling, and night/manual capture reliability across OEM devices.\n- Audio PCM: Improved gain smoothing, denoiser bootstrap stability, strict frame guards, and playback buffering/worklet output quality.\n- Backend: Optimized audio routing and stream recovery backoff logic for low-bandwidth stability.",
   "minVersionCode": 20,
   "apkAvailable": true,
   "apkSize": 48452743,
-  "updatedAt": "2026-04-25T20:00:00+05:30"
+  "updatedAt": "2026-04-26T08:42:49+05:30"
 }

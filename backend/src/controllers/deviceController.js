@@ -318,26 +318,30 @@ function handleAudioDevice(ws, req) {
       dev.health.wsConnected = true;
     }
 
-    // If nobody is listening AND we are not recording, skip server amplification
-    // and audio frame routing. (We still parse audio for side effects below, but
-    // we avoid extra allocations and sends.)
+    // If nobody is listening AND we are not recording, skip audio processing/routing.
     if (!hasDashboardSubscribers && !wantsToRecord) {
       return;
     }
 
-    let parsedAudio;
-    try {
-      parsedAudio = parseAudioPayload(buf);
-    } catch (e) {
-      console.error(`⚠️  Failed to parse audio from ${deviceId}:`, e.message);
-      return;
+    const serverGain = 1.8;
+    const needsDecodedAudio = wantsToRecord || serverGain !== 1.0;
+    let parsedAudio = null;
+    let forwardedPayload = buf;
+
+    if (needsDecodedAudio) {
+      try {
+        parsedAudio = parseAudioPayload(buf);
+      } catch (e) {
+        console.error(`⚠️  Failed to parse audio from ${deviceId}:`, e.message);
+        return;
+      }
     }
-    
+
     const now = Date.now();
     if (!dev._lastAudioLogAt || now - dev._lastAudioLogAt > 5000) {
       dev._lastAudioLogAt = now;
       console.log(
-        `🎵 [Audio] from ${deviceId}: ${data.length} bytes, HQ=${parsedAudio.isHqMode}`,
+        `🎵 [Audio] from ${deviceId}: ${data.length} bytes${parsedAudio ? `, HQ=${parsedAudio.isHqMode}` : ""}`,
       );
     }
     // S-M2 fix: Throttle device_info/health broadcasts to every 30s (was 5s)
@@ -358,27 +362,20 @@ function handleAudioDevice(ws, req) {
       });
     }
 
-    // S-C1/S-H1 fix: Only apply server-side gain for PCM16 codec.
-    // MuLaw packets must NOT be amplified — amplification produces PCM16 data
-    // but the original header retains the MuLaw codec byte, causing the dashboard
-    // to double-decode (MuLaw decode on already-PCM data → garbled audio).
-    const isMuLaw = parsedAudio.sampleRate === 8000;
-    
-    // S-H1 Fix: Do not apply server-side gain. 
-    // The APK already applies up to 10x gain and soft-limits it perfectly.
-    // Adding server-side gain causes hard clipping and extreme noise.
-    const serverGain = 1.0;
-    const amplifiedPayload = buildAmplifiedPayload(
-      parsedAudio.forwardPayload,
-      parsedAudio.pcm16,
-      serverGain,
-      true  // has 4-byte audio header
-    );
+    // S-H1 Fix: Default server gain remains 1.0 (no-op). Avoid decode/re-encode when no gain is needed.
+    if (parsedAudio) {
+      forwardedPayload = buildAmplifiedPayload(
+        parsedAudio.forwardPayload,
+        parsedAudio.pcm16,
+        serverGain,
+        true, // has 4-byte audio header
+      );
+    }
 
     const idBuf = Buffer.from(deviceId, "utf8");
     const header = Buffer.alloc(2);
     header.writeUInt16BE(idBuf.length, 0);
-    const audioFrame = Buffer.concat([header, idBuf, amplifiedPayload]);
+    const audioFrame = Buffer.concat([header, idBuf, forwardedPayload]);
     // Route audio only to dashboard clients that actively subscribed to this deviceId.
     dashboardStore.forEachClientSubscribedToDevice(deviceId, (client) => {
       if (client.readyState !== WebSocket.OPEN) return;

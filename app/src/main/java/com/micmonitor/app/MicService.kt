@@ -18,7 +18,9 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.TotalCaptureResult
 import android.media.AudioManager
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -48,6 +50,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.exifinterface.media.ExifInterface
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -300,18 +303,19 @@ class MicService : Service() {
         const val NOTIF_ID     = 101
         const val ACTION_RECONNECT = "com.micmonitor.app.RECONNECT"
         
-        // WebRTC bitrate settings — voice monitoring needs ≤48 kbps Opus (Bug 4)
-        const val WEBRTC_MIN_BITRATE_KBPS = 24      // Network-friendly floor (was 48)
-        const val WEBRTC_MID_BITRATE_KBPS = 32      // Balanced quality (was 64)
-        const val WEBRTC_MAX_BITRATE_KBPS = 48      // Quality ceiling (was 96)
+        // WebRTC bitrate settings — keep quality stable with FEC on real networks.
+        const val WEBRTC_LAST_RESORT_BITRATE_KBPS = 24
+        const val WEBRTC_MIN_BITRATE_KBPS = 32
+        const val WEBRTC_MID_BITRATE_KBPS = 40
+        const val WEBRTC_MAX_BITRATE_KBPS = 48
         
-        // Standard bitrates for good network conditions (Bug 4: lowered for voice)
-        const val WEBRTC_STANDARD_MIN_KBPS = 24     // was 80
-        const val WEBRTC_STANDARD_MID_KBPS = 32     // was 96
-        const val WEBRTC_STANDARD_MAX_KBPS = 48     // was 128 — voice needs ≤48 kbps
+        // Standard profile bitrates
+        const val WEBRTC_STANDARD_MIN_KBPS = 32
+        const val WEBRTC_STANDARD_MID_KBPS = 40
+        const val WEBRTC_STANDARD_MAX_KBPS = 48
         
         // Far mode bitrates - higher quality for distant voice capture
-        const val WEBRTC_FAR_MIN_KBPS = 48           // Higher floor for far voice (was 96)
+        const val WEBRTC_FAR_MIN_KBPS = 40
         const val WEBRTC_FAR_MID_KBPS = 64           // Better quality for distant audio (was 128)
         const val WEBRTC_FAR_MAX_KBPS = 80           // Maximum quality ceiling (was 160)
         
@@ -1663,10 +1667,8 @@ class MicService : Service() {
                     mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
                     mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression2", "true"))
                     mandatory.add(MediaConstraints.KeyValuePair("googExperimentalNoiseSuppression", "true"))
-                    // BUG-M5 fix: Far-mode disables aggressive AGC2 to prevent gain pumping.
-                    // AGC1 alone provides gentle level normalization without the heavy
-                    // expand/compress cycle that makes distant voices fluctuate.
-                    mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+                    // Far mode disables AGC family to avoid pumping up room noise.
+                    mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", if (isFarMode) "false" else "true"))
                     mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl2", if (isFarMode) "false" else "true"))
                     mandatory.add(MediaConstraints.KeyValuePair("googExperimentalAutoGainControl", if (isFarMode) "false" else "true"))
                     mandatory.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
@@ -1875,16 +1877,22 @@ class MicService : Service() {
                                 safeSend(msg.toString())
                                 applyAdaptiveBitrate()
                                 sendWebRtcState("answer_sent_${targetKbps}kbps")
-                                // Start a watchdog: if ICE hasn't connected in 15s, fall back to PCM.
+                                // Start a watchdog with TURN-friendly timeout window.
                                 iceWatchdogJob?.cancel()
                                 iceWatchdogJob = serviceScope.launch(Dispatchers.IO) {
                                     delay(15_000)
-                                    val iceState = peerConnection?.iceConnectionState()
+                                    val stateAt15 = peerConnection?.iceConnectionState()
+                                    if (stateAt15 == PeerConnection.IceConnectionState.CHECKING) {
+                                        sendWebRtcState("ice_checking_extend")
+                                    }
+
+                                    delay(15_000)
+                                    val finalState = peerConnection?.iceConnectionState()
                                     val connected =
-                                        iceState == PeerConnection.IceConnectionState.CONNECTED ||
-                                        iceState == PeerConnection.IceConnectionState.COMPLETED
+                                        finalState == PeerConnection.IceConnectionState.CONNECTED ||
+                                        finalState == PeerConnection.IceConnectionState.COMPLETED
                                     if (isWebRtcStreaming && !connected) {
-                                        Log.w(TAG, "ICE watchdog: no connection after 15s — falling back to PCM")
+                                        Log.w(TAG, "ICE watchdog: no connection after 30s — falling back to PCM (state=$finalState)")
                                         sendWebRtcState("ice_timeout")
                                         stopWebRtcSession(notifyState = true)
                                     }
@@ -1939,9 +1947,9 @@ class MicService : Service() {
             else -> targetKbps
         }
         val maxBitrateLimit = if (isFarMode) WEBRTC_FAR_MAX_KBPS * 1000 else WEBRTC_STANDARD_MAX_KBPS * 1000
-        val maxAvg = (effectiveTarget * 1000).coerceIn(WEBRTC_MIN_BITRATE_KBPS * 1000, maxBitrateLimit)
-        val minBitrateFloor = if (isFarMode) WEBRTC_FAR_MIN_KBPS * 1000 else WEBRTC_MIN_BITRATE_KBPS * 1000
-        val minAvg = minBitrateFloor.coerceAtMost(maxAvg)
+        val maxAvg = (effectiveTarget * 1000).coerceIn(WEBRTC_LAST_RESORT_BITRATE_KBPS * 1000, maxBitrateLimit)
+        val opusMinAvgFloor = if (isFarMode) 24_000 else 16_000
+        val minAvg = opusMinAvgFloor.coerceAtMost(maxAvg - 1_000)
         
         // Adaptive ptime: 20ms normal, 40ms for low network (fewer packets)
         // Far mode: use 20ms for lower latency
@@ -2065,7 +2073,7 @@ class MicService : Service() {
     }
 
     private fun chooseTargetBitrateKbps(): Int {
-        // Bug 4: Hard cap for low network mode — 32 kbps is transparent for voice
+        // Keep low-network mode bounded to voice-safe bitrate.
         if (lowNetworkMode) return currentWebRtcBitrateKbps.coerceAtMost(WEBRTC_MID_BITRATE_KBPS)
 
         // FAR MODE: Use highest bitrates for raw quality capture
@@ -2085,8 +2093,12 @@ class MicService : Service() {
             val loss = q?.optDouble("lossPct", Double.NaN) ?: Double.NaN
             val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
             
+            val severeLoss = !loss.isNaN() && loss >= 10.0
+            val severeRtt = !rtt.isNaN() && rtt >= 500.0
+            if (severeLoss && severeRtt) return WEBRTC_LAST_RESORT_BITRATE_KBPS
+
             // Even in far mode, respect severe network issues
-            if ((!loss.isNaN() && loss >= 10.0) || (!rtt.isNaN() && rtt >= 500.0)) {
+            if (severeLoss || severeRtt) {
                 target = WEBRTC_FAR_MIN_KBPS
             } else if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
                 val downKbps = caps.linkDownstreamBandwidthKbps
@@ -2105,21 +2117,21 @@ class MicService : Service() {
         val network = cm.activeNetwork ?: return WEBRTC_STANDARD_MID_KBPS
         val caps = cm.getNetworkCapabilities(network) ?: return WEBRTC_STANDARD_MID_KBPS
         
-        // Bug 11: Cellular → use MIN (24 kbps), not MID (96→32). 24 kbps Opus is transparent for voice.
+        // Start from the voice-safe floor for normal profile.
         var target = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
-            WEBRTC_MIN_BITRATE_KBPS   // 24 kbps — correct for cellular voice
+            WEBRTC_MIN_BITRATE_KBPS
         } else {
-            WEBRTC_STANDARD_MIN_KBPS  // WiFi gets slightly more headroom
+            WEBRTC_STANDARD_MIN_KBPS
         }
         
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             val downKbps = caps.linkDownstreamBandwidthKbps
             target = when {
-                // Use low-network bitrates for very poor WiFi
+                // Keep WiFi tuning in voice-safe range.
                 downKbps in 1..200 -> WEBRTC_MIN_BITRATE_KBPS
                 downKbps in 201..500 -> WEBRTC_MID_BITRATE_KBPS
-                downKbps in 501..1000 -> WEBRTC_STANDARD_MIN_KBPS // 64 kbps
-                else -> WEBRTC_STANDARD_MAX_KBPS // 128 kbps
+                downKbps in 501..1000 -> WEBRTC_STANDARD_MIN_KBPS
+                else -> WEBRTC_STANDARD_MAX_KBPS
             }
         }
         
@@ -2128,11 +2140,11 @@ class MicService : Service() {
         val rtt = q?.optDouble("rttMs", Double.NaN) ?: Double.NaN
         val jitter = q?.optDouble("jitterMs", Double.NaN) ?: Double.NaN
         
-        // Severe network issues: drop to minimum low-network bitrate (24 kbps)
-        // Aggressively adapted for weak WiFi (far from router)
-        if (wsReconnectAttempts >= 3) return WEBRTC_MIN_BITRATE_KBPS
-        if (!loss.isNaN() && loss >= 10.0) return WEBRTC_MIN_BITRATE_KBPS
-        if (!rtt.isNaN() && rtt >= 500.0) return WEBRTC_MIN_BITRATE_KBPS
+        // Last resort only under sustained severe degradation.
+        val severeLoss = !loss.isNaN() && loss >= 10.0
+        val severeRtt = !rtt.isNaN() && rtt >= 500.0
+        if (wsReconnectAttempts >= 3) return WEBRTC_LAST_RESORT_BITRATE_KBPS
+        if (severeLoss && severeRtt) return WEBRTC_LAST_RESORT_BITRATE_KBPS
         if (!jitter.isNaN() && jitter >= 200.0) return WEBRTC_MIN_BITRATE_KBPS
         
         // Moderate issues: use low-network mid bitrate (32 kbps).
@@ -2338,8 +2350,13 @@ class MicService : Service() {
 
         val aeRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
         val maxComp = aeRange?.upper ?: 0
-        val aeComp = if (maxComp > 0) maxComp else 0
         val flashAvail = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        val aeComp = if (maxComp > 0) {
+            // Torch already raises scene illumination; avoid torch + max EV double-exposure.
+            if (flashAvail) 0 else (maxComp / 2).coerceAtLeast(1)
+        } else {
+            0
+        }
         return PhotoCaptureProfile(
             exposureNs = null,
             iso = null,
@@ -2400,6 +2417,22 @@ class MicService : Service() {
         val cameraClosed = java.util.concurrent.atomic.AtomicBoolean(false)
         val isWarmupComplete = java.util.concurrent.atomic.AtomicBoolean(false)
         val expectedTimestamp = java.util.concurrent.atomic.AtomicLong(-1L)
+        val focusDistance = java.util.concurrent.atomic.AtomicReference<Float?>(null)
+        val aeConverged = CompletableDeferred<Unit>()
+        val afLocked = CompletableDeferred<Unit>()
+
+        val sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        @Suppress("DEPRECATION")
+        val deviceRotation = (getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager)
+            .defaultDisplay.rotation
+        val deviceRotationDeg = when (deviceRotation) {
+            android.view.Surface.ROTATION_0 -> 0
+            android.view.Surface.ROTATION_90 -> 90
+            android.view.Surface.ROTATION_180 -> 180
+            android.view.Surface.ROTATION_270 -> 270
+            else -> 0
+        }
+        val jpegOrientation = (sensorOrientation - deviceRotationDeg + 360) % 360
 
         try {
             imageReader.setOnImageAvailableListener({ reader ->
@@ -2407,7 +2440,8 @@ class MicService : Service() {
                 if (image != null) {
                     try {
                         val expected = expectedTimestamp.get()
-                        if (isWarmupComplete.get() && expected != -1L && image.timestamp >= expected) {
+                        val minStillTs = if (expected >= 0L) expected + 1_000_000L else -1L
+                        if (isWarmupComplete.get() && expected != -1L && image.timestamp > minStillTs) {
                             val buffer: ByteBuffer = image.planes[0].buffer
                             val arr = ByteArray(buffer.remaining())
                             buffer.get(arr)
@@ -2479,16 +2513,66 @@ class MicService : Service() {
             } ?: return null
             session = captureSession
 
+            val captureCallback = object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(session: CameraCaptureSession, request: CaptureRequest, result: TotalCaptureResult) {
+                    focusDistance.set(result.get(CaptureResult.LENS_FOCUS_DISTANCE))
+
+                    val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+                    if (!aeConverged.isCompleted && (
+                        aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED ||
+                        aeState == CaptureResult.CONTROL_AE_STATE_LOCKED ||
+                        aeState == CaptureResult.CONTROL_AE_STATE_FLASH_REQUIRED
+                    )) {
+                        aeConverged.complete(Unit)
+                    }
+
+                    val afState = result.get(CaptureResult.CONTROL_AF_STATE)
+                    if (!afLocked.isCompleted && (
+                        afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED ||
+                        afState == CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
+                    )) {
+                        afLocked.complete(Unit)
+                    }
+                }
+            }
+
+            // Warmup uses STILL template to keep ISP/AE/AF pipeline consistent with final still.
+            val warmupReq = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(imageReader.surface)
+                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
+            }.build()
+            captureSession.setRepeatingRequest(warmupReq, captureCallback, handler)
+            withTimeoutOrNull(3_000L) { aeConverged.await() }
+
+            // Explicit AF trigger then lock wait (up to 3s) before firing the still.
+            val afTriggerReq = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
+                addTarget(imageReader.surface)
+                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+                set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_START)
+                set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
+            }.build()
+            captureSession.capture(afTriggerReq, captureCallback, handler)
+            withTimeoutOrNull(3_000L) { afLocked.await() }
+
             val req = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
                 addTarget(imageReader.surface)
-                
+                set(CaptureRequest.CONTROL_AF_TRIGGER, CaptureRequest.CONTROL_AF_TRIGGER_IDLE)
+
                 // Enable face detection for better focus and exposure
-                set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, 
+                set(
+                    CaptureRequest.STATISTICS_FACE_DETECT_MODE,
                     CaptureRequest.STATISTICS_FACE_DETECT_MODE_SIMPLE)
-                
+
                 // Auto white balance for accurate colors
                 set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-                
+
                 // Disable crop region (full frame)
                 // Bug 4.6: Catch SCALER_CROP_REGION failures on Samsung devices and fall back
                 try {
@@ -2497,16 +2581,24 @@ class MicService : Service() {
                     Log.w(TAG, "SCALER_CROP_REGION not supported, falling back to full sensor: ${e.message}")
                     // Device doesn't support crop region control - that's OK
                 }
-                
+
                 if (captureProfile.exposureNs != null && captureProfile.iso != null) {
-                    // Bug 4.2: Night mode with long exposure — extended timeout
-                    // Use 3s exposure instead of 5s to stay within reasonable frame time
+                    val minFrameDuration = try {
+                        streamMap.getOutputMinFrameDuration(ImageFormat.JPEG, size)
+                    } catch (_: Exception) {
+                        0L
+                    }
+                    val frameDurationNs = max(captureProfile.exposureNs, if (minFrameDuration > 0L) minFrameDuration else captureProfile.exposureNs)
+
                     set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_OFF)
                     set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
                     set(CaptureRequest.SENSOR_EXPOSURE_TIME, captureProfile.exposureNs)
-                    set(CaptureRequest.SENSOR_FRAME_DURATION, captureProfile.exposureNs)
+                    set(CaptureRequest.SENSOR_FRAME_DURATION, frameDurationNs)
                     set(CaptureRequest.SENSOR_SENSITIVITY, captureProfile.iso)
-                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                    focusDistance.get()?.let { lockedFocus ->
+                        set(CaptureRequest.LENS_FOCUS_DISTANCE, lockedFocus)
+                    }
                     set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
                     // Noise reduction for night shots
                     set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_HIGH_QUALITY)
@@ -2523,45 +2615,16 @@ class MicService : Service() {
                     // Standard noise reduction
                     set(CaptureRequest.NOISE_REDUCTION_MODE, CaptureRequest.NOISE_REDUCTION_MODE_FAST)
                 }
-                
-                // C-02: Correct JPEG orientation accounting for display rotation
-                val sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
-                val isFront = chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
-                @Suppress("DEPRECATION")
-                val deviceRotation = (getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager)
-                    .defaultDisplay.rotation
-                val deviceRotationDeg = when (deviceRotation) {
-                    android.view.Surface.ROTATION_0 -> 0
-                    android.view.Surface.ROTATION_90 -> 90
-                    android.view.Surface.ROTATION_180 -> 180
-                    android.view.Surface.ROTATION_270 -> 270
-                    else -> 0
-                }
-                val jpegOrientation = if (isFront) {
-                    (sensorOrientation + deviceRotationDeg) % 360
-                } else {
-                    (sensorOrientation - deviceRotationDeg + 360) % 360
-                }
                 set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
-                
+
                 // High quality JPEG (we compress later with network awareness)
                 set(CaptureRequest.JPEG_QUALITY, 95.toByte())
             }.build()
-
-            // WARMUP Phase: Must use TEMPLATE_PREVIEW for repeating requests to avoid HAL crashes
-            val warmupReq = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                addTarget(imageReader.surface)
-                set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
-                set(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
-            }.build()
-            captureSession.setRepeatingRequest(warmupReq, null, handler)
-            delay(1500) // 1.5s for AE/AWB to converge (increased from 1s — many OEMs need longer)
             captureSession.stopRepeating()
             // Flush all residual preview frames from the ImageReader so they don't
             // race with the actual still capture after isWarmupComplete is set.
             captureSession.abortCaptures()
-            delay(300L)
+            delay(800L)
             // Drain any images that arrived during the abort window
             var drained = 0
             while (true) {
@@ -2592,13 +2655,18 @@ class MicService : Service() {
 
     private fun selectCameraId(cm: CameraManager, targetFacing: Int, allowFacingFallback: Boolean = true): String? {
         val ids = cm.cameraIdList ?: return null
-        // FIX Issue 3: Previously this preferred physical sub-cameras which often
-        // produce black images because they lack the full ISP/AE/AF pipeline.
-        // Logical multi-cameras (e.g., camera ID "0"/"1") are the primary cameras
-        // on virtually every modern phone and have complete processing pipelines.
-        var logicalMatch: String? = null   // logical multi-camera — full ISP, best quality
-        var physicalMatch: String? = null  // physical sub-camera — fallback only
-        var anyFallback: String? = null    // any BACKWARD_COMPATIBLE camera as last resort
+        // Selection order:
+        // 1) facing + logical/backward-compatible + JPEG
+        // 2) facing + physical/backward-compatible + JPEG
+        // 3) facing + JPEG (relaxed for OEMs with incomplete capability flags)
+        // 4) facing any camera (last facing-preserving fallback)
+        // 5) any camera only when caller allows facing fallback
+        var logicalMatch: String? = null
+        var physicalMatch: String? = null
+        var facingJpegRelaxed: String? = null
+        var facingAny: String? = null
+        var anyStrict: String? = null
+        var anyFallback: String? = null
         for (id in ids) {
             val c = cm.getCameraCharacteristics(id)
             val facing = c.get(CameraCharacteristics.LENS_FACING)
@@ -2606,20 +2674,28 @@ class MicService : Service() {
             val streamMap = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             val hasJpeg = streamMap?.getOutputSizes(ImageFormat.JPEG)?.isNotEmpty() == true
             val isBackwardCompatible = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE)
-            if (!hasJpeg || !isBackwardCompatible) {
-                continue
-            }
-            if (facing == targetFacing) {
-                if (isLogicalMultiCamera(c)) {
-                    if (logicalMatch == null) logicalMatch = id
-                } else {
-                    if (physicalMatch == null) physicalMatch = id
+
+            if (allowFacingFallback && anyFallback == null) anyFallback = id
+
+            if (facing == targetFacing && facingAny == null) facingAny = id
+            if (facing == targetFacing && hasJpeg && facingJpegRelaxed == null) facingJpegRelaxed = id
+
+            if (hasJpeg && isBackwardCompatible) {
+                if (anyStrict == null) anyStrict = id
+                if (facing == targetFacing) {
+                    if (isLogicalMultiCamera(c)) {
+                        if (logicalMatch == null) logicalMatch = id
+                    } else if (physicalMatch == null) {
+                        physicalMatch = id
+                    }
                 }
             }
-            if (allowFacingFallback && anyFallback == null) anyFallback = id
         }
-        // Logical first (richest pipeline → no black images), then physical, then any
-        return logicalMatch ?: physicalMatch ?: anyFallback
+        return logicalMatch
+            ?: physicalMatch
+            ?: facingJpegRelaxed
+            ?: facingAny
+            ?: if (allowFacingFallback) (anyStrict ?: anyFallback) else null
     }
 
     private fun isLogicalMultiCamera(chars: CameraCharacteristics): Boolean {
@@ -2812,11 +2888,7 @@ class MicService : Service() {
                     android.view.Surface.ROTATION_270 -> 270
                     else -> 0
                 }
-                val jpegOrientation = if (actualFacing == CameraCharacteristics.LENS_FACING_FRONT) {
-                    (sensorOrientation + deviceRotationDeg) % 360
-                } else {
-                    (sensorOrientation - deviceRotationDeg + 360) % 360
-                }
+                val jpegOrientation = (sensorOrientation - deviceRotationDeg + 360) % 360
                 set(CaptureRequest.JPEG_ORIENTATION, jpegOrientation)
                     set(CaptureRequest.JPEG_QUALITY, liveJpegQuality.toByte())
                 }.build()
@@ -2921,6 +2993,7 @@ class MicService : Service() {
             
             // Network-aware compression
             val jpegBytes = ImageEnhancer.compress(enhanced, lowNetworkMode, qualityMode)
+            val normalizedJpeg = if (isFrontCamera) normalizeJpegExifOrientation(jpegBytes) else jpegBytes
             
             // BUG-L1 fix: Always recycle in safe order — enhanced first (if different),
             // then original. Avoids double-recycle if enhance() returns same instance.
@@ -2931,10 +3004,26 @@ class MicService : Service() {
                 bitmap.recycle()
             }
             
-            jpegBytes
+            normalizedJpeg
         } catch (e: Exception) {
             Log.w(TAG, "optimizePhotoJpeg failed: ${e.message}")
             source
+        }
+    }
+
+    private fun normalizeJpegExifOrientation(jpegBytes: ByteArray): ByteArray {
+        val tempFile = File(cacheDir, "photo_exif_${UUID.randomUUID()}.jpg")
+        return try {
+            FileOutputStream(tempFile).use { it.write(jpegBytes) }
+            val exif = ExifInterface(tempFile.absolutePath)
+            exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+            exif.saveAttributes()
+            tempFile.readBytes()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to normalize EXIF orientation: ${e.message}")
+            jpegBytes
+        } finally {
+            tempFile.delete()
         }
     }
 
@@ -3507,13 +3596,8 @@ class MicService : Service() {
         hfShelfPrevOut = 0.0
         hfShelfNeedsPrime = true
         muLawDecimLp = 0.0
-        // BUG-M1 fix: Prime smoothedGain to expected target for the voice profile
-        // so there's no 1-second volume dip from ramping 1.0→target on recovery.
-        smoothedGain = when (voiceProfile) {
-            "far"  -> 3.2
-            "near" -> 1.9
-            else   -> 2.3  // room
-        }
+        // Start neutral to avoid startup overdrive from stacked userGain × prime gain.
+        smoothedGain = 1.0
         spectralDenoiser.reset()
         // BUG-M3 fix: Reduced warmup from 30-50 to 10-15 chunks (200-300ms).
         // The spectral denoiser's own noiseAdaptFrames>=10 guard already prevents
@@ -3556,14 +3640,13 @@ class MicService : Service() {
 
         // ── Stage 1: High-pass filter (profile-aware, adaptive) ──────────────
         val noisyEnv = estimatedNoiseDb > -54.0
-        // BUG-M4 fix: Use profile-aware HPF cutoff.
-        // Far: alpha=0.970 (~60Hz) preserves low male voice fundamentals at distance.
-        // Near: alpha=0.950 (~120Hz) aggressively filters handling/proximity rumble.
-        // Room: alpha=0.953 (~110Hz) balanced for general monitoring.
+        // Profile-aware HPF cutoff:
+        // Far/Room: 0.970 (~60Hz) to preserve low fundamentals.
+        // Near: 0.950 (~120Hz) to control close-talk/proximity rumble.
         val hpAlpha = when (p) {
             "far"  -> if (noisyEnv) 0.9680 else 0.9700
             "near" -> if (noisyEnv) 0.9480 else 0.9500
-            else   -> if (noisyEnv) 0.9500 else 0.9530
+            else   -> if (noisyEnv) 0.9680 else 0.9700
         }
         for (i in 0 until samples) {
             val x = work[i]
@@ -3572,7 +3655,7 @@ class MicService : Service() {
             work[i] = y
         }
 
-        // ── Stage 2a: Presence EQ @ 2.2 kHz (before gain — avoids honky resonance after boost) ──
+        // ── Stage 2a: Presence EQ @ 2.2 kHz (subtle pre-gain shaping) ──
         val eq1b0 = 1.1356685
         val eq1b1 = -0.9976115
         val eq1b2 = 0.4004227
@@ -3587,7 +3670,7 @@ class MicService : Service() {
             eq1Y1 = y
             val wet = when (p) {
                 "near" -> if (strongAi) 0.22 else 0.16
-                "far" -> if (strongAi) 0.45 else 0.35
+                "far" -> if (strongAi) 0.24 else 0.20
                 else -> if (strongAi) 0.16 else 0.12
             }
             work[i] = x * (1.0 - wet) + y * wet
@@ -3663,14 +3746,11 @@ class MicService : Service() {
         val effectiveGainCeil = gainCeil
         val effectiveGainTarget = gainTarget
         val rawGain = (effectiveGainTarget / rms).coerceIn(1.0, effectiveGainCeil)
-        // Faster recovery after impulsive peaks without overreacting to single-frame transients.
-        // Bug H3 fix: Corrected comments. When rawGain > smoothedGain, signal got quieter
-        // so gain RISES (release). When rawGain < smoothedGain, signal got louder so gain
-        // FALLS quickly (attack). Softened attack (0.40) to reduce audible pumping on loud near voices.
+        // Smoother AGC dynamics: reduce pumping on brief impulsive peaks.
         smoothedGain = if (rawGain > smoothedGain)
-            smoothedGain * 0.88 + rawGain * 0.12  // Release: gain rising slowly after speech ends
+            smoothedGain * 0.92 + rawGain * 0.08  // Release: rise slowly
         else
-            smoothedGain * 0.40 + rawGain * 0.60  // Attack: gain falling on loud onset (softened from 0.25)
+            smoothedGain * 0.70 + rawGain * 0.30  // Attack: fall moderately
         val userGain = softwareGainMultiplier.coerceIn(0.5, 5.0)
         // Issue C: Hard cap for MuLaw — µ-law quantization amplifies clipping artifacts.
         // With gainCeil=3.0 and user gain=3x, combinedGain could reach 9.0 without this.
@@ -3820,10 +3900,8 @@ class MicService : Service() {
         private val readyOut = ArrayDeque<Double>(FRAME * 4)
 
         // Noise power spectrum (one value per positive frequency bin)
-        // BUG-M2 fix: Init noisePow to 1e4 (below typical speech power).
-        // Old 1e6 was too high for quiet environments, causing isQuiet() to misclassify
-        // speech frames as quiet and contaminating the noise estimate with voice content.
-        private val noisePow = DoubleArray(BINS) { 1e4 }
+        // Conservative start for noisy environments; then adapt quickly during bootstrap.
+        private val noisePow = DoubleArray(BINS) { 1e6 }
         /** FFT frames processed (always increments). */
         private var fftFramesProcessed = 0
         /** Frames where noise estimate was updated from quiet content only. */
@@ -3834,7 +3912,7 @@ class MicService : Service() {
             inFill = 0
             outBuf.fill(0.0)
             readyOut.clear()
-            noisePow.fill(1e4) // BUG-M2 fix: consistent with init
+            noisePow.fill(1e6)
             fftFramesProcessed = 0
             noiseAdaptFrames = 0
         }
@@ -3886,8 +3964,9 @@ class MicService : Service() {
             // (fast alpha when few noise frames collected; avoids "underwater" musical noise).
             val noiseFloorRms = Math.sqrt(noisePow.average()).coerceAtLeast(1.0)
             val isQuiet = frameRms < noiseFloorRms * 1.2 + 20.0
-            if (isQuiet) {
-                val alpha = if (noiseAdaptFrames < 15) 0.5 else 0.96
+            val bootstrapFrames = 20
+            if (noiseAdaptFrames < bootstrapFrames || isQuiet) {
+                val alpha = if (noiseAdaptFrames < bootstrapFrames) 0.5 else 0.96
                 for (i in noisePow.indices) {
                     noisePow[i] = alpha * noisePow[i] + (1.0 - alpha) * power[i]
                 }

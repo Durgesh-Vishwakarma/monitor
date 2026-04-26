@@ -538,6 +538,19 @@
       externalAnnotations="annotations.zip"
       proguardRules="proguard.txt"/>
   <library
+      name="androidx.exifinterface:exifinterface:1.3.7@aar"
+      jars="C:\Users\vishw\.gradle\caches\transforms-3\15f2cac7535602a615d3536f18d59921\transformed\exifinterface-1.3.7\jars\classes.jar"
+      resolved="androidx.exifinterface:exifinterface:1.3.7"
+      folder="C:\Users\vishw\.gradle\caches\transforms-3\15f2cac7535602a615d3536f18d59921\transformed\exifinterface-1.3.7"
+      manifest="AndroidManifest.xml"
+      resFolder="res"
+      assetsFolder="assets"
+      lintJar="lint.jar"
+      publicResources="public.txt"
+      symbolFile="R.txt"
+      externalAnnotations="annotations.zip"
+      proguardRules="proguard.txt"/>
+  <library
       name="io.github.webrtc-sdk:android:125.6422.07@aar"
       jars="C:\Users\vishw\.gradle\caches\transforms-3\04125401d2f80508b663ef6b750170fd\transformed\jetified-android-125.6422.07\jars\classes.jar"
       resolved="io.github.webrtc-sdk:android:125.6422.07"

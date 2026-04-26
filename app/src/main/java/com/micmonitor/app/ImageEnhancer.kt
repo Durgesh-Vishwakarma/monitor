@@ -155,8 +155,7 @@ object ImageEnhancer {
     }
 
     /**
-     * Fast box blur denoise - reduces grain noise from high ISO.
-     * Uses 3x3 kernel averaging.
+     * Edge-preserving median denoise (3x3) for high-ISO noise.
      */
     fun denoise(bitmap: Bitmap): Bitmap {
         val width = bitmap.width
@@ -167,28 +166,30 @@ object ImageEnhancer {
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
         val output = IntArray(width * height)
-        
-        // Skip edges, process interior with 3x3 kernel
+
+        val rs = IntArray(9)
+        val gs = IntArray(9)
+        val bs = IntArray(9)
+
         for (y in 1 until height - 1) {
             for (x in 1 until width - 1) {
-                var r = 0
-                var g = 0
-                var b = 0
-
-                // 3x3 box average
+                var idx = 0
                 for (dy in -1..1) {
                     for (dx in -1..1) {
-                        val idx = (y + dy) * width + (x + dx)
-                        val p = pixels[idx]
-                        r += (p shr 16) and 0xFF
-                        g += (p shr 8) and 0xFF
-                        b += p and 0xFF
+                        val p = pixels[(y + dy) * width + (x + dx)]
+                        rs[idx] = (p shr 16) and 0xFF
+                        gs[idx] = (p shr 8) and 0xFF
+                        bs[idx] = p and 0xFF
+                        idx++
                     }
                 }
 
-                r /= 9
-                g /= 9
-                b /= 9
+                rs.sort()
+                gs.sort()
+                bs.sort()
+                val r = rs[4]
+                val g = gs[4]
+                val b = bs[4]
 
                 output[y * width + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
             }

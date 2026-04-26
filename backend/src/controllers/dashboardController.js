@@ -344,6 +344,11 @@ function handleDashboard(ws) {
 
 function startStreamRecovery() {
   if (streamRecoveryTimer) return;
+  const RECOVERY_SCAN_INTERVAL_MS = 60_000;
+  const RECOVERY_BASE_COOLDOWN_MS = 60_000;
+  const RECOVERY_BACKOFF_COOLDOWN_MS = 5 * 60_000;
+  const RECOVERY_BACKOFF_AFTER_ATTEMPTS = 3;
+
   streamRecoveryTimer = setInterval(() => {
     if (dashboardStore.size() === 0) return;
     const now = Date.now();
@@ -361,12 +366,15 @@ function startStreamRecovery() {
       const staleMs = lastAudio > 0 ? now - lastAudio : Number.POSITIVE_INFINITY;
       const stale = !lastAudio || staleMs > 25_000;
       const micCapturing = dev.health?.micCapturing === true;
-      const inCooldown = Number(dev._lastStreamRecoveryAt || 0) > 0 && now - dev._lastStreamRecoveryAt < 60_000;
+      const nextRecoveryAllowedAt = Number(dev._nextStreamRecoveryAllowedAt || 0);
+      const inCooldown = nextRecoveryAllowedAt > now;
       const connectedAtMs = dev.connectedAt ? new Date(dev.connectedAt).getTime() : 0;
 
       // If we already nudged recently, wait for either audio to resume or cooldown to pass.
       if (dev._awaitingRecoveryAudio && staleMs < 12_000) {
         dev._awaitingRecoveryAudio = false;
+        dev._streamRecoveryAttempts = 0;
+        dev._nextStreamRecoveryAllowedAt = 0;
       }
 
       // S-H3/S-M4 fix: Use dev.health.isWebRtcStreaming directly.
@@ -395,22 +403,42 @@ function startStreamRecovery() {
           if (!stillSubscribed) return;
 
           dev.ws.send("start_stream");
-          dev._lastStreamRecoveryAt = now;
           dev._awaitingRecoveryAudio = true;
+          dev._streamRecoveryAttempts = Number(dev._streamRecoveryAttempts || 0) + 1;
+
+          const attempts = dev._streamRecoveryAttempts;
+          const isBackoff = attempts >= RECOVERY_BACKOFF_AFTER_ATTEMPTS;
+          const cooldownMs = isBackoff ? RECOVERY_BACKOFF_COOLDOWN_MS : RECOVERY_BASE_COOLDOWN_MS;
+          dev._nextStreamRecoveryAllowedAt = now + cooldownMs;
+
           console.log(`🔄 [Recovery] Nudging stale device → ${deviceId} (stale ${Math.round(staleMs/1000)}s)`);
           stillSubscribed = false;
           dashboardStore.forEachClientSubscribedToDevice(deviceId, () => {
             stillSubscribed = true;
           });
           if (stillSubscribed) {
-            broadcastToDashboard({ type: "stream_recovery_sent", deviceId });
+            broadcastToDashboard({
+              type: "stream_recovery_sent",
+              deviceId,
+              attempts,
+              nextRetryMs: cooldownMs,
+            });
+            if (isBackoff) {
+              broadcastToDashboard({
+                type: "stream_recovery_alert",
+                deviceId,
+                level: "warning",
+                message: "Audio stream still stale after repeated recovery attempts; backing off to 5 minutes.",
+                attempts,
+              });
+            }
           }
         } catch (e) {
           console.log(`❌ Stream recovery failed for ${deviceId}: ${e.message}`);
         }
       }
     });
-  }, 20_000);
+  }, RECOVERY_SCAN_INTERVAL_MS);
 }
 
 module.exports = {

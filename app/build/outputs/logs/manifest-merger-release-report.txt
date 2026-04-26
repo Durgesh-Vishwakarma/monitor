@@ -52,6 +52,7 @@ MERGED from [androidx.room:room-ktx:2.5.0] C:\Users\vishw\.gradle\caches\transfo
 MERGED from [androidx.room:room-runtime:2.5.0] C:\Users\vishw\.gradle\caches\transforms-3\60bc3f31453054a5d2293b6b72bcaf4f\transformed\room-runtime-2.5.0\AndroidManifest.xml:17:1-31:12
 MERGED from [androidx.annotation:annotation-experimental:1.3.0] C:\Users\vishw\.gradle\caches\transforms-3\f8ef5745b169f110f605ac5d4a901efd\transformed\jetified-annotation-experimental-1.3.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.sqlite:sqlite-framework:2.3.0] C:\Users\vishw\.gradle\caches\transforms-3\550231521aef6c30b69601b8b368c987\transformed\sqlite-framework-2.3.0\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.exifinterface:exifinterface:1.3.7] C:\Users\vishw\.gradle\caches\transforms-3\15f2cac7535602a615d3536f18d59921\transformed\exifinterface-1.3.7\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\85968db88edcf3bb1a8ca9d1d120de35\transformed\cursoradapter-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.cardview:cardview:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\425c79b41c5100e4c9e6d62d316150ce\transformed\cardview-1.0.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.interpolator:interpolator:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\06c0de05be1d7b07fa7c8604eba58308\transformed\interpolator-1.0.0\AndroidManifest.xml:17:1-22:12
@@ -394,6 +395,8 @@ MERGED from [androidx.annotation:annotation-experimental:1.3.0] C:\Users\vishw\.
 MERGED from [androidx.annotation:annotation-experimental:1.3.0] C:\Users\vishw\.gradle\caches\transforms-3\f8ef5745b169f110f605ac5d4a901efd\transformed\jetified-annotation-experimental-1.3.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.sqlite:sqlite-framework:2.3.0] C:\Users\vishw\.gradle\caches\transforms-3\550231521aef6c30b69601b8b368c987\transformed\sqlite-framework-2.3.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.sqlite:sqlite-framework:2.3.0] C:\Users\vishw\.gradle\caches\transforms-3\550231521aef6c30b69601b8b368c987\transformed\sqlite-framework-2.3.0\AndroidManifest.xml:20:5-44
+MERGED from [androidx.exifinterface:exifinterface:1.3.7] C:\Users\vishw\.gradle\caches\transforms-3\15f2cac7535602a615d3536f18d59921\transformed\exifinterface-1.3.7\AndroidManifest.xml:20:5-22:41
+MERGED from [androidx.exifinterface:exifinterface:1.3.7] C:\Users\vishw\.gradle\caches\transforms-3\15f2cac7535602a615d3536f18d59921\transformed\exifinterface-1.3.7\AndroidManifest.xml:20:5-22:41
 MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\85968db88edcf3bb1a8ca9d1d120de35\transformed\cursoradapter-1.0.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.cursoradapter:cursoradapter:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\85968db88edcf3bb1a8ca9d1d120de35\transformed\cursoradapter-1.0.0\AndroidManifest.xml:20:5-44
 MERGED from [androidx.cardview:cardview:1.0.0] C:\Users\vishw\.gradle\caches\transforms-3\425c79b41c5100e4c9e6d62d316150ce\transformed\cardview-1.0.0\AndroidManifest.xml:20:5-44

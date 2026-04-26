@@ -6,9 +6,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Version management - increment   versionCode for each release
-val appVersionCode = 53  // Increment this for each update
-val appVersionName = "1.14.7"  // Human-readable version
+// Version management - increment versionCode for each release
+val appVersionCode = 54  // Increment this for each update
+val appVersionName = "1.14.8"  // Human-readable version
 val localProps = Properties().apply {
     val propsFile = rootProject.file("local.properties")
     if (propsFile.exists()) load(propsFile.inputStream())
@@ -132,6 +132,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // WebSocket for live streaming
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

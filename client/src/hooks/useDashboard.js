@@ -422,6 +422,9 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
             const detail = msg.detail ? ` - ${msg.detail}` : '';
             const prefix = msg.deviceId ? `${String(msg.deviceId).substring(0, 8)}:` : '';
             addFeed(`📢 CMD ${prefix} ${cmd} (${status})${detail}`);
+            if (cmd.startsWith('webrtc_') && onWebRTCMessageRef.current) {
+              onWebRTCMessageRef.current(msg);
+            }
             return;
           }
           if (type === 'ack') {
