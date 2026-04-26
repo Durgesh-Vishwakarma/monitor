@@ -140,7 +140,7 @@ export function useAudioPlayback() {
 
     // 3. Gain node: final volume boost
     const gainNode = ctx.createGain();
-    gainNode.gain.value = volumeRef.current * 1.0;  // 1.0× client-side boost
+    gainNode.gain.value = volumeRef.current * 3.0;  // 3.0× client-side base boost
     gainNodeRef.current = gainNode;
 
     // Connect chain: compressor → highpass → gain → output
@@ -408,11 +408,11 @@ export function useAudioPlayback() {
 
   // Set volume
   const setVolume = useCallback(volume => {
-    const clamped = Math.max(0, Math.min(1, volume));
+    const clamped = Math.max(0, Math.min(5, volume)); // Allow up to 5x volume from the UI
     // S-M5 fix: Update ref so initAudioContext always has current volume
     volumeRef.current = clamped;
     if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = clamped * 1.0;  // Match initAudioContext boost
+      gainNodeRef.current.gain.value = clamped * 3.0;  // Match initAudioContext base boost
     }
     setState(prev => ({
       ...prev,
