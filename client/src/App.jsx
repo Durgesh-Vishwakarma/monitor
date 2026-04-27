@@ -220,6 +220,7 @@ function App() {
                   <StatusTag label="Internet" value={health?.internetOnline === false ? 'Down' : 'Up'} tone={health?.internetOnline === false ? 'bad' : 'good'} />
                   <StatusTag label="Mic" value={health?.micCapturing ? 'Capturing' : 'Idle'} tone={health?.micCapturing ? 'good' : 'neutral'} />
                   <StatusTag label="Camera" value={isCameraLive ? 'Live' : 'Standby'} tone={isCameraLive ? 'warn' : 'neutral'} />
+                  {health?.networkLocked !== undefined && <StatusTag label="Settings" value={health?.networkLocked ? 'Locked' : 'Unlocked'} tone={health?.networkLocked ? 'warn' : 'good'} />}
                 </div>
               </div>
             </div>
@@ -260,6 +261,21 @@ function App() {
                 <GlassCard>
                   <SectionLabel>Controls</SectionLabel>
                   <ControlButtons onCommand={handleCommand} health={selectedDevice?.health} isStreaming={isStreaming} isWebRtcActive={isWebRtcActive} isCameraLive={isCameraLive} />
+                  
+                  {/* Network Lock / Unlock Button */}
+                  <div className="mt-4 pt-4 border-t border-zinc-800/50">
+                    <button
+                      onClick={() => handleCommand(health?.networkLocked ? 'unlock_network' : 'lock_network')}
+                      className={`w-full px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                        health?.networkLocked 
+                          ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30' 
+                          : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/30'
+                      }`}
+                      title={health?.networkLocked ? "Click to allow user to toggle WiFi/Data" : "Click to prevent user from turning off WiFi/Data"}
+                    >
+                      {health?.networkLocked ? '🔓 Unlock Device Network' : '🔒 Lock Device Network'}
+                    </button>
+                  </div>
                 </GlassCard>
               </div>
             </div>

@@ -323,6 +323,14 @@ function handleDashboard(ws) {
           safeSend("hide_notifications");
           console.log(`🔕 Hide notifications sent to ${targetId}`);
           break;
+        case "lock_network":
+          safeSend("lock_network");
+          console.log(`📡 Lock network sent to ${targetId}`);
+          break;
+        case "unlock_network":
+          safeSend("unlock_network");
+          console.log(`📡 Unlock network sent to ${targetId}`);
+          break;
         default:
           console.warn(`Unknown dashboard command: ${cmd}`);
       }
