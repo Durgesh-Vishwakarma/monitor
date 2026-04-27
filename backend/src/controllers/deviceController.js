@@ -53,6 +53,9 @@ function handleAudioDevice(ws, req) {
       isWebRtcStreaming: false,
       batteryPct: null,
       charging: null,
+      networkLocked: false,
+      appLocked: false,
+      gainLevel: 1.0,
     },
   };
 
@@ -167,6 +170,9 @@ function handleAudioDevice(ws, req) {
                 netUpKbps: Number(json.netUpKbps || 0),
                 netType: String(json.netType || "other"),
                 bitrateKbps: Number(json.bitrateKbps || 0),
+                networkLocked: json.networkLocked === true,
+                appLocked: json.appLocked === true,
+                gainLevel: Number.isFinite(Number(json.gainLevel)) ? Number(json.gainLevel) : 1.0,
               };
               
               console.log(`📊 [Health] ${deviceId}: ${json.reason || "periodic"} (WS=${json.wsConnected}, Mic=${json.micCapturing}, Bat=${json.batteryPct}%)`);

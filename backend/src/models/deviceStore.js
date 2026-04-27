@@ -26,6 +26,12 @@ function getCurrentDeviceId() {
 
 function addDevice(deviceId, device) {
   const normalized = normalizeDeviceId(deviceId);
+  // Guarantee the health object has our new properties defined immediately on connection
+  if (device && device.health) {
+    if (typeof device.health.networkLocked === 'undefined') device.health.networkLocked = false;
+    if (typeof device.health.appLocked === 'undefined') device.health.appLocked = false;
+    if (typeof device.health.gainLevel === 'undefined') device.health.gainLevel = 1.0;
+  }
   devices.set(normalized, device);
   currentDeviceId = normalized;
   return normalized;
