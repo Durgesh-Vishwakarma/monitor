@@ -240,7 +240,7 @@ export function useAudioPlayback() {
           if (now - lastStateUpdateRef.current >= 100) {
             lastStateUpdateRef.current = now;
             const startupBoost = now - streamStartAtRef.current < 3000;
-            const capSamples = startupBoost ? SAMPLE_RATE : SAMPLE_RATE * 0.5;
+            const capSamples = startupBoost ? SAMPLE_RATE * 3 : SAMPLE_RATE * 1.5;
             const totalSamples = workletQueueSamplesRef.current;
             const bufferHealth = Math.min(1, totalSamples / capSamples);
             setState(prev => ({
@@ -295,7 +295,7 @@ export function useAudioPlayback() {
       if (now - lastStateUpdateRef.current >= 100) {
         lastStateUpdateRef.current = now;
         const startupBoost = now - streamStartAtRef.current < 3000;
-        const capSamples = startupBoost ? SAMPLE_RATE : SAMPLE_RATE * 0.5;
+        const capSamples = startupBoost ? SAMPLE_RATE * 3 : SAMPLE_RATE * 1.5;
         const totalSamples = queue.reduce((acc, c) => acc + c.length, 0);
         const bufferHealth = Math.min(1, totalSamples / capSamples);
         setState(prev => ({
@@ -360,7 +360,7 @@ export function useAudioPlayback() {
     
     lastDeviceIdRef.current = parsed.deviceId;
     const startupBoost = Date.now() - streamStartAtRef.current < 3000;
-    const maxSamples = startupBoost ? SAMPLE_RATE : SAMPLE_RATE * 0.5;
+    const maxSamples = startupBoost ? SAMPLE_RATE * 3 : SAMPLE_RATE * 1.5;
 
     if (usingWorkletRef.current && workletNodeRef.current) {
       const chunk = parsed.audio;

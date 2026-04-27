@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { apiUrl } from '../lib/helpers';
 
 /**
  * WebRTC hook for receiving audio stream from Android device.
@@ -135,7 +136,7 @@ export function useWebRTC() {
       // Stats not available
     }
   }, []);
-  const start = useCallback(sendCommand => {
+  const start = useCallback(async sendCommand => {
     if (pcRef.current) {
       console.log('[WebRTC] Already active, stopping first');
       pcRef.current.close();
@@ -152,15 +153,24 @@ export function useWebRTC() {
       state: 'connecting'
     }));
 
-    // First, tell device to start WebRTC
-    sendCommand('webrtc_start');
+    let iceServers = ICE_SERVERS;
+    try {
+      const res = await fetch(apiUrl('/api/webrtc-config'));
+      if (res.ok) {
+        const cfg = await res.json();
+        if (cfg.iceServers?.length) iceServers = cfg.iceServers;
+      }
+    } catch {}
 
     // Create peer connection
     const pc = new RTCPeerConnection({
-      iceServers: ICE_SERVERS,
+      iceServers: iceServers,
       iceCandidatePoolSize: 10
     });
     pcRef.current = pc;
+
+    // Tell device to start WebRTC ONLY after PC is ready to receive early ICE candidates
+    sendCommand('webrtc_start');
 
     // Handle ICE candidates
     pc.onicecandidate = event => {
@@ -204,19 +214,30 @@ export function useWebRTC() {
     pc.ontrack = event => {
       console.log('[WebRTC] Received track:', event.track.kind);
       if (event.streams[0]) {
+        // Connect to DOM audio element so stream stays alive and autoplay triggers natively
+        if (audioRef.current) {
+          audioRef.current.srcObject = event.streams[0];
+          // Mute DOM element so we don't double-play with the WebAudio chain below
+          audioRef.current.muted = true;
+          audioRef.current.play().catch(err => console.warn('[WebRTC] Autoplay blocked:', err));
+        }
+        
         // Build a Web Audio processing chain for far-voice clarity
         // (matches the PCM playback chain: compressor → highpass → gain → output)
         try {
           const audioCtx = new AudioContext();
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
           const source = audioCtx.createMediaStreamSource(event.streams[0]);
 
           // DynamicsCompressor: auto-levels quiet far-field speech
           const compressor = audioCtx.createDynamicsCompressor();
-          compressor.threshold.value = -35;
+          compressor.threshold.value = -18;
           compressor.knee.value = 20;
-          compressor.ratio.value = 8;
+          compressor.ratio.value = 3;
           compressor.attack.value = 0.003;
-          compressor.release.value = 0.15;
+          compressor.release.value = 0.25;
 
           // Highpass: removes low-frequency hum/rumble (< 85Hz)
           const highpass = audioCtx.createBiquadFilter();
@@ -226,7 +247,7 @@ export function useWebRTC() {
 
           // Gain: 1.8× client-side volume boost
           const gain = audioCtx.createGain();
-          gain.gain.value = 1.8;
+          gain.gain.value = 1.0;
 
           // Chain: source → compressor → highpass → gain → speakers
           source.connect(compressor);
@@ -239,8 +260,7 @@ export function useWebRTC() {
           // Fallback: direct Audio element playback if Web Audio fails
           console.warn('[WebRTC] Audio chain failed, using direct playback:', e);
           if (audioRef.current) {
-            audioRef.current.srcObject = event.streams[0];
-            audioRef.current.play().catch(err => console.warn('[WebRTC] Autoplay blocked:', err));
+            audioRef.current.muted = false;
           }
         }
       }

