@@ -141,6 +141,7 @@ export function ControlButtons({
           <SmallBtn icon="📷" label="Front Cam" onClick={() => onCommand('take_photo', { camera: 'front' })} color="#38bdf8" />
           <SmallBtn icon="📷" label="Rear Cam" onClick={() => onCommand('take_photo', { camera: 'rear' })} color="#818cf8" />
           <SmallBtn icon="🌙" label={NIGHT_LABELS[photoNight]} onClick={cyclePhotoNight} color={photoNight !== 'off' ? '#e879f9' : '#64748b'} active={photoNight !== 'off'} />
+          <SmallBtn icon="📸" label="Screenshot" onClick={() => onCommand('take_screenshot')} color="#a78bfa" />
         </div>
       </section>
 

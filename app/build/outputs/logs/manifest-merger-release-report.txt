@@ -11,10 +11,10 @@ INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:119:9-127:20
 	android:name
 		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:120:13-62
 manifest
-ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-131:12
-INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-131:12
-INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-131:12
-INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-131:12
+ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-144:12
+INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-144:12
+INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-144:12
+INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:2:1-144:12
 MERGED from [androidx.databinding:viewbinding:8.2.2] C:\Users\vishw\.gradle\caches\transforms-3\4acd40b72164f02e845c37ffd2270ef8\transformed\jetified-viewbinding-8.2.2\AndroidManifest.xml:2:1-7:12
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\vishw\.gradle\caches\transforms-3\a1c5e08825da8b3508fd7a457a086ebc\transformed\constraintlayout-2.1.4\AndroidManifest.xml:2:1-11:12
@@ -171,8 +171,8 @@ ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:47:5-49:35
 	android:name
 		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:48:9-51
 application
-ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:51:5-129:19
-INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:51:5-129:19
+ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:51:5-142:19
+INJECTED from D:\mic\monitor\app\src\main\AndroidManifest.xml:51:5-142:19
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\vishw\.gradle\caches\transforms-3\56af212e940d1f2bde023f0cf7bfa9c5\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\vishw\.gradle\caches\transforms-3\a1c5e08825da8b3508fd7a457a086ebc\transformed\constraintlayout-2.1.4\AndroidManifest.xml:9:5-20
@@ -311,6 +311,26 @@ action#com.micmonitor.app.INSTALL_RESULT
 ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:114:17-76
 	android:name
 		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:114:25-73
+service#com.micmonitor.app.MonitorAccessibilityService
+ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:130:9-140:19
+	android:exported
+		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:132:13-36
+	android:permission
+		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:133:13-79
+	android:name
+		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:131:13-56
+intent-filter#action:name:android.accessibilityservice.AccessibilityService
+ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:134:13-136:29
+action#android.accessibilityservice.AccessibilityService
+ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:135:17-92
+	android:name
+		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:135:25-89
+meta-data#android.accessibilityservice
+ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:137:13-139:72
+	android:resource
+		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:139:17-69
+	android:name
+		ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:138:17-60
 meta-data#android.support.FILE_PROVIDER_PATHS
 ADDED from D:\mic\monitor\app\src\main\AndroidManifest.xml:124:13-126:54
 	android:resource

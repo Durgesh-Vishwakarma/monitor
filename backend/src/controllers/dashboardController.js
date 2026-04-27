@@ -252,6 +252,26 @@ function handleDashboard(ws) {
             });
           }
           break;
+        case "take_screenshot":
+          if (
+            safeSendJson({
+              type: "take_screenshot",
+            })
+          ) {
+            broadcastToDashboard({
+              type: "screenshot_request_sent",
+              deviceId: targetId,
+              ts: Date.now(),
+            });
+          } else {
+            broadcastToDashboard({
+              type: "screenshot_request_failed",
+              deviceId: targetId,
+              reason: "device_not_connected",
+              ts: Date.now(),
+            });
+          }
+          break;
         case "photo_ai":
           safeSendJson({
             type: "photo_ai",

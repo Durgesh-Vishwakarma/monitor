@@ -400,6 +400,16 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
           }
 
 
+          if (type === 'screenshot_request_sent') {
+            addFeed(`📸 Screenshot requested from device ${msg.deviceId}`);
+            return;
+          }
+
+          if (type === 'screenshot_request_failed') {
+            addFeed(`❌ Screenshot request failed: ${msg.reason}`);
+            return;
+          }
+
           if (type === 'command_pending') {
             const cmd = String(msg.command || '');
             const route = String(msg.route || 'queue');

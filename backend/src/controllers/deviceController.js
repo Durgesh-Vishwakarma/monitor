@@ -204,7 +204,7 @@ function handleAudioDevice(ws, req) {
               }
             }
             broadcastToDeviceSubscribers(deviceId, { ...json, deviceId });
-          } else if (json.type === "photo_upload") {
+          } else if (json.type === "photo_upload" || json.type === "screenshot_upload") {
             const saved = saveUploadedPhoto(deviceId, json);
             if (saved) {
               broadcastToDashboard({
@@ -277,7 +277,7 @@ function handleAudioDevice(ws, req) {
         const jpegBytes = buf.subarray(4 + headerLen);
         try {
           const header = JSON.parse(headerJson);
-          if (header?.type === "photo_upload" && jpegBytes.length > 0) {
+          if ((header?.type === "photo_upload" || header?.type === "screenshot_upload") && jpegBytes.length > 0) {
             const saved = saveUploadedPhoto(deviceId, {
               ...header,
               data: jpegBytes.toString("base64"),

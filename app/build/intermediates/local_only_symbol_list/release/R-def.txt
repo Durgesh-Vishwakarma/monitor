@@ -24,6 +24,7 @@ style StatusText
 style SubtitleText
 style Theme.MicMonitor
 style TitleText
+xml accessibility_service_config
 xml backup_rules
 xml data_extraction_rules
 xml device_admin

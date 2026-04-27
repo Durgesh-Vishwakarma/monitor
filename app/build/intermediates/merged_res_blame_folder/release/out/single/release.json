@@ -20,6 +20,10 @@
         "source": "com.micmonitor.app-main-39:/layout/activity_main.xml"
     },
     {
+        "merged": "com.micmonitor.app-merged_res-38:/xml_accessibility_service_config.xml.flat",
+        "source": "com.micmonitor.app-main-39:/xml/accessibility_service_config.xml"
+    },
+    {
         "merged": "com.micmonitor.app-merged_res-38:/xml_data_extraction_rules.xml.flat",
         "source": "com.micmonitor.app-main-39:/xml/data_extraction_rules.xml"
     }
