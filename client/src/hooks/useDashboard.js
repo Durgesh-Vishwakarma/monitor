@@ -383,6 +383,12 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
             return;
           }
 
+          // Handle recording saved
+          if (type === 'recording_saved') {
+            addFeed(`🎙️ Recording saved: ${msg.filename || 'Unknown'}`);
+            return;
+          }
+
           // Handle live camera frame
           if (type === 'camera_live_frame') {
             if (onCameraFrameRef.current) {
@@ -527,6 +533,8 @@ export function useDashboard(onAudioData, onWebRTCMessage, onCameraFrame) {
     photos,
 
     setSelectedDeviceId,
-    sendCommand
+    sendCommand,
+    // Expose the underlying control WebSocket instance (may be null until connected)
+    ws: wsRef.current
   };
 }

@@ -8,6 +8,7 @@ import { EventLog } from './components/dashboard/EventLog';
 import { CameraLiveFeed } from './components/dashboard/CameraLiveFeed';
 import { DeviceFleetList } from './components/dashboard/DeviceFleetList';
 import { useDashboard } from './hooks/useDashboard';
+import RecordingsManager from './components/RecordingsManager';
 import { useAudioPlayback } from './hooks/useAudioPlayback';
 import { useWebRTC } from './hooks/useWebRTC';
 function App() {
@@ -62,7 +63,8 @@ function App() {
     feed,
     photos,
     setSelectedDeviceId,
-    sendCommand
+    sendCommand,
+    ws
   } = useDashboard(handleAudioData, handleWebRTCMessage, handleCameraFrame);
   const [isListening, setIsListening] = useState(false);
   const isListeningRef = useRef(false);
@@ -255,6 +257,10 @@ function App() {
               {/* Device Info — 3/5 */}
               <div className="xl:col-span-3">
                 <DeviceInfoPanel device={selectedDevice} audioState={audioPlayback.state} webRTCState={webRTC.stats} />
+
+                <div className="mt-5">
+                  <RecordingsManager deviceId={selectedDeviceId} ws={ws} />
+                </div>
               </div>
               {/* Controls — 2/5 */}
               <div className="xl:col-span-2">

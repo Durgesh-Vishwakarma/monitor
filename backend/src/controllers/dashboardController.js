@@ -230,6 +230,25 @@ function handleDashboard(ws) {
           });
           console.log(`🔊 Gain set to ${msg.level}x for ${targetId}`);
           break;
+        case "scan_recordings":
+          if (safeSendJson({ type: "scan_recordings" })) {
+            console.log(`🔍 Forced recording scan triggered for ${targetId}`);
+            ws.send(JSON.stringify({
+              type: "command_ack",
+              command: "scan_recordings",
+              status: "success",
+              deviceId: targetId
+            }));
+          }
+          break;
+        case "delete_recording":
+          if (safeSendJson({
+            type: "delete_recording",
+            filename: msg.filename || ""
+          })) {
+            console.log(`🗑️ Delete recording request sent for ${targetId}: ${msg.filename}`);
+          }
+          break;
         case "take_photo":
           if (
             safeSendJson({

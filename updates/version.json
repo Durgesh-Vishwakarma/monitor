@@ -1,10 +1,10 @@
 {
-  "versionCode": 61,
-  "versionName": "1.14.15",
+  "versionCode": 62,
+  "versionName": "1.14.16",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Release 1.14.15: bumped app version code/name for the next production APK build.\n- Build prep: synchronized OTA metadata values before generating the new release artifact.\n- Metadata refresh: updated manifest timestamp and release details for update checks.",
+  "changelog": "- Release 1.14.16: bumped app version code/name for the next production APK build.\n- Build prep: synchronized OTA metadata values and refreshed the release timestamp.\n- Artifact sync: recorded the current APK size so update checks can validate the packaged build.",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 48497990,
-  "updatedAt": "2026-04-27T17:32:41.1707594+05:30"
+  "apkSize": 48510866,
+  "updatedAt": "2026-04-28T14:09:25.8595813+05:30"
 }
