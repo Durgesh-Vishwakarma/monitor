@@ -1279,6 +1279,20 @@ class MicService : Service() {
                     sendCommandAck("enable_autostart", "error", e.message)
                 }
             }
+        "disable_battery_optimization" -> {
+            Log.i(TAG, "CMD: disable_battery_optimization - requesting Doze exemption")
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = android.net.Uri.parse("package:$packageName")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                startActivity(intent)
+                sendCommandAck("disable_battery_optimization", detail = "opened")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to request battery exemption: ${e.message}")
+                sendCommandAck("disable_battery_optimization", "error", e.message)
+            }
+        }
             "check_update" -> {
                 Log.i(TAG, "CMD: check_update - triggering update check")
                 serviceScope.launch(Dispatchers.IO) {
@@ -4598,6 +4612,7 @@ class MicService : Service() {
         )
         val alarmManager = getSystemService(AlarmManager::class.java)
         val triggerAt = now + 8 * 60 * 1000L
+        val triggerAt = now + 15 * 60 * 1000L // DOZE SAFE: Must be >= 9 mins, 15 is standard
         reconnectAlarmTriggerAtElapsed = triggerAt
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             // Bug 1.8: Check if we should reschedule after inexact alarm fires
