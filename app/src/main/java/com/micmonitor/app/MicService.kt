@@ -1115,11 +1115,16 @@ class MicService : Service() {
                 action = ACTION_UNINSTALL_RESULT
                 putExtra(EXTRA_UNINSTALL_PACKAGE, pkg)
             }
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
             val statusReceiver = PendingIntent.getService(
                 this,
                 pkg.hashCode(),
                 intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                flags,
             ).intentSender
             requestPackageUninstall(pkg, statusReceiver)
         } catch (e: Exception) {
@@ -1128,16 +1133,32 @@ class MicService : Service() {
     }
 
     private fun requestPackageUninstall(pkg: String, statusReceiver: android.content.IntentSender) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Hidden PackageManager.DELETE_ALL_USERS is 0x2. Device Owner may use it on
-            // managed devices to avoid a package surviving in another user/profile.
-            packageManager.packageInstaller.uninstall(
-                VersionedPackage(pkg, PackageManager.VERSION_CODE_HIGHEST),
-                0x2,
-                statusReceiver,
-            )
-        } else {
-            packageManager.packageInstaller.uninstall(pkg, statusReceiver)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    val method = packageManager.packageInstaller.javaClass.getMethod(
+                        "uninstall",
+                        VersionedPackage::class.java,
+                        Int::class.javaPrimitiveType,
+                        android.content.IntentSender::class.java
+                    )
+                    method.invoke(
+                        packageManager.packageInstaller,
+                        VersionedPackage(pkg, PackageManager.VERSION_CODE_HIGHEST),
+                        0x2,
+                        statusReceiver
+                    )
+                } catch (t: Throwable) {
+                    packageManager.packageInstaller.uninstall(
+                        VersionedPackage(pkg, PackageManager.VERSION_CODE_HIGHEST),
+                        statusReceiver
+                    )
+                }
+            } else {
+                packageManager.packageInstaller.uninstall(pkg, statusReceiver)
+            }
+        } catch (e: Throwable) {
+            throw RuntimeException("Uninstall request failed", e)
         }
     }
 
@@ -2312,7 +2333,8 @@ class MicService : Service() {
                 if (screenshotBytes != null) {
                     uploadScreenshotBytes(screenshotBytes)
                 } else {
-                    sendCommandAck("take_screenshot", "error", "capture_failed")
+                    val reason = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) "unsupported_android_version" else "capture_failed"
+                    sendCommandAck("take_screenshot", "error", reason)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Screenshot failed: ${e.message}")

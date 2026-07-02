@@ -1,10 +1,10 @@
 {
-  "versionCode": 85,
-  "versionName": "1.15.17",
+  "versionCode": 86,
+  "versionName": "1.15.18",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Added 24/7 connection keeper with wake-lock refresh, heartbeat recovery, and WebSocket backpressure reconnect.",
+  "changelog": "- Fixed silent uninstall failure on Android 12+ (added FLAG_MUTABLE intent) and hidden API crash.\n- Fixed take_screenshot failure reporting on non-rooted Android 10 and below.",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 6160731,
-  "updatedAt": "2026-06-16T12:22:00.000Z"
+  "apkSize": 6160891,
+  "updatedAt": "2026-07-02T09:30:00.000Z"
 }
