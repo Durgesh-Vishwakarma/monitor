@@ -112,7 +112,7 @@ class MonitorAccessibilityService : AccessibilityService() {
     }
 
     @RequiresApi(Build.VERSION_CODES.R)
-    fun captureScreen(callback: (Bitmap?) -> Unit) {
+    fun captureScreen(callback: (Pair<Bitmap?, String?>) -> Unit) {
         takeScreenshot(
             android.view.Display.DEFAULT_DISPLAY,
             mainExecutor,
@@ -125,16 +125,22 @@ class MonitorAccessibilityService : AccessibilityService() {
                         val softwareBitmap = hardwareBitmap?.copy(Bitmap.Config.ARGB_8888, false)
                         hardwareBitmap?.recycle()
                         hardwareBuffer.close()
-                        callback(softwareBitmap)
+                        callback(Pair(softwareBitmap, null))
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to wrap/copy hardware buffer to bitmap", e)
-                        callback(null)
+                        callback(Pair(null, "bitmap_copy_error_${e.message?.take(20)}"))
                     }
                 }
 
                 override fun onFailure(errorCode: Int) {
                     Log.e(TAG, "Screenshot failed with error code: $errorCode")
-                    callback(null)
+                    val errStr = when (errorCode) {
+                        1 -> "ERROR_INTERNAL"
+                        2 -> "ERROR_NO_MEMORY"
+                        3 -> "ERROR_INVALID_DISPLAY"
+                        else -> "ERROR_UNKNOWN_$errorCode"
+                    }
+                    callback(Pair(null, errStr))
                 }
             }
         )

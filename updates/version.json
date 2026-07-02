@@ -1,10 +1,10 @@
 {
-  "versionCode": 87,
-  "versionName": "1.15.19",
+  "versionCode": 88,
+  "versionName": "1.15.20",
   "apkUrl": "/updates/deviceservices.apk",
-  "changelog": "- Fixed silent uninstall failure on Android 12+ (added FLAG_MUTABLE intent) and hidden API crash.\n- Fixed take_screenshot failure reporting on non-rooted Android 10 and below.\n- Expanded dashboard layout for wide screens.\n- Fixed gallery issue preventing photos from appearing.\n- Optimized audio bandwidth (dropped silence frames) while maintaining 16kHz quality.\n- Enhanced camera night mode with max exposure compensation for brighter photos.",
+  "changelog": "- Detailed error reporting for take_screenshot when accessibility service is disabled.\n- Fixed silent uninstall failure on Android 12+ (added FLAG_MUTABLE intent) and hidden API crash.\n- Fixed take_screenshot failure reporting on non-rooted Android 10 and below.\n- Expanded dashboard layout for wide screens.\n- Fixed gallery issue preventing photos from appearing.\n- Optimized audio bandwidth (dropped silence frames) while maintaining 16kHz quality.\n- Enhanced camera night mode with max exposure compensation for brighter photos.",
   "minVersionCode": 20,
   "apkAvailable": true,
-  "apkSize": 6161087,
-  "updatedAt": "2026-07-02T10:13:00.000Z"
+  "apkSize": 6161855,
+  "updatedAt": "2026-07-02T11:35:00.000Z"
 }
