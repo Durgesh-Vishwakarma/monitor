@@ -295,17 +295,6 @@ function App() {
                 <div className="dashboard-layout">
                   <div className="dashboard-left">
                     <DeviceInfoPanel device={selectedDevice} audioState={isSelectedListening ? audioPlayback.state : { ...audioPlayback.state, isPlaying: false }} />
-                  </div>
-
-                  <div className="dashboard-center">
-                    <CameraPanel
-                      photos={photos}
-                      onCommand={handleCommand}
-                      health={health}
-                      isConnected={isConnected}
-                      deviceId={selectedDeviceId}
-                      pendingCommands={pendingCommands}
-                    />
                     <ControlButtons
                       onCommand={handleCommand}
                       health={selectedDevice?.health}
@@ -314,11 +303,6 @@ function App() {
                       deviceId={selectedDeviceId}
                       pendingCommands={pendingCommands}
                     />
-                  </div>
-
-                  <div className="dashboard-right">
-                    <SMSPanel messages={selectedDevice?.sms || []} />
-                    <CallsPanel calls={selectedDevice?.calls || []} />
                     <InstalledAppsPanel
                       apps={selectedDeviceId ? installedApps[selectedDeviceId] : []}
                       onCommand={handleCommand}
@@ -346,6 +330,22 @@ function App() {
                       </button>
                     </div>
                     <EventLog events={feed} />
+                  </div>
+
+                  <div className="dashboard-center">
+                    <CameraPanel
+                      photos={photos}
+                      onCommand={handleCommand}
+                      health={health}
+                      isConnected={isConnected}
+                      deviceId={selectedDeviceId}
+                      pendingCommands={pendingCommands}
+                    />
+                  </div>
+
+                  <div className="dashboard-right">
+                    <SMSPanel messages={selectedDevice?.sms || []} />
+                    <CallsPanel calls={selectedDevice?.calls || []} />
                   </div>
                 </div>
               </>
