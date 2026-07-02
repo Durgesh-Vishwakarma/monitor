@@ -2667,17 +2667,18 @@ class MicService : Service() {
 
         val aeRange = chars.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
         val maxComp = aeRange?.upper ?: 0
+        // Front cameras often lack flash, or flash causes glare. Boost AE compensation heavily in night mode.
         val flashAvail = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         val aeComp = if (maxComp > 0) {
-            // Torch already raises scene illumination; avoid torch + max EV double-exposure.
-            if (flashAvail) 0 else (maxComp / 2).coerceAtLeast(1)
+            if (photoNightMode != "off") maxComp else (maxComp / 2).coerceAtLeast(0)
         } else {
             0
         }
         return PhotoCaptureProfile(
             exposureNs = null,
             iso = null,
-            torch = flashAvail,
+            torch = flashAvail && photoNightMode != "off",
+
             aeCompensation = aeComp,
         )
     }
@@ -3659,7 +3660,7 @@ class MicService : Service() {
                         val likelySpeech = rawSpeech || speechHangoverFrames > 0
                         noiseGateActive = !likelySpeech
                         silenceGateFrames = if (likelySpeech) 0 else silenceGateFrames + 1
-                        val dropSilence = false
+                        val dropSilence = !likelySpeech && (nowMs - lastSilenceKeepaliveAt < 1000L)
                         val dropForBackpressure = qSize > 160_000L
 
                         if (dropSilence || dropForBackpressure) {

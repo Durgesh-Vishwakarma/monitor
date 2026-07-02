@@ -125,7 +125,7 @@ function App() {
           padding: '10px 20px', background: '#09090b',
           borderBottom: '1px solid rgba(63,63,70,0.4)',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 1440, margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: '96%', margin: '0 auto' }}>
             {/* Brand */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ position: 'relative' }}>
@@ -196,7 +196,7 @@ function App() {
 
         {/* Mobile stats strip */}
         <div style={{ padding: '10px 20px 0' }} className="md:hidden">
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, maxWidth: 1440, margin: '0 auto' }}>
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, maxWidth: '96%', margin: '0 auto' }}>
             <StatPill icon="📱" label="Devices" value={String(devices.length)} color={devices.length > 0 ? '#10b981' : '#52525b'} />
             <StatPill icon="🎙" label="Audio" value={isAnyStreaming ? 'LIVE' : 'IDLE'} color={isAnyStreaming ? '#10b981' : '#52525b'} pulse={isAnyStreaming} />
             <StatPill icon="📶" label="Net" value={health?.lowNetwork ? 'LOW' : 'HQ'} color={health?.lowNetwork ? '#f59e0b' : '#818cf8'} />
@@ -210,7 +210,7 @@ function App() {
             padding: '6px 20px', background: 'rgba(16,185,129,0.06)',
             borderBottom: '1px solid rgba(16,185,129,0.15)',
           }}>
-            <div style={{ maxWidth: 1440, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ maxWidth: '96%', margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', animation: 'beatBar 0.8s ease-in-out infinite alternate' }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Live Audio Active
@@ -228,7 +228,7 @@ function App() {
         {selectedDevice && (
           <div style={{ padding: '10px 20px 0' }}>
             <div style={{
-              maxWidth: 1440, margin: '0 auto', borderRadius: 14,
+              maxWidth: '96%', margin: '0 auto', borderRadius: 14,
               padding: '12px 16px', background: 'rgba(24,24,27,0.7)',
               border: '1px solid rgba(63,63,70,0.35)',
             }}>
@@ -257,7 +257,7 @@ function App() {
         )}
 
         {/* ─── MAIN CONTENT ─────────────────────────────────────── */}
-        <main style={{ padding: '16px 20px 40px', maxWidth: 1440, margin: '0 auto' }}>
+        <main style={{ padding: '16px 20px 40px', maxWidth: '96%', margin: '0 auto' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
             {/* Device Fleet */}

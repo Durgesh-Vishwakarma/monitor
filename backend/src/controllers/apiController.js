@@ -108,10 +108,7 @@ async function listPhotos(req, res) {
       .filter((f) => /\.(jpg|jpeg|png)$/i.test(f))
       .filter((f) => {
         if (deviceId) {
-          const match =
-            f.match(/^photo_([a-z0-9_-]+)_/i) ||
-            f.match(/^screenshot_([a-z0-9_-]+)_/i);
-          return match && match[1] === deviceId;
+          return f.startsWith(`photo_${deviceId}_`) || f.startsWith(`screenshot_${deviceId}_`);
         }
         return true;
       });
