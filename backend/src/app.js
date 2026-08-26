@@ -12,7 +12,6 @@ const {
   PORT,
   PHOTOS_DIR,
   UPDATES_DIR,
-  SELF_PING_INTERVAL_MS,
 } = require("./config");
 const apiController = require("./controllers/apiController");
 const apiRoutes = require("./routes/apiRoutes");
@@ -118,22 +117,8 @@ function startServer() {
     console.log(`🌐 Dashboard:  http://localhost:${PORT}`);
     console.log(`🎤 Audio WS:   ws://localhost:${PORT}/audio/<deviceId>`);
     console.log(`🖥️  Control WS: ws://localhost:${PORT}/control\n`);
-
-    const selfUrl =
-      process.env.RENDER_EXTERNAL_URL || DEFAULT_RENDER_EXTERNAL_URL;
-
-    // Start self-ping only after server is fully ready.
-    setTimeout(() => {
-      setInterval(() => {
-        const parsedUrl = new URL(selfUrl);
-        const protocol = parsedUrl.protocol === "https:" ? https : http;
-        protocol
-          .get(`${selfUrl}/health`, (r) => {
-            console.log(`🔄 Self-ping: ${r.statusCode}`);
-          })
-          .on("error", (e) => console.warn("Self-ping error:", e.message));
-      }, SELF_PING_INTERVAL_MS);
-    }, 5_000);
+    console.log(`💤 Self-ping disabled — server will sleep when idle to save Render free hours.`);
+    console.log(`   Dashboard will wake the server on next open (~15–30s cold start).\n`);
   });
 
   return httpServer;
